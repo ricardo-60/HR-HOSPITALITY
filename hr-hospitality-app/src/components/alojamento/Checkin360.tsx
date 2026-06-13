@@ -14,6 +14,7 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
     const [step, setStep] = useState(1);
     const [isScanning, setIsScanning] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [selectedRoomId, setSelectedRoomId] = useState(roomId || '');
     const [availableRooms, setAvailableRooms] = useState<{ id: string; type: string; status: string }[]>([]);
 
@@ -55,10 +56,11 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
 
     const handleFinalize = async () => {
         if (!selectedRoomId) {
-            alert("Por favor, selecione um quarto!");
+            setErrorMessage("Por favor, selecione um quarto!");
             return;
         }
         setIsScanning(true);
+        setErrorMessage(null);
         try {
             // 1. Criar a reserva confirmada no Supabase
             const { error: resError } = await supabase
@@ -91,7 +93,7 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
             }, 3000);
         } catch (err) {
             console.error("Erro ao salvar check-in:", err);
-            alert("Erro ao finalizar check-in: " + (err as any).message);
+            setErrorMessage("Erro ao finalizar check-in: " + (err as any).message);
             setIsScanning(false);
         }
     };
@@ -303,6 +305,13 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
                     {isScanning && (
                         <div className="absolute inset-x-0 -inset-y-12 z-50 pointer-events-none">
                             <div className="w-full h-1 bg-cyber-cyan shadow-[0_0_20px_#00FFFF] animate-scan-fast opacity-50" />
+                        </div>
+                    )}
+
+                    {errorMessage && (
+                        <div className="col-span-full p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-[10px] font-black uppercase tracking-widest flex items-center justify-between transition-all">
+                            <span>{errorMessage}</span>
+                            <button onClick={() => setErrorMessage(null)} className="text-red-400 hover:text-white text-sm font-bold">&times;</button>
                         </div>
                     )}
 

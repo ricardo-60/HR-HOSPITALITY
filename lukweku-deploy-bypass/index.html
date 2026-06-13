@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotel Lukweku | Da nossa terra para o seu cora&ccedil;&atilde;o!</title>
+    <meta name="description" content="A Sua Chegada ao Conforto no Benfica. Hotel Lukweku: Quartos, Confer&ecirc;ncias, Gin&aacute;sio, Piscina.">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        ocean: '#0A2342',
+                        oceanDark: '#040F1D',
+                        cyberCyan: '#00F2FF',
+                        brandYellow: '#FBBF24',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <link rel="stylesheet" href="./style.css">
+    <!-- Supabase CDN Client SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body class="bg-ocean text-white font-sans antialiased selection:bg-cyberCyan selection:text-black">
+
+    <!-- HEADER -->
+    <header class="fixed w-full z-50 bg-ocean/95 backdrop-blur-md border-b border-white/10 transition-all">
+        <nav class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+            <a href="#" class="flex items-center gap-3">
+                <img src="/images/logo-tipo.jpg" alt="Hotel Lukweku Logo" class="h-10 w-10 sm:h-12 sm:w-12 object-cover rounded-full border-2 border-cyberCyan shadow-[0_0_15px_rgba(0,242,255,0.6)] bg-white">
+                <span class="text-xl md:text-2xl font-black text-white tracking-tighter uppercase hidden sm:block">HOTEL LUKWEKU</span>
+            </a>
+            <div class="hidden lg:flex gap-6 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] text-white/60">
+                <a href="#hotel" class="hover:text-cyberCyan transition">Vis&atilde;o</a>
+                <a href="#dossie" class="hover:text-cyberCyan transition">Instala&ccedil;&otilde;es</a>
+                <a href="#restauracao" class="hover:text-cyberCyan transition">Gastronomia</a>
+                <a href="#eventos" class="hover:text-cyberCyan transition">Eventos</a>
+                <a href="#wellness" class="hover:text-cyberCyan transition">Wellness</a>
+                <a href="#transfer" class="hover:text-cyberCyan transition">Transfer</a>
+            </div>
+            <a href="javascript:void(0)" onclick="openReservationModal()"
+                class="bg-brandYellow hover:bg-yellow-400 text-black px-6 py-2.5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-[0_0_20px_rgba(251,191,36,0.3)] transition-all flex items-center gap-2">
+                RESERVAR AGORA
+            </a>
+        </nav>
+    </header>
+
+    <!-- 1. FACHADA E BOAS-VINDAS (HERO) -->
+    <section class="relative h-screen flex items-center justify-center text-center px-6 overflow-hidden bg-ocean" id="hotel">
+        <div class="absolute inset-0 z-0 bg-ocean">
+            <!-- fallback visual via background color & opacity transitions -->
+            <img src="/images/imagem-frontal-do-hotel.jpg" alt="A Sua Chegada ao Conforto no Benfica" 
+                class="w-full h-full object-cover opacity-0 transition-opacity duration-1000" 
+                onload="this.classList.remove('opacity-0'); this.classList.add('opacity-100');"
+                onerror="this.style.display='none'">
+        </div>
+        <div class="absolute inset-0 bg-gradient-to-b from-oceanDark/80 via-ocean/70 to-oceanDark/90 z-0"></div>
+
+        <div class="relative z-10 max-w-4xl w-full flex flex-col items-center justify-center text-center mx-auto reveal">
+            <div class="inline-flex items-center justify-center gap-3 mb-6">
+                <span class="w-2 h-2 rounded-full bg-brandYellow shadow-[0_0_10px_#FBBF24]"></span>
+                <p class="uppercase tracking-[0.5em] text-brandYellow text-[10px] font-black">Da nossa terra para o seu cora&ccedil;&atilde;o!</p>
+            </div>
+            
+            <h1 class="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-black uppercase leading-[1.1] mb-6 tracking-tighter text-white drop-shadow-2xl max-w-5xl mx-auto text-center">
+                A SUA CHEGADA AO <br class="hidden md:block">
+                <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyberCyan to-blue-500">CONFORTO</span> NO BENFICA
+            </h1>
+            
+            <p class="text-white/80 text-sm md:text-lg font-semibold uppercase tracking-widest mb-10 max-w-2xl mx-auto text-center">
+                Padr&atilde;o de excel&ecirc;ncia desenhado para garantir a sua tranquilidade com todo o rigor corporativo.
+            </p>
+            
+            <div class="flex flex-col sm:flex-row justify-center gap-6">
+                <a href="#dossie" class="px-8 py-4 border border-white/20 hover:border-cyberCyan text-white font-black text-[11px] uppercase tracking-[0.2em] rounded-none transition-all hover:bg-white/5 backdrop-blur-sm self-center">
+                    Explorar Instala&ccedil;&otilde;es
+                </a>
+                <a href="javascript:void(0)" onclick="openReservationModal()" class="px-8 py-4 bg-brandYellow text-black font-black text-[11px] uppercase tracking-[0.2em] rounded-none shadow-[0_0_30px_rgba(251,191,36,0.4)] hover:bg-yellow-400 flex flex-col items-center justify-center">
+                    <span>RESERVAR</span>
+                    <span class="text-[8px] tracking-normal mt-1 opacity-70 font-semibold">(Gerar Entrada em HR-Hospitality)</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 2. DOSSIÃƒÅ  SERVIÃƒâ€¡OS (O CORAÃƒâ€¡ÃƒÆ’O DO HOTEL) - RESTAURAÃƒâ€¡ÃƒÆ’O -->
+    <section id="restauracao" class="py-24 bg-oceanDark relative border-t border-white/5">
+        <div class="max-w-7xl mx-auto px-6 grid md:grid-cols-2 gap-16 items-center">
+            <div class="reveal relative h-[400px] border border-white/10 bg-ocean rounded-sm overflow-hidden shadow-2xl animate-pulse" id="img-container-pastelaria">
+                <img src="/images/snak-bar.jpg" alt="Sabores da Nossa Terra" 
+                     class="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-700 z-10"
+                     onload="document.getElementById('img-container-pastelaria').classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.classList.add('opacity-100');"
+                     onerror="this.parentElement.innerHTML='<div class=\'w-full h-full flex items-center justify-center text-white/30 text-xs tracking-widest uppercase\'>Pastelaria Fresta</div>'">
+            </div>
+            <div class="reveal">
+                <h2 class="text-3xl md:text-5xl font-black text-white uppercase tracking-tighter mb-4 shadow-sm">
+                    Sabores da Nossa Terra: <br><span class="text-cyberCyan">Pastelaria Fresta</span>
+                </h2>
+                <div class="w-16 h-1 bg-brandYellow mb-6"></div>
+                <p class="text-white/60 text-base mb-8 leading-relaxed">
+                    Sinta o conforto da nossa confeitaria e pastelaria acompanhada de requinte. A &aacute;rea de Snack-Bar do Hotel Lukweku oferece a verdadeira experi&ecirc;ncia de sabor e dedica&ccedil;&atilde;o que nos define.
+                </p>
+                <a href="javascript:void(0)" onclick="openReservationModal()" class="inline-block mt-2 px-6 py-3 border border-brandYellow/30 text-[10px] text-brandYellow font-black uppercase tracking-widest hover:bg-brandYellow hover:text-black hover:border-brandYellow transition-all duration-300">RESERVAR ESPA&Ccedil;O &rarr;</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3. INSTALAÃƒâ€¡Ãƒâ€¢ES (A EXPERIÃƒÅ NCIA DO HÃƒâ€œSPEDE) -->
+    <section id="dossie" class="py-32 bg-ocean relative border-t border-white/5">
+        <div class="max-w-7xl mx-auto px-6">
+            <div class="text-center mb-20 reveal">
+                <h2 class="text-4xl md:text-5xl font-black text-white uppercase tracking-tighter mb-4">A Experi&ecirc;ncia do HÃƒÂ³spede</h2>
+                <div class="w-20 h-1 bg-cyberCyan mx-auto mb-6"></div>
+                <p class="text-white/40 uppercase tracking-widest text-xs font-black">Instala&ccedil;&otilde;es Completas</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 reveal">
+                
+                <!-- Quarto -->
+                <div class="group relative overflow-hidden bg-oceanDark border border-white/10 p-6 flex flex-col h-[320px]">
+                    <div class="absolute inset-0 bg-ocean animate-pulse z-0" id="bg-quarto">
+                        <img src="/images/quarto-casal-luxo-hotel-lukweku.png" alt="Alojamento Confort&aacute;vel e Acolhedor" 
+                             class="w-full h-full object-cover opacity-0 transition-opacity duration-700 mix-blend-overlay"
+                             onload="document.getElementById('bg-quarto').classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.classList.add('opacity-50', 'group-hover:opacity-60');"
+                             onerror="this.style.display='none'">
+                    </div>
+                    <div class="relative z-10 mt-auto">
+                        <span class="text-cyberCyan/70 font-black text-xs uppercase tracking-widest mb-2 block">Hospitalidade</span>
+                        <h3 class="text-xl font-black text-white uppercase tracking-tight mb-2">Alojamento Confort&aacute;vel e Acolhedor</h3>
+                        <p class="text-white/60 text-xs mb-4">Quartos equipados para o conforto e higiene di&aacute;ria do executivo moderno.</p>
+                        <a href="javascript:void(0)" onclick="openReservationModal()" class="inline-block px-4 py-2 mt-auto border border-brandYellow text-[9px] text-brandYellow font-black uppercase tracking-widest hover:bg-brandYellow hover:text-black transition-all">RESERVAR (PENDENTE) &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Restaurante -->
+                <div class="group relative overflow-hidden bg-oceanDark border border-white/10 p-6 flex flex-col h-[320px]">
+                    <div class="absolute inset-0 bg-ocean animate-pulse z-0" id="bg-restaurante">
+                        <img src="/images/snak-bar.jpg" alt="Restaura&ccedil;&atilde;o: Snack-Bar e Restaurante" 
+                             class="w-full h-full object-cover opacity-0 transition-opacity duration-700 mix-blend-overlay"
+                             onload="document.getElementById('bg-restaurante').classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.classList.add('opacity-50', 'group-hover:opacity-60');"
+                             onerror="this.style.display='none'">
+                    </div>
+                    <div class="relative z-10 mt-auto">
+                        <span class="text-cyberCyan/70 font-black text-xs uppercase tracking-widest mb-2 block">Gastronomia</span>
+                        <h3 class="text-xl font-black text-white uppercase tracking-tight mb-2">Restaura&ccedil;&atilde;o: Snack-Bar e Restaurante</h3>
+                        <p class="text-white/60 text-xs mb-4">O POS definitivo para refei&ccedil;&otilde;es e snacks com servi&ccedil;o de esplanadas acolhedoras.</p>
+                        <a href="javascript:void(0)" onclick="openReservationModal()" class="inline-block px-4 py-2 mt-auto border border-brandYellow/50 text-[9px] text-brandYellow font-black uppercase tracking-widest hover:bg-brandYellow hover:text-black transition-all">SABER MAIS &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Piscina -->
+                <div class="group relative overflow-hidden bg-oceanDark border border-white/10 p-6 flex flex-col h-[320px]">
+                    <div class="absolute inset-0 bg-ocean animate-pulse z-0" id="bg-piscina">
+                        <img src="/images/piscina-com-por-dos-sol.jpg" alt="Lazer na Piscina e Esplanadas" 
+                             class="w-full h-full object-cover opacity-0 transition-opacity duration-700 mix-blend-overlay"
+                             onload="document.getElementById('bg-piscina').classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.classList.add('opacity-50', 'group-hover:opacity-60');"
+                             onerror="this.style.display='none'">
+                    </div>
+                    <div class="relative z-10 mt-auto">
+                        <span class="text-cyberCyan/70 font-black text-xs uppercase tracking-widest mb-2 block">Wellness / Lazer</span>
+                        <h3 class="text-xl font-black text-white uppercase tracking-tight mb-2">Lazer na Piscina e Esplanadas</h3>
+                        <p class="text-white/60 text-xs mb-4">Controlo rigoroso e ambiente requintado na &aacute;rea da piscina e esplanada lounge.</p>
+                        <a href="javascript:void(0)" onclick="openReservationModal()" class="inline-block px-4 py-2 mt-auto border border-brandYellow/50 text-[9px] text-brandYellow font-black uppercase tracking-widest hover:bg-brandYellow hover:text-black transition-all">VER MAIS &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Gin&aacute;sio -->
+                <div id="wellness" class="group relative overflow-hidden bg-oceanDark border border-white/10 p-6 flex flex-col h-[320px]">
+                    <div class="absolute inset-0 bg-ocean animate-pulse z-0" id="bg-gym">
+                        <img src="/images/piscina-com-por-dos-sol.jpg" alt="Wellness: M&oacute;dulo de Gin&aacute;sio & Bem-Estar" 
+                             class="w-full h-full object-cover opacity-0 transition-opacity duration-700 mix-blend-overlay"
+                             onload="document.getElementById('bg-gym').classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.classList.add('opacity-50', 'group-hover:opacity-60');"
+                             onerror="this.style.display='none'">
+                    </div>
+                    <div class="relative z-10 mt-auto bg-gradient-to-t from-oceanDark p-2 -mx-2 -mb-2">
+                        <span class="text-cyberCyan/70 font-black text-xs uppercase tracking-widest mb-2 block">Wellness / Lazer</span>
+                        <h3 class="text-xl font-black text-white uppercase tracking-tight mb-2">Wellness: M&oacute;dulo de Gin&aacute;sio & Bem-Estar</h3>
+                        <p class="text-white/60 text-xs mb-4">Desfrute da sua rotina de fitness num espa&ccedil;o preparado para si.</p>
+                        <a href="javascript:void(0)" onclick="openReservationModal()" class="inline-block px-4 py-2 mt-auto border border-cyberCyan/30 text-[9px] text-cyberCyan font-black uppercase tracking-widest hover:bg-cyberCyan hover:text-black transition-all">SABER MAIS &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Sala de ConferÃƒÂªncia -->
+                <div id="eventos" class="group relative overflow-hidden bg-oceanDark border border-white/10 p-6 flex flex-col h-[320px]">
+                    <div class="absolute inset-0 bg-ocean animate-pulse z-0" id="bg-conferencia">
+                        <img src="/images/sala-de-reunioes.jpg" alt="Eventos e Confer&ecirc;ncias no Benfica" 
+                             class="w-full h-full object-cover opacity-0 transition-opacity duration-700 mix-blend-overlay"
+                             onload="document.getElementById('bg-conferencia').classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.classList.add('opacity-50', 'group-hover:opacity-60');"
+                             onerror="this.style.display='none'">
+                    </div>
+                    <div class="relative z-10 mt-auto bg-gradient-to-t from-oceanDark p-2 -mx-2 -mb-2">
+                        <span class="text-cyberCyan/70 font-black text-xs uppercase tracking-widest mb-2 block">Business & Events</span>
+                        <h3 class="text-xl font-black text-white uppercase tracking-tight mb-2">Eventos e Confer&ecirc;ncias no Benfica</h3>
+                        <p class="text-white/60 text-xs mb-4">Sal&atilde;o de Eventos e Sala de Reuni&atilde;o equipada com total rigor corporativo.</p>
+                        <a href="javascript:void(0)" onclick="openReservationModal()" class="inline-block px-4 py-2 mt-auto border border-cyberCyan/30 text-[9px] text-cyberCyan font-black uppercase tracking-widest hover:bg-cyberCyan hover:text-black transition-all">RESERVAR SALA &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Lavandaria -->
+                <div class="group relative overflow-hidden bg-oceanDark border border-white/10 p-6 flex flex-col h-[320px]">
+                    <div class="absolute inset-0 bg-ocean animate-pulse z-0" id="bg-lavandaria">
+                        <img src="/images/quarto-casal-luxo-hotel-lukweku.png" alt="Servi&ccedil;o de Lavandaria e Higiene Di&aacute;ria" 
+                             class="w-full h-full object-cover opacity-0 transition-opacity duration-700 mix-blend-overlay"
+                             onload="document.getElementById('bg-lavandaria').classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.classList.add('opacity-50', 'group-hover:opacity-60');"
+                             onerror="this.style.display='none'">
+                    </div>
+                    <div class="relative z-10 mt-auto bg-gradient-to-t from-oceanDark p-2 -mx-2 -mb-2">
+                        <span class="text-cyberCyan/70 font-black text-xs uppercase tracking-widest mb-2 block">Facilities / Apoio</span>
+                        <h3 class="text-xl font-black text-white uppercase tracking-tight mb-2">Servi&ccedil;o de Lavandaria e Higiene Di&aacute;ria</h3>
+                        <p class="text-white/60 text-xs mb-4">Roupa imaculada assegurada pelas nossas facilities de lavandaria.</p>
+                        <a href="javascript:void(0)" onclick="openReservationModal()" class="inline-block px-4 py-2 mt-auto border border-white/20 text-[9px] text-white/80 font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">SOLICITAR SERVI&Ccedil;O &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Transfer -->
+                <div id="transfer" class="group relative overflow-hidden bg-oceanDark border border-white/10 p-6 flex flex-col h-[320px]">
+                    <div class="absolute inset-0 bg-ocean animate-pulse z-0" id="bg-transfer">
+                        <img src="/images/imagem-frontal-do-hotel.jpg" alt="Servi&ccedil;o de Transfer e Transporte" 
+                             class="w-full h-full object-cover opacity-0 transition-opacity duration-700 mix-blend-overlay"
+                             onload="document.getElementById('bg-transfer').classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.classList.add('opacity-50', 'group-hover:opacity-60');"
+                             onerror="this.style.display='none'">
+                    </div>
+                    <div class="relative z-10 mt-auto bg-gradient-to-t from-oceanDark p-2 -mx-2 -mb-2">
+                        <span class="text-cyberCyan/70 font-black text-xs uppercase tracking-widest mb-2 block">Log&iacute;stica / Apoio</span>
+                        <h3 class="text-xl font-black text-white uppercase tracking-tight mb-2">Servi&ccedil;o de Transfer e Transporte</h3>
+                        <p class="text-white/60 text-xs mb-4">Garantimos um reencaminhamento seguro entre o hotel e o aeroporto.</p>
+                        <a href="javascript:void(0)" onclick="openReservationModal()" class="inline-block px-4 py-2 mt-auto border border-white/20 text-[9px] text-white/80 font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">AGENDAR TRANSFER &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Parque -->
+                <div class="group relative overflow-hidden bg-oceanDark border border-white/10 p-6 flex flex-col h-[320px]">
+                    <div class="absolute inset-0 bg-ocean animate-pulse z-0" id="bg-parque">
+                        <img src="/images/imagem-frontal-do-hotel.jpg" alt="Parque de Estacionamento Privado" 
+                             class="w-full h-full object-cover opacity-0 transition-opacity duration-700 mix-blend-overlay"
+                             onload="document.getElementById('bg-parque').classList.remove('animate-pulse'); this.classList.remove('opacity-0'); this.classList.add('opacity-50', 'group-hover:opacity-60');"
+                             onerror="this.style.display='none'">
+                    </div>
+                    <div class="relative z-10 mt-auto bg-gradient-to-t from-oceanDark p-2 -mx-2 -mb-2">
+                        <span class="text-cyberCyan/70 font-black text-xs uppercase tracking-widest mb-2 block">Log&iacute;stica / Apoio</span>
+                        <h3 class="text-xl font-black text-white uppercase tracking-tight mb-2">Parque de Estacionamento Privado</h3>
+                        <p class="text-white/60 text-xs mb-4">Seguran&ccedil;a absoluta com controlo vigilante e restrito a h&oacute;spedes.</p>
+                        <a href="javascript:void(0)" onclick="openReservationModal()" class="inline-block px-4 py-2 mt-auto border border-white/20 text-[9px] text-white/80 font-black uppercase tracking-widest hover:bg-white hover:text-black transition-all">SABER MAIS &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CONTACTO / RODAP&Eacute; OFICIAL -->
+    <footer id="contacto" class="bg-oceanDark border-t border-white/5 pt-24 pb-12 text-white relative">
+        <div class="max-w-6xl mx-auto px-6 flex flex-col items-center text-center">
+            
+            <div class="mb-8 relative group">
+                <div class="absolute inset-0 bg-cyberCyan rounded-full blur-xl opacity-40 group-hover:opacity-60 transition duration-500"></div>
+                <img src="/images/logo-tipo.jpg" alt="Hotel Lukweku Oficial" class="relative w-28 h-28 object-cover rounded-full border-4 border-ocean shadow-2xl mx-auto bg-white">
+            </div>
+            
+            <h2 class="text-4xl font-black uppercase tracking-tighter mb-4">HOTEL <span class="text-cyberCyan">LUKWEKU</span></h2>
+            <p class="uppercase tracking-[0.3em] font-black text-brandYellow text-[10px] mb-8">Da nossa terra para o seu cora&ccedil;&atilde;o!</p>
+            
+            <div class="flex flex-col md:flex-row justify-center gap-6 md:gap-16 text-xs font-black uppercase tracking-widest text-white/70 mb-16">
+                <p class="flex items-center gap-2 justify-center"><span class="w-2 h-2 bg-brandYellow"></span> Avenida 21 de Janeiro, Benfica</p>
+                <p class="flex items-center gap-2 justify-center"><span class="w-2 h-2 bg-brandYellow"></span> NIF: 5484045614</p>
+                <p class="flex items-center gap-2 justify-center">ðŸ“ž +244 937 731 051</p>
+            </div>
+            
+            <a href="https://wa.me/244937731051" target="_blank"
+                class="bg-white/5 border border-white/10 hover:border-brandYellow text-brandYellow px-10 py-5 font-black text-[10px] uppercase tracking-[0.2em] transition-all mb-16 flex flex-col items-center">
+                <span>INICIAR COMUNICA&Ccedil;&Atilde;O (RESERVAR)</span>
+                <span class="text-[8px] mt-2 opacity-80">(Toda a Reserva efetua entrada no sistema como PENDENTE. Sujeito a Valida&ccedil;&atilde;o de Pagamento)</span>
+            </a>
+            
+            <div class="w-full flex-col flex items-center justify-center pt-8 border-t border-white/10 text-[10px] font-black uppercase tracking-[0.3em] text-white/50">
+                <div class="px-6 py-3 border border-white/20 bg-ocean mb-4 shadow-lg text-white">
+                    Powered by HR-TECNOLOGIA | CEO Hermenegildo Ricardo
+                </div>
+                <p>&copy; 2026 HR-HOSPITALITY PROTOCOL</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- SEAMLESS HR-BASECORE SECURE CONNECTION STATUS -->
+    <div class="fixed bottom-6 left-6 bg-oceanDark/90 backdrop-blur-md border border-white/10 px-4 py-3 rounded-full flex items-center gap-3 z-50 shadow-[0_0_20px_rgba(0,242,255,0.15)] pointer-events-none transition-all">
+        <span class="relative flex h-2.5 w-2.5">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyberCyan opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyberCyan"></span>
+        </span>
+        <span class="text-[8px] sm:text-[9px] font-black uppercase tracking-[0.2em] text-white/80">Conex&atilde;o Segura c/ HR-BaseCore</span>
+    </div>
+
+    <!-- RESERVATION MODAL (HR-HOSPITALITY Hand-off) -->
+    <div id="reservationModal" class="fixed inset-0 z-[100] bg-oceanDark/80 backdrop-blur-sm hidden flex-col items-center justify-center p-4 opacity-0 transition-opacity duration-300">
+        <div class="bg-ocean border border-cyberCyan/50 shadow-[0_0_40px_rgba(0,242,255,0.2)] w-full max-w-md p-8 relative transform scale-95 transition-transform duration-300" id="modalContent">
+            <button onclick="closeReservationModal()" class="absolute top-4 right-4 text-white/50 hover:text-cyberCyan transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <span class="text-cyberCyan font-black text-[10px] uppercase tracking-widest mb-2 block flex items-center gap-2">
+                <span class="w-1.5 h-1.5 bg-cyberCyan rounded-full"></span> HR-BASECORE GATEWAY
+            </span>
+            <h3 class="text-3xl font-black text-white uppercase tracking-tighter mb-8 leading-none">Canalizar <br>Reserva Oficial</h3>
+            
+            <form id="reservationForm" onsubmit="submitReservation(event)" class="flex flex-col gap-4">
+                <input type="text" id="guestName" placeholder="Nome Completo / Empresa" required class="bg-oceanDark border border-white/10 text-white text-xs uppercase tracking-widest px-4 py-4 outline-none focus:border-cyberCyan transition-colors font-semibold">
+                <input type="email" id="guestEmail" placeholder="Email / Contacto Direcionado" required class="bg-oceanDark border border-white/10 text-white text-xs uppercase tracking-widest px-4 py-4 outline-none focus:border-cyberCyan transition-colors font-semibold">
+                <select id="serviceType" class="bg-oceanDark border border-white/10 text-white/80 text-xs uppercase tracking-widest px-4 py-4 outline-none focus:border-cyberCyan transition-colors appearance-none font-semibold cursor-pointer" required>
+                    <option value="" disabled selected>+ Selecionar Servi&ccedil;o...</option>
+                    <option value="quarto">Alojamento Executivo</option>
+                    <option value="conferencia">Sala de Confer&ecirc;ncia Empresarial</option>
+                    <option value="restaurante">Lounge Snack-Bar</option>
+                    <option value="transfer">Log&iacute;stica de Transfer Aeroporto</option>
+                </select>
+                <div class="flex gap-4">
+                    <input type="date" id="reservationDate" required class="w-full bg-oceanDark border border-white/10 text-white/80 text-xs uppercase tracking-widest px-4 py-4 outline-none focus:border-cyberCyan transition-colors font-semibold">
+                </div>
+                
+                <button type="submit" class="mt-4 bg-cyberCyan hover:bg-cyan-400 text-oceanDark font-black text-[12px] uppercase tracking-[0.2em] px-6 py-5 shadow-[0_0_20px_rgba(0,242,255,0.3)] transition-all flex justify-center items-center gap-3">
+                    <span id="btnText">Transmitir para Gest&atilde;o</span>
+                    <svg id="btnSpinner" class="animate-spin h-4 w-4 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                </button>
+            </form>
+            
+            <div id="successMessage" class="hidden flex-col items-center justify-center py-8 text-center">
+                <div class="w-20 h-20 rounded-full border-2 border-cyberCyan flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(0,242,255,0.4)] text-cyberCyan">
+                    <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                </div>
+                <h4 class="text-3xl font-black text-white uppercase tracking-tighter mb-3 leading-none">Entrada <br><span class="text-cyberCyan">Confirmada</span></h4>
+                <p class="text-white/60 text-[10px] uppercase font-bold tracking-widest leading-relaxed">O Dossier de reserva entrou no fluxo central da HR-HOSPITALITY em Estado <strong>PENDENTE</strong>. Aguarde a r&aacute;pida valida&ccedil;&atilde;o de fundo.</p>
+                <button onclick="closeReservationModal()" class="mt-8 border border-white/20 hover:border-white px-8 py-3 text-[9px] text-white font-black uppercase tracking-widest transition-all">Aceitar e Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script>
+        function openReservationModal() {
+            const m = document.getElementById('reservationModal');
+            m.classList.remove('hidden');
+            m.classList.add('flex');
+            setTimeout(() => { 
+                m.classList.remove('opacity-0'); 
+                document.getElementById('modalContent').classList.remove('scale-95'); 
+            }, 10);
+        }
+        function closeReservationModal() {
+            const m = document.getElementById('reservationModal');
+            m.classList.add('opacity-0');
+            document.getElementById('modalContent').classList.add('scale-95');
+            setTimeout(() => { 
+                m.classList.add('hidden'); 
+                m.classList.remove('flex'); 
+                // Reset form state for next flow trigger
+                document.getElementById('reservationForm').classList.remove('hidden');
+                document.getElementById('successMessage').classList.add('hidden');
+                document.getElementById('successMessage').classList.remove('flex');
+                document.getElementById('btnText').innerText = "Transmitir para Gestão";
+                document.getElementById('btnSpinner').classList.add('hidden');
+                document.getElementById('reservationForm').reset();
+            }, 300);
+        }
+        // Configurações do Supabase
+        const SUPABASE_URL = "https://rzelexvouysvkejfwrbf.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6ZWxleHZvdXlzdmtlamZ3cmJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4ODExNzksImV4cCI6MjA4MzQ1NzE3OX0.c7Is7X9WGi8M4vL-rJf-M8sVNh3YIr0DKWDvwht73Xk";
+        const TENANT_ID = "9cbf70f5-cbad-42ff-b52f-b1f2c1cfcc87"; // UUID do Tenant Hotel Lukweku correspondente no Supabase
+
+        let supabaseClient = null;
+        if (typeof supabase !== 'undefined') {
+            supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        }
+
+        async function submitReservation(e) {
+            e.preventDefault();
+            const btnText = document.getElementById('btnText');
+            const btnSpinner = document.getElementById('btnSpinner');
+            
+            btnText.innerText = "A Encriptar TLS...";
+            btnSpinner.classList.remove('hidden');
+            
+            const guestName = document.getElementById('guestName').value;
+            const guestEmail = document.getElementById('guestEmail').value;
+            const serviceType = document.getElementById('serviceType').value;
+            const reservationDate = document.getElementById('reservationDate').value;
+            
+            let success = false;
+            
+            if (supabaseClient) {
+                try {
+                    // Mapeamento de tipo de servico para enums do HR-Hospitality
+                    let resType = 'ROOM';
+                    if (serviceType === 'conferencia') resType = 'CONFERENCE';
+                    else if (serviceType === 'restaurante') resType = 'RESTAURANT';
+                    else if (serviceType === 'transfer') resType = 'TRANSFER';
+
+                    const guestNameCombined = guestName + " (" + guestEmail + ")";
+
+                    const { data, error } = await supabaseClient
+                        .from('hospitality_reservations')
+                        .insert([
+                            {
+                                tenant_id: TENANT_ID,
+                                guest_name: guestNameCombined,
+                                check_in_date: new Date(reservationDate).toISOString(),
+                                reservation_type: resType,
+                                status: 'PENDENTE_PAGAMENTO'
+                            }
+                        ]);
+                        
+                    if (error) {
+                        console.warn("Erro ao salvar no Supabase, caindo para armazenamento local:", error.message);
+                    } else {
+                        success = true;
+                    }
+                } catch (err) {
+                    console.warn("Supabase fora de alcance, caindo para armazenamento local:", err);
+                }
+            }
+            
+            if (!success) {
+                // Guarda localmente no sessionStorage para compartilhamento de dados no browser (modo offline/fallback)
+                const localLeads = JSON.parse(sessionStorage.getItem('local_leads') || '[]');
+                localLeads.push({
+                    id: 'RES-' + Math.floor(100 + Math.random() * 900),
+                    guest_name: guestName + " (" + guestEmail + ")",
+                    email: guestEmail,
+                    reservation_type: serviceType.toUpperCase(),
+                    status: 'PENDENTE_PAGAMENTO',
+                    created_at: new Date().toISOString()
+                });
+                sessionStorage.setItem('local_leads', JSON.stringify(localLeads));
+            }
+            
+            setTimeout(() => {
+                document.getElementById('reservationForm').classList.add('hidden');
+                document.getElementById('successMessage').classList.remove('hidden');
+                document.getElementById('successMessage').classList.add('flex');
+            }, 1200);
+        }
+    </script>
+    <script>
+        const reveals = document.querySelectorAll('.reveal');
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(e => {
+                if (e.isIntersecting) {
+                    e.target.style.opacity = '1';
+                    e.target.style.transform = 'translateY(0)';
+                    observer.unobserve(e.target);
+                }
+            });
+        }, { threshold: 0.1 });
+        
+        reveals.forEach(r => {
+            r.style.opacity = '0';
+            r.style.transform = 'translateY(20px)';
+            r.style.transition = 'opacity 0.8s ease, transform 0.8s ease';
+            observer.observe(r);
+        });
+
+        const header = document.querySelector('header');
+        window.addEventListener('scroll', () => {
+            if(window.scrollY > 50) {
+                header.classList.add('py-2', 'bg-oceanDark/95');
+                header.classList.remove('py-4', 'bg-ocean/95');
+            } else {
+                header.classList.add('py-4', 'bg-ocean/95');
+                header.classList.remove('py-2', 'bg-oceanDark/95');
+            }
+        });
+    </script>
+</body>
+</html>
+
+

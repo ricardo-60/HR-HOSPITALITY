@@ -1,0 +1,29 @@
+# Dependency directories
+node_modules/
+**/node_modules/
+
+# Build outputs
+.next/
+**/.next/
+out/
+dist/
+build/
+
+# IDE files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local env files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env
+
+# Subprojects / external repos
+hotel-lukweku-repo/

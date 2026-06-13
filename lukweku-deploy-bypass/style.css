@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Hotel Lukweku - Institutional Dark Theme */
+
+:root {
+    /* Color Palette */
+    --primary: #0A2342;
+    --primary-light: #153a66;
+    --secondary: #D4AF37;
+    --cyber-cyan: #00F2FF;
+    --bg-dark: #040F1D;
+    --white: #FFFFFF;
+
+    /* Spacing */
+    --section-padding: 100px 0;
+    --container-width: 1200px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Remover Montserrat e usar apenas Inter em todos os cabeçalhos para manter "letra reta" */
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Hide scrollbar for neatness */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}

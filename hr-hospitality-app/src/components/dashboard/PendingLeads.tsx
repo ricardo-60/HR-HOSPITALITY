@@ -27,6 +27,7 @@ export function PendingLeads() {
 
     // 2. Estado das Reservas de Site
     const [leads, setLeads] = useState<Lead[]>([]);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     const fetchRooms = async () => {
         try {
@@ -86,20 +87,28 @@ export function PendingLeads() {
         const targetRoom = rooms.find(r => r.id === roomId);
         if (!targetRoom) return;
         
+        setErrorMsg(null);
+
         // 1. Atualiza reserva e quarto no Supabase
         try {
-            await supabase
+            const { error: resError } = await supabase
                 .from('hospitality_reservations')
                 .update({ status: 'CONFIRMADA', room_id: targetRoom.id })
                 .eq('id', leadId);
                 
-            await supabase
+            if (resError) throw resError;
+
+            const { error: roomError } = await supabase
                 .from('hospitality_rooms')
                 .update({ status: 'OCCUPIED' })
                 .eq('id', targetRoom.id);
+
+            if (roomError) throw roomError;
                 
         } catch (err) {
             console.warn("Não foi possível persistir no Supabase:", err);
+            setErrorMsg("Erro de Conexão: Não foi possível aprovar a reserva no Supabase. " + (err as any).message);
+            return;
         }
 
         // 3. Atualiza os estados locais da UI
@@ -124,6 +133,12 @@ export function PendingLeads() {
             animate={{ opacity: 1, scale: 1 }}
             className="mb-12 relative overflow-hidden"
         >
+            {errorMsg && (
+                <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center justify-between text-xs font-black uppercase tracking-widest text-red-400">
+                    <span>{errorMsg}</span>
+                    <button onClick={() => setErrorMsg(null)} className="text-red-400 hover:text-white text-sm font-bold">&times;</button>
+                </div>
+            )}
             <div className="flex flex-col lg:flex-row gap-8">
                 {/* 3. Renderização das Leads (Lado Esquerdo) */}
                 <div className="flex-1">
@@ -200,7 +215,7 @@ export function PendingLeads() {
                                                             <select
                                                                 id={`room-select-${lead.id}`}
                                                                 defaultValue={lead.room_id || ""}
-                                                                className="bg-black/50 border border-white/10 rounded-md text-[9px] md:text-[10px] text-white px-3 py-1.5 outline-none focus:border-[#FBBF24] font-black uppercase tracking-widest cursor-pointer"
+                                                                className="bg-black/50 border border-[#FBBF24]/30 hover:border-[#FBBF24]/60 focus:border-[#FBBF24] rounded-md text-[9px] md:text-[10px] text-white px-4 py-1.5 md:py-2 outline-none font-black uppercase tracking-widest cursor-pointer transition-all"
                                                             >
                                                                 <option value="" disabled>Selecionar Quarto...</option>
                                                                 {lead.room_id && !rooms.some(r => r.id === lead.room_id) && (

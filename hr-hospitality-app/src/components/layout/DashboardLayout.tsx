@@ -9,8 +9,10 @@ import { DEFAULT_TENANT } from '@/config/tenants';
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
     const [viewport, setViewport] = useState<'MOBILE' | 'TABLET' | 'DESKTOP'>('DESKTOP');
+    const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
+        setMounted(true);
         const handleResize = () => {
             const width = window.innerWidth;
             if (width < 768) setViewport('MOBILE');
@@ -38,7 +40,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
 
             {/* Sidebar - Desktop & Tablet */}
-            {viewport !== 'MOBILE' && (
+            {mounted && viewport !== 'MOBILE' && (
                 <div className={`fixed inset-y-0 left-0 z-[100] transition-all duration-500 ease-in-out`}>
                     <Sidebar isCompact={viewport === 'TABLET'} />
                 </div>
@@ -70,7 +72,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
             {/* Bottom Bar - Mobile Only */}
             <AnimatePresence>
-                {viewport === 'MOBILE' && (
+                {mounted && viewport === 'MOBILE' && (
                     <motion.div
                         initial={{ y: 100, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}

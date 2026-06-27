@@ -23,10 +23,17 @@ const initialSlots: ParkingSlotProps[] = [
 export function ParkingRadar() {
     const [slots, setSlots] = useState(initialSlots);
 
+    const [now, setNow] = useState<number | null>(null);
+
+    useEffect(() => {
+        setNow(Date.now());
+        const interval = setInterval(() => setNow(Date.now()), 60000);
+        return () => clearInterval(interval);
+    }, []);
+
     const calculateDuration = (entryTime?: string) => {
-        if (!entryTime) return null;
+        if (!entryTime || !now) return null;
         const entry = new Date(entryTime).getTime();
-        const now = new Date().getTime();
         const durationMs = now - entry;
         const hours = Math.floor(durationMs / (1000 * 60 * 60));
         const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
@@ -34,9 +41,8 @@ export function ParkingRadar() {
     };
 
     const isOvertime = (entryTime?: string) => {
-        if (!entryTime) return false;
+        if (!entryTime || !now) return false;
         const entry = new Date(entryTime).getTime();
-        const now = new Date().getTime();
         return (now - entry) > (4 * 60 * 60 * 1000); // 4 hours alert
     };
 

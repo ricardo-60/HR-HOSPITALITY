@@ -1,10 +1,10 @@
-﻿$ErrorActionPreference = "Stop"
-$htmlFile = "C:\Users\Ricardo\Desktop\Hotel Lukweku imagens\hotel-lukweku\index.html"
+$ErrorActionPreference = "Stop"
+$htmlFile = "C:\Users\HP\Desktop\Desenvolver\HR-HOSPITALITY\hotel-lukweku-repo\index.html"
 $content = Get-Content $htmlFile -Raw
 
 $imagesHtml = ""
-$dir1 = "C:\Users\Ricardo\Desktop\Hotel Lukweku imagens\hotel-lukweku"
-$dir2 = "C:\Users\Ricardo\Desktop\Hotel Lukweku imagens\hotel-lukweku\assets\img"
+$dir1 = "C:\Users\HP\Desktop\Desenvolver\HR-HOSPITALITY\hotel-lukweku-repo\public\images"
+$dir2 = "C:\Users\HP\Desktop\Desenvolver\HR-HOSPITALITY\hotel-lukweku-repo\assets\img"
 
 $files1 = Get-ChildItem -Path $dir1 -File | Where-Object { $_.Extension -match "\.(jpg|jpeg|png|webp)$" }
 foreach ($f in $files1) {

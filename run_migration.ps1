@@ -56,7 +56,7 @@ try {
 
 # FASE 3: Verificacao final via REST
 Write-Host "`n[FASE 3] Verificacao de tabelas via REST API..." -ForegroundColor Cyan
-@("tenants", "hotel_rooms", "hotel_reservations") | ForEach-Object {
+@("tenants", "hotel_rooms", "hospitality_reservations") | ForEach-Object {
     $tbl = $_
     try {
         $restUrl = "$supabaseUrl/rest/v1/$tbl" + "?select=id" + "&limit=1"

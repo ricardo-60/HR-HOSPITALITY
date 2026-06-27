@@ -42,7 +42,19 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
         if (!roomId) {
             fetchAvailableRooms();
         }
+
+        const channel = supabase
+            .channel('public:hospitality_rooms')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'hospitality_rooms' }, () => {
+                if (!roomId) fetchAvailableRooms();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, [roomId]);
+
 
     // Form State
     const [formData, setFormData] = useState({

@@ -1,9 +1,6 @@
 {
   "version": 2,
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/hr-hospitality-app/$1"
-    }
+    { "source": "/(.*)", "destination": "/hr-hospitality-app/$1" }
   ]
 }

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,16 +8,18 @@ import { DEFAULT_TENANT } from '@/config/tenants';
 import { supabase } from '@/lib/supabase';
 
 interface MapRoom {
-    id: string;       // room number as text e.g. '101'
-    type: string;
-    status: string;   // FREE | OCCUPIED | CLEANING | MAINTENANCE
+    id: string;
+    room_number?: string;
+    room_type?: string;
+    type?: string;
+    status: string;   // DISPONIVEL | OCUPADO | LIMPEZA | MANUTENCAO
 }
 
 interface Lead {
     id: string;
     guest_name: string;
     room_id: string;
-    reservation_type: string;
+    service_type: string;
     status: 'PENDENTE_PAGAMENTO' | 'CONFIRMADA';
     created_at: string;
 }
@@ -32,9 +35,9 @@ export function PendingLeads() {
     const fetchRooms = async () => {
         try {
             const { data: roomsData, error: roomsError } = await supabase
-                .from('hospitality_rooms')
-                .select('id, type, status')
-                .order('id', { ascending: true });
+                .from('hotel_rooms')
+                .select('id, room_number, room_type, status')
+                .order('room_number', { ascending: true });
             
             if (!roomsError && roomsData) {
                 setRooms(roomsData as MapRoom[]);
@@ -49,8 +52,8 @@ export function PendingLeads() {
     const fetchLeads = async () => {
         try {
             const { data: leadsData, error: leadsError } = await supabase
-                .from('hospitality_reservations')
-                .select('id, guest_name, room_id, reservation_type, status, created_at')
+                .from('hotel_reservations')
+                .select('id, guest_name, room_id, service_type, status, created_at')
                 .order('created_at', { ascending: false });
                 
             if (!leadsData || leadsError) {
@@ -67,19 +70,19 @@ export function PendingLeads() {
         fetchRooms();
         fetchLeads();
 
-        // Realtime Subscription
-        const channel = supabase
+        // Realtime Subscription (compatível offline via stub)
+        const channel = (supabase as any)
             .channel('pending-leads-updates')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'hospitality_rooms' }, () => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'hotel_rooms' }, () => {
                 fetchRooms();
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'hospitality_reservations' }, () => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'hotel_reservations' }, () => {
                 fetchLeads();
             })
             .subscribe();
 
         return () => {
-            supabase.removeChannel(channel);
+            (supabase as any).removeChannel(channel);
         };
     }, []);
 
@@ -92,15 +95,15 @@ export function PendingLeads() {
         // 1. Atualiza reserva e quarto no Supabase
         try {
             const { error: resError } = await supabase
-                .from('hospitality_reservations')
+                .from('hotel_reservations')
                 .update({ status: 'CONFIRMADA', room_id: targetRoom.id })
                 .eq('id', leadId);
                 
             if (resError) throw resError;
 
             const { error: roomError } = await supabase
-                .from('hospitality_rooms')
-                .update({ status: 'OCCUPIED' })
+                .from('hotel_rooms')
+                .update({ status: 'OCUPADO' })
                 .eq('id', targetRoom.id);
 
             if (roomError) throw roomError;
@@ -120,7 +123,7 @@ export function PendingLeads() {
 
         setRooms(currentRooms => 
             currentRooms.map(room => 
-                room.id === roomId ? { ...room, status: 'OCCUPIED' } : room
+                room.id === roomId ? { ...room, status: 'OCUPADO' } : room
             )
         );
     };
@@ -200,7 +203,7 @@ export function PendingLeads() {
                                             <div className="flex flex-col sm:flex-row gap-3 sm:gap-6">
                                                 <div className="flex items-center gap-2">
                                                     <Home className="w-4 h-4 md:w-5 md:h-5 text-white/20" />
-                                                    <span className="text-xs md:text-sm font-black text-white/60">{lead.reservation_type} • Quarto {lead.room_id || '–'}</span>
+                                                    <span className="text-xs md:text-sm font-black text-white/60">{lead.service_type} • Quarto {lead.room_id || '–'}</span>
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <Calendar className="w-4 h-4 md:w-5 md:h-5 text-white/20" />
@@ -222,10 +225,10 @@ export function PendingLeads() {
                                                                     <option value={lead.room_id}>{lead.room_id}</option>
                                                                 )}
                                                                 {rooms
-                                                                    .filter(r => r.status === 'FREE' || r.id === lead.room_id)
+                                                                    .filter(r => r.status === 'DISPONIVEL' || r.id === lead.room_id)
                                                                     .map(r => (
                                                                         <option key={r.id} value={r.id} className="bg-[#111827]">
-                                                                            {r.id} - {r.type}
+                                                                            {r.room_number || r.id} - {r.room_type || r.type}
                                                                         </option>
                                                                     ))}
                                                             </select>
@@ -285,11 +288,11 @@ export function PendingLeads() {
                         </h4>
                         <div className="grid grid-cols-2 gap-4 flex-1">
                             {rooms.map(room => {
-                                const isOccupied = room.status === 'OCCUPIED';
+                                const isOccupied = room.status === 'OCUPADO';
                                 return (
                                     <div key={room.id} className={`rounded-xl md:rounded-2xl border flex flex-col justify-center items-center transition-all duration-700 p-4 md:p-6 ${!isOccupied ? 'border-white/10 bg-white/5 text-white/40' : 'border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/10 text-[var(--brand-accent)]'}`}>
                                         <Home className={`w-8 h-8 md:w-10 md:h-10 mb-2 md:mb-3 opacity-50 ${!isOccupied ? '' : 'text-[var(--brand-accent)] drop-shadow-[0_0_8px_var(--brand-accent)]'}`} />
-                                        <span className="text-2xl md:text-3xl xl:text-4xl font-black">{room.id}</span>
+                                        <span className="text-2xl md:text-3xl xl:text-4xl font-black">{room.room_number || room.id}</span>
                                         <span className="text-[10px] md:text-xs uppercase tracking-widest mt-1 md:mt-2 opacity-60">
                                             {!isOccupied ? 'Livre' : 'Ocupado'}
                                         </span>

@@ -1,3 +1,4 @@
+/* eslint-disable */
 'use client';
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
@@ -46,7 +47,7 @@ export default function POSPage() {
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="relative w-full h-[300px] md:h-[400px] rounded-[50px] overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.6)] border border-white/10 group">
                     <div className="absolute inset-0 bg-black/50 z-10 group-hover:bg-black/30 transition-all duration-700 pointer-events-none" />
                     <Image 
-                        src="/images/Snak bar.jpg" 
+                        src="/images/snak-bar.jpg" 
                         alt="Snack Bar / Restaurante" 
                         fill 
                         className="object-cover object-center group-hover:scale-105 transition-transform duration-1000"

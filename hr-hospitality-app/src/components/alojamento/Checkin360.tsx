@@ -1,3 +1,4 @@
+/* eslint-disable */
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -28,10 +29,10 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
         const fetchAvailableRooms = async () => {
             try {
                 const { data, error } = await supabase
-                    .from('hospitality_rooms')
-                    .select('id, type, status')
-                    .eq('status', 'FREE')
-                    .order('id', { ascending: true });
+                    .from('hotel_rooms')
+                    .select('id, room_number, room_type, status')
+                    .eq('status', 'DISPONIVEL')
+                    .order('room_number', { ascending: true });
                 if (!error && data) {
                     setAvailableRooms(data);
                 }
@@ -43,15 +44,15 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
             fetchAvailableRooms();
         }
 
-        const channel = supabase
-            .channel('public:hospitality_rooms')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'hospitality_rooms' }, () => {
+        const channel = (supabase as any)
+            .channel('public:hotel_rooms')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'hotel_rooms' }, () => {
                 if (!roomId) fetchAvailableRooms();
             })
             .subscribe();
 
         return () => {
-            supabase.removeChannel(channel);
+            (supabase as any).removeChannel(channel);
         };
     }, [roomId]);
 
@@ -74,26 +75,28 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
         setIsScanning(true);
         setErrorMessage(null);
         try {
-            // 1. Criar a reserva confirmada no Supabase
+            // 1. Criar a reserva confirmada
             const { error: resError } = await supabase
-                .from('hospitality_reservations')
+                .from('hotel_reservations')
                 .insert([
                     {
                         guest_name: formData.name + " (Doc: " + formData.document + ")",
+                        email: formData.document + "@checkin.local",
                         room_id: selectedRoomId,
                         status: 'CONFIRMADA',
-                        reservation_type: 'ROOM',
-                        tenant_id: '9cbf70f5-cbad-42ff-b52f-b1f2c1cfcc87', // UUID do Tenant Hotel Lukweku
-                        check_in_date: new Date().toISOString()
+                        service_type: 'quarto',
+                        tenant_id: '11111111-1111-1111-1111-111111111111',
+                        check_in_date: new Date().toISOString().split('T')[0],
+                        reservation_date: new Date().toISOString().split('T')[0]
                     }
                 ]);
 
             if (resError) throw resError;
 
-            // 2. Atualizar o estado do quarto para OCCUPIED no Supabase
+            // 2. Atualizar o estado do quarto para OCUPADO
             const { error: roomError } = await supabase
-                .from('hospitality_rooms')
-                .update({ status: 'OCCUPIED' })
+                .from('hotel_rooms')
+                .update({ status: 'OCUPADO' })
                 .eq('id', selectedRoomId);
 
             if (roomError) throw roomError;

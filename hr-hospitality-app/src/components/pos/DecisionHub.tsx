@@ -1,14 +1,14 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { CreditCard, Home, CheckCircle, XCircle } from 'lucide-react';
+import { CreditCard, Home } from 'lucide-react';
 
 interface DecisionHubProps {
     total: number;
     onConfirm: (method: 'IMMEDIATE' | 'ROOM') => void;
 }
 
-export function DecisionHub({ total, onConfirm }: DecisionHubProps) {
+export function DecisionHub({ onConfirm }: DecisionHubProps) {
     return (
         <div className="space-y-8 relative z-10">
             <div className="grid grid-cols-2 gap-6">

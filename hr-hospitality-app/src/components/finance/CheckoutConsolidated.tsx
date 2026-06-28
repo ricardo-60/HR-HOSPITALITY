@@ -1,7 +1,7 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { CreditCard, Home, Printer, ShieldCheck, Download } from 'lucide-react';
+import { Printer, ShieldCheck, Download } from 'lucide-react';
+import { useState } from 'react';
 
 interface CheckoutConsolidatedProps {
     guestName: string;
@@ -14,7 +14,7 @@ interface CheckoutConsolidatedProps {
 export function CheckoutConsolidated({ guestName, roomNumber, items, taxes, onFinalize }: CheckoutConsolidatedProps) {
     const subtotal = items.reduce((acc, item) => acc + item.value, 0);
     const total = subtotal + taxes;
-    const auditId = 'AUDIT-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    const [auditId] = useState(() => 'AUDIT-' + Math.random().toString(36).substr(2, 9).toUpperCase());
 
     return (
         <div className="bg-[#111111] border border-white/20 rounded-[60px] p-16 shadow-[0_50px_100px_rgba(0,0,0,1)] flex flex-col h-full relative overflow-hidden border-t-[#00F2FF] border-t-2">

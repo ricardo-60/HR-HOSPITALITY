@@ -1,9 +1,8 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ShoppingBag, Zap, Plus, Search, AlertCircle } from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { Plus, AlertCircle } from 'lucide-react';
+import { useState } from 'react';
 
 const quickProducts = [
     { name: 'Coca-Cola Zero', price: 2.50, icon: '🥤' },
@@ -15,20 +14,7 @@ const quickProducts = [
 ];
 
 export function QuickSale() {
-    const [selectedReservation, setSelectedReservation] = useState<any>(null);
     const [statusError, setStatusError] = useState<string | null>(null);
-
-    // Simulação de rigor: Verificar se a reserva está confirmada
-    const checkRigor = (reservation: any) => {
-        if (!reservation) return false;
-        if (reservation.status === 'CONFIRMADA' || reservation.status === 'ACTIVE') {
-            setStatusError(null);
-            return true;
-        } else {
-            setStatusError('BLOQUEADO: Reserva não efetivada ou aguardando pagamento.');
-            return false;
-        }
-    };
 
     return (
         <div className="bg-[#111111] border border-[var(--brand-accent)]/20 rounded-[24px] md:rounded-[32px] p-5 md:p-6 lg:p-8 h-full flex flex-col shadow-[0_50px_100px_rgba(0,0,0,1)] relative overflow-hidden group">

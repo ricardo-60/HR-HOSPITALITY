@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 
 interface Table {
   id: number;

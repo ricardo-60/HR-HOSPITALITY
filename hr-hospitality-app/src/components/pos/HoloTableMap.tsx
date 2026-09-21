@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useState, useRef } from 'react';
+import { BillModal } from './BillModal';
 
 interface Table {
   id: number;
@@ -12,9 +13,9 @@ interface Table {
   total: number;
 }
 
-const tables: Table[] = [
+const initialTables: Table[] = [
   { id: 1, number: 1, status: 'OCCUPIED', orders: 3, total: 45.50 },
-  { id: 2, number: 2, status: 'FREE', orders: 0, total: 0 },
+  { id: 2, number: 2, status: 'OCCUPIED', orders: 2, total: 35.00 },
   { id: 3, number: 3, status: 'RESERVED', orders: 0, total: 0 },
   { id: 4, number: 4, status: 'OCCUPIED', orders: 1, total: 12.00 },
   { id: 5, number: 5, status: 'FREE', orders: 0, total: 0 },
@@ -27,6 +28,10 @@ export function HoloTableMap() {
   const [isDragging, setIsDragging] = useState(false);
   const [startX, setStartX] = useState(0);
   const [scrollLeft, setScrollLeft] = useState(0);
+
+  // Estado das mesas e mesa selecionada
+  const [tableList, setTableList] = useState<Table[]>(initialTables);
+  const [selectedTable, setSelectedTable] = useState<any | null>(null);
 
   const startDragging = (e: React.MouseEvent | React.TouchEvent) => {
     setIsDragging(true);
@@ -46,6 +51,15 @@ export function HoloTableMap() {
     if (viewportRef.current) viewportRef.current.scrollLeft = scrollLeft - walk;
   };
 
+  const handleBillClosed = (tableId: string | number) => {
+    setTableList(prev => prev.map(t => {
+      if (String(t.id) === String(tableId)) {
+        return { ...t, status: 'FREE', orders: 0, total: 0 };
+      }
+      return t;
+    }));
+  };
+
   return (
     <div
       ref={viewportRef}
@@ -56,15 +70,25 @@ export function HoloTableMap() {
       onTouchStart={startDragging}
       onTouchEnd={stopDragging}
       onTouchMove={onDrag}
-      className="map-viewport w-full"
+      className="map-viewport w-full cursor-grab active:cursor-grabbing"
     >
       <div className="flex px-10 py-16 gap-12 sm:gap-20 md:gap-24 min-w-max">
-        {tables.map((table) => (
+        {tableList.map((table) => (
           <motion.div
             key={table.id}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            className="relative group select-none"
+            onClick={() => {
+              if (table.status === 'OCCUPIED') {
+                setSelectedTable({
+                  id: String(table.id),
+                  number: table.number,
+                  status: table.status,
+                  currentBill: table.total
+                });
+              }
+            }}
+            className={`relative group select-none ${table.status === 'OCCUPIED' ? 'cursor-pointer' : ''}`}
           >
             {/* Table Base - Adjustable Size */}
             <div className={`w-48 h-48 sm:w-56 sm:h-56 md:w-64 md:h-64 rounded-full glass-panel flex flex-col items-center justify-center transition-all duration-500 shadow-2xl relative overflow-hidden ${table.status === 'OCCUPIED'
@@ -80,7 +104,7 @@ export function HoloTableMap() {
               </span>
               <span className={`text-[10px] sm:text-[12px] font-black uppercase tracking-widest z-10 mt-2 sm:mt-4 ${table.status === 'OCCUPIED' ? 'text-[#00FFFF] animate-pulse-cyan' : 'text-white/20'
                 }`}>
-                {table.status}
+                {table.status === 'OCCUPIED' ? 'EM CONSUMO' : table.status === 'RESERVED' ? 'RESERVADA' : 'LIVRE'}
               </span>
 
               {table.status === 'OCCUPIED' && (
@@ -102,11 +126,19 @@ export function HoloTableMap() {
             )}
 
             <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap hidden md:block">
-              <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Attributed to: {user?.name.split(' ')[0]}</p>
+              <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Atribuída a: {user?.name.split(' ')[0]}</p>
             </div>
           </motion.div>
         ))}
       </div>
+
+      {selectedTable && (
+        <BillModal
+          table={selectedTable}
+          onClose={() => setSelectedTable(null)}
+          onBillClosed={handleBillClosed}
+        />
+      )}
     </div>
   );
 }

@@ -30,6 +30,9 @@
 /test-results/
 /playwright-report/
 
+# runtime logs (freebuff/agent tooling)
+.freebuff/
+
 # misc
 .DS_Store
 *.pem

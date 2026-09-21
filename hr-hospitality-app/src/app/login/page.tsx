@@ -16,6 +16,28 @@ export default function LoginPage() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
+    // Estados de Configuração de Rede Local
+    const [showNetworkSettings, setShowNetworkSettings] = useState(false);
+    const [serverIp, setServerIp] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('server_ip') || '';
+        }
+        return '';
+    });
+    const [appMode, setAppMode] = useState<'server' | 'client'>(() => {
+        if (typeof window !== 'undefined') {
+            const win = window as any;
+            if (win.electronAPI && typeof win.electronAPI.getAppConfig === 'function') {
+                try {
+                    return win.electronAPI.getAppConfig().mode || 'server';
+                } catch (e) {
+                    console.error('Erro ao ler config do Electron no login:', e);
+                }
+            }
+        }
+        return 'server';
+    });
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
@@ -38,6 +60,27 @@ export default function LoginPage() {
         setLoading(false);
         if (success) {
             router.push('/');
+        }
+    };
+
+    const handleSaveNetworkSettings = () => {
+        if (typeof window !== 'undefined') {
+            // Salvar no localStorage local
+            localStorage.setItem('server_ip', serverIp);
+            
+            // Comunicar com o processo principal do Electron se aplicável
+            const win = window as any;
+            if (win.electronAPI && typeof win.electronAPI.saveAppConfig === 'function') {
+                try {
+                    win.electronAPI.saveAppConfig({ mode: appMode, serverIp });
+                    alert('Configurações de rede guardadas com sucesso! Se mudou o Modo de Operação (Servidor vs Cliente), por favor encerre e volte a abrir a aplicação para aplicar as alterações.');
+                } catch (e) {
+                    console.error('Falha ao comunicar com Electron API:', e);
+                    alert('Falha ao comunicar com o Electron para persistir configurações de rede.');
+                }
+            } else {
+                alert('Configurações de IP guardadas com sucesso no browser local.');
+            }
         }
     };
 
@@ -138,29 +181,100 @@ export default function LoginPage() {
                     {/* Quick Demos Access */}
                     <div className="mt-10 pt-8 border-t border-white/5">
                         <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-4 text-center">Acesso Rápido para Testes</p>
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 gap-3">
                             <button
                                 onClick={() => handleQuickLogin('EMP-2026-001', 'admin')}
-                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group"
+                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group font-mono text-[9px]"
                             >
-                                <p className="text-[8px] font-black text-[var(--brand-accent)] uppercase tracking-wider">ADMIN</p>
-                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">Ricardo</p>
+                                <p className="text-[8px] font-black text-[var(--brand-accent)] uppercase tracking-wider">ADMIN (Ricardo)</p>
+                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">Controlo Total</p>
                             </button>
                             <button
                                 onClick={() => handleQuickLogin('EMP-2026-002', 'user123')}
-                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group"
+                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group font-mono text-[9px]"
                             >
-                                <p className="text-[8px] font-black text-white/80 uppercase tracking-wider">PERMISSÃO</p>
-                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">Ana S.</p>
+                                <p className="text-[8px] font-black text-white/80 uppercase tracking-wider">PERMISSÃO (Ana S.)</p>
+                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">Bloqueia SPA</p>
                             </button>
                             <button
                                 onClick={() => handleQuickLogin('EMP-2026-003', 'staff')}
-                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group"
+                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group font-mono text-[9px]"
                             >
-                                <p className="text-[8px] font-black text-amber-500 uppercase tracking-wider">LIMITADO</p>
-                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">João S.</p>
+                                <p className="text-[8px] font-black text-indigo-400 uppercase tracking-wider">LIMITADO (João S.)</p>
+                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">POS & Lavandaria</p>
+                            </button>
+                            <button
+                                onClick={() => handleQuickLogin('EMP-2026-004', 'snack')}
+                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group font-mono text-[9px]"
+                            >
+                                <p className="text-[8px] font-black text-[var(--brand-accent)] uppercase tracking-wider">SNACK BAR (Operador)</p>
+                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">Apenas Snack Bar</p>
                             </button>
                         </div>
+                    </div>
+
+                    {/* Local Network Configurations */}
+                    <div className="mt-8 pt-6 border-t border-white/5">
+                        <button
+                            type="button"
+                            onClick={() => setShowNetworkSettings(!showNetworkSettings)}
+                            className="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all text-slate-400 hover:text-white"
+                        >
+                            {showNetworkSettings ? 'Ocultar Configurações de Rede' : 'Configurações de Rede Local'}
+                        </button>
+                        
+                        {showNetworkSettings && (
+                            <div className="mt-4 p-5 bg-black/40 border border-white/5 rounded-2xl space-y-4 animate-in slide-in-from-top-2 duration-300">
+                                <div className="space-y-2">
+                                    <label className="text-[8px] font-black uppercase tracking-widest text-white/40 block">Modo de Operação</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setAppMode('server')}
+                                            className={`py-2 px-3 rounded-xl font-bold text-[10px] uppercase border transition-all ${
+                                                appMode === 'server' 
+                                                    ? 'bg-[var(--brand-primary)]/20 border-[var(--brand-primary)] text-white' 
+                                                    : 'bg-transparent border-white/5 text-white/40 hover:border-white/20'
+                                            }`}
+                                        >
+                                            Servidor
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setAppMode('client')}
+                                            className={`py-2 px-3 rounded-xl font-bold text-[10px] uppercase border transition-all ${
+                                                appMode === 'client' 
+                                                    ? 'bg-[var(--brand-accent)]/20 border-[var(--brand-accent)] text-white' 
+                                                    : 'bg-transparent border-white/5 text-white/40 hover:border-white/20'
+                                            }`}
+                                        >
+                                            Cliente
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                {appMode === 'client' && (
+                                    <div className="space-y-2 animate-in fade-in duration-300">
+                                        <label className="text-[8px] font-black uppercase tracking-widest text-white/40 block">IP do Servidor na Rede</label>
+                                        <input
+                                            type="text"
+                                            value={serverIp}
+                                            onChange={(e) => setServerIp(e.target.value)}
+                                            placeholder="Ex: 192.168.1.100"
+                                            className="w-full px-4 py-3 bg-black/60 border border-white/5 rounded-xl text-xs focus:outline-none focus:border-[var(--brand-accent)] transition-all font-mono"
+                                        />
+                                    </div>
+                                )}
+                                
+                                <button
+                                    type="button"
+                                    onClick={handleSaveNetworkSettings}
+                                    className="w-full py-3 bg-gradient-to-r from-[var(--brand-primary)]/80 to-[var(--brand-accent)]/80 hover:brightness-110 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all"
+                                >
+                                    Gravar Configurações
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
 

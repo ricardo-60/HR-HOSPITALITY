@@ -2,10 +2,13 @@
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { QuickSale } from '@/components/pos/QuickSale';
+import { BillModal } from '@/components/pos/BillModal';
 import { Zap, Search, Filter } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useState } from 'react';
+import Image from 'next/image';
 
-const snackTables = [
+const initialSnackTables = [
     { id: 'S1', number: 1, status: 'FREE' },
     { id: 'S2', number: 2, status: 'OCCUPIED', bill: 12.50 },
     { id: 'S3', number: 3, status: 'FREE' },
@@ -15,6 +18,18 @@ const snackTables = [
 ];
 
 export default function SnackBarPage() {
+    const [tableList, setTableList] = useState(initialSnackTables);
+    const [selectedTable, setSelectedTable] = useState<any | null>(null);
+
+    const handleBillClosed = (tableId: string) => {
+        setTableList(prev => prev.map(t => {
+            if (t.id === tableId) {
+                return { ...t, status: 'FREE', bill: undefined };
+            }
+            return t;
+        }));
+    };
+
     return (
         <DashboardLayout>
             <div className="max-w-[1500px] mx-auto space-y-16 pb-20 px-4">
@@ -64,12 +79,22 @@ export default function SnackBarPage() {
                         </div>
 
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 md:gap-10">
-                            {snackTables.map((table) => (
+                            {tableList.map((table) => (
                                 <motion.div
                                     key={table.id}
                                     whileHover={{ scale: 1.05, border: '2px solid var(--brand-accent)' }}
+                                    onClick={() => {
+                                        if (table.status === 'OCCUPIED') {
+                                            setSelectedTable({
+                                                id: table.id,
+                                                number: table.number,
+                                                status: table.status,
+                                                currentBill: table.bill
+                                            });
+                                        }
+                                    }}
                                     className={`aspect-square rounded-full flex flex-col items-center justify-center transition-all duration-300 border shadow-2xl relative ${table.status === 'OCCUPIED'
-                                            ? 'border-[var(--brand-accent)] bg-[#111111] shadow-[0_0_30px_var(--brand-accent)]'
+                                            ? 'border-[var(--brand-accent)] bg-[#111111] shadow-[0_0_30px_var(--brand-accent)] cursor-pointer'
                                             : 'border-white/10 bg-[#111111]/30 hover:bg-[#111111]'
                                         }`}
                                 >
@@ -94,6 +119,14 @@ export default function SnackBarPage() {
                     </div>
                 </div>
             </div>
+
+            {selectedTable && (
+                <BillModal
+                    table={selectedTable}
+                    onClose={() => setSelectedTable(null)}
+                    onBillClosed={handleBillClosed}
+                />
+            )}
         </DashboardLayout>
     );
 }

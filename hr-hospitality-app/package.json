@@ -1,6 +1,8 @@
 {
   "name": "hr-hospitality-app",
   "version": "0.1.0",
+  "author": "HR Hospitality",
+  "description": "HR Hospitality Platform",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -9,11 +11,17 @@
     "start": "next start",
     "lint": "eslint",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "npm run build && electron-builder"
+    "electron:build": "npm run build && electron-builder",
+    "build:server": "node build_setups.js --only=server",
+    "build:client": "node build_setups.js --only=client",
+    "build:all": "node build_setups.js",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",
     "clsx": "^2.1.1",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "framer-motion": "^12.35.2",
     "lucide-react": "^0.577.0",
     "next": "16.1.6",
@@ -22,6 +30,7 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

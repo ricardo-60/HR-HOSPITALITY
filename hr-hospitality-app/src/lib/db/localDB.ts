@@ -12,6 +12,26 @@ export interface DBResult {
 // Obter o base URL do servidor local (porta 3002)
 function getServerUrl(): string {
   if (typeof window !== 'undefined') {
+    // 1. Verificar localStorage
+    const savedIp = localStorage.getItem('server_ip');
+    if (savedIp) {
+      return `http://${savedIp}:3002`;
+    }
+
+    // 2. Verificar via Electron API
+    const win = window as any;
+    if (win.electronAPI && typeof win.electronAPI.getAppConfig === 'function') {
+      try {
+        const config = win.electronAPI.getAppConfig();
+        if (config && config.serverIp) {
+          return `http://${config.serverIp}:3002`;
+        }
+      } catch (e) {
+        console.error('Erro ao ler config do Electron em localDB:', e);
+      }
+    }
+
+    // 3. Fallback para o hostname atual (útil se acedido via browser na rede local)
     const hostname = window.location.hostname || 'localhost';
     return `http://${hostname}:3002`;
   }

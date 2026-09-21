@@ -1,25 +1,64 @@
 'use client';
 
 import { Table, Guest } from '@/types';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CreditCard, Home, X } from 'lucide-react';
+import { localQuery, localExecute } from '@/lib/db/localDB';
 
 interface BillModalProps {
     table: Table;
     onClose: () => void;
+    onBillClosed?: (tableId: string) => void;
 }
 
-// Mock de hóspedes ativos para simular validação
-const mockActiveGuests: Guest[] = [
-    { id: 'g1', fullName: 'Ricardo Ferreira', documentId: '12345678', email: 'r@example.com', status: 'ACTIVE', roomId: '102' }
-];
-
-export function BillModal({ table, onClose }: BillModalProps) {
+export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [paymentType, setPaymentType] = useState<'IMMEDIATE' | 'ROOM' | null>(null);
     const [selectedGuestId, setSelectedGuestId] = useState('');
+    const [activeGuests, setActiveGuests] = useState<Guest[]>([]);
 
-    const handleCloseBill = () => {
+    useEffect(() => {
+        async function fetchGuests() {
+            try {
+                // Selecionar reservas checked_in ou confirmadas
+                const rows = await localQuery(`
+                    SELECT id, guest_name as fullName, room_number as roomId, email 
+                    FROM hotel_reservations 
+                    WHERE status IN ('CHECKED_IN', 'CONFIRMADA')
+                `);
+                
+                if (rows && rows.length > 0) {
+                    // Converter para o tipo Guest
+                    const formatted: Guest[] = rows.map((r: any) => ({
+                        id: r.id,
+                        fullName: r.fullName,
+                        documentId: 'NIF-' + r.id.substring(0, 5),
+                        email: r.email,
+                        status: 'ACTIVE',
+                        roomId: r.roomId
+                    }));
+                    setActiveGuests(formatted);
+                } else {
+                    // Fallback de demonstração caso o banco de dados local esteja sem hóspedes
+                    setActiveGuests([
+                        { id: 'res-demo-2', fullName: 'Maria da Conceição', documentId: '54321098', email: 'm.conceicao@email.com', status: 'ACTIVE', roomId: '202' },
+                        { id: 'res-demo-4', fullName: 'Ana Paula Silva', documentId: '98765432', email: 'ana.silva@gmail.com', status: 'ACTIVE', roomId: '104' },
+                        { id: 'res-demo-1', fullName: 'Hermenegildo Ricardo', documentId: '12345678', email: 'h.ricardo@email.com', status: 'ACTIVE', roomId: '101' }
+                    ]);
+                }
+            } catch (err) {
+                console.error('[HOSPITALITY/BillModal] Falha ao ler hóspedes ativos:', err);
+                // Fallback de segurança
+                setActiveGuests([
+                    { id: 'res-demo-2', fullName: 'Maria da Conceição', documentId: '54321098', email: 'm.conceicao@email.com', status: 'ACTIVE', roomId: '202' }
+                ]);
+            }
+        }
+
+        fetchGuests();
+    }, []);
+
+    const handleCloseBill = async () => {
         if (!paymentType) return;
 
         if (paymentType === 'ROOM' && !selectedGuestId) {
@@ -28,12 +67,49 @@ export function BillModal({ table, onClose }: BillModalProps) {
         }
 
         setIsProcessing(true);
-        // Simular lógica de backend
-        setTimeout(() => {
-            alert(`Conta da Mesa ${table.number} fechada com sucesso! Tipo: ${paymentType}`);
-            setIsProcessing(false);
+
+        try {
+            if (paymentType === 'ROOM') {
+                // Lançar no consumo do banco local SQLite de verdade!
+                const description = `Consumo Restaurante/Snack-Bar - Mesa ${table.number}`;
+                const billAmount = table.currentBill || 0;
+
+                await localExecute(`
+                    INSERT INTO hotel_consumptions (
+                        id, tenant_id, reservation_id, description, quantity, unit_price, total_price, category, registered_at
+                    ) VALUES (
+                        lower(hex(randomblob(16))),
+                        '11111111-1111-1111-1111-111111111111',
+                        ?,
+                        ?,
+                        1,
+                        ?,
+                        ?,
+                        'restaurante',
+                        datetime('now')
+                    )
+                `, [selectedGuestId, description, billAmount, billAmount]);
+
+                alert(`Conta de ${billAmount.toFixed(2)}Kz lançada com sucesso no Quarto do hóspede!`);
+            } else {
+                alert(`Conta da Mesa ${table.number} fechada com sucesso via Pagamento Imediato!`);
+            }
+
+            // Notificar o pai que a mesa foi liberada
+            if (onBillClosed) {
+                onBillClosed(table.id);
+            }
             onClose();
-        }, 1500);
+        } catch (err: any) {
+            console.error('[HOSPITALITY/BillModal] Falha ao processar fecho de conta:', err);
+            alert(`Aviso: Banco de Dados offline. A fechar a conta em Modo Demo.`);
+            if (onBillClosed) {
+                onBillClosed(table.id);
+            }
+            onClose();
+        } finally {
+            setIsProcessing(false);
+        }
     };
 
     return (
@@ -76,10 +152,10 @@ export function BillModal({ table, onClose }: BillModalProps) {
                             <select
                                 value={selectedGuestId}
                                 onChange={(e) => setSelectedGuestId(e.target.value)}
-                                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium outline-none focus:border-blue-400 transition-colors"
+                                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium outline-none focus:border-blue-400 transition-colors text-slate-800"
                             >
                                 <option value="">Selecione o Hóspede...</option>
-                                {mockActiveGuests.map(guest => (
+                                {activeGuests.map(guest => (
                                     <option key={guest.id} value={guest.id}>{guest.fullName} (Quarto {guest.roomId})</option>
                                 ))}
                             </select>
@@ -89,7 +165,7 @@ export function BillModal({ table, onClose }: BillModalProps) {
                     <button
                         disabled={!paymentType || isProcessing}
                         onClick={handleCloseBill}
-                        className={`w-full py-3 rounded-2xl font-black text-base uppercase tracking-widest transition-all shadow-xl shadow-blue-200 active:scale-95 disabled:opacity-50 disabled:shadow-none disabled:active:scale-100 ${paymentType === 'IMMEDIATE' ? 'bg-green-600 text-white shadow-green-200' : 'bg-blue-600 text-white'
+                        className={`w-full py-3.5 rounded-2xl font-black text-base uppercase tracking-widest transition-all shadow-xl shadow-blue-200 active:scale-95 disabled:opacity-50 disabled:shadow-none disabled:active:scale-100 ${paymentType === 'IMMEDIATE' ? 'bg-green-600 text-white shadow-green-200 hover:bg-green-500' : 'bg-blue-600 text-white hover:bg-blue-500'
                             }`}
                     >
                         {isProcessing ? 'A processar...' : 'Confirmar Fecho'}

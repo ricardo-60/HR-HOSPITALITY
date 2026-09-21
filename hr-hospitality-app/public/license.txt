@@ -1,0 +1,62 @@
+HR HOSPITALITY — CONTRATO DE LICENÇA DE UTILIZADOR FINAL (EULA)
+
+Copyright (c) 2024-2026 HR-TECNOLOGIA
+CEO: Hermenegildo Ricardo
+NIF: 5484045614
+Avenida 21 de Janeiro, Benfica, Luanda — Angola
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+AVISO IMPORTANTE: LER CUIDADOSAMENTE ANTES DE INSTALAR O SOFTWARE.
+
+Este Contrato de Licença de Utilizador Final ("EULA") é um acordo legal entre
+o utilizador final ("Licenciado") e a HR-TECNOLOGIA ("Licenciante") para o
+software HR Hospitality ("Software"), incluindo documentação associada.
+
+AO INSTALAR, COPIAR OU UTILIZAR O SOFTWARE, O LICENCIADO ACEITA OS TERMOS
+DESTE CONTRATO. SE NÃO CONCORDAR, NÃO INSTALE NEM UTILIZE O SOFTWARE.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. CONCESSÃO DE LICENÇA
+
+   O Licenciante concede ao Licenciado uma licença não exclusiva, não
+   transferível e limitada para instalar e utilizar o Software no número de
+   dispositivos especificado no contrato de aquisição.
+
+2. RESTRIÇÕES
+
+   O Licenciado não pode:
+   a) Copiar, modificar ou distribuir o Software sem autorização escrita;
+   b) Fazer engenharia reversa, descompilar ou desassemblar o Software;
+   c) Sublicenciar, arrendar ou ceder os direitos sobre o Software;
+   d) Remover ou alterar avisos de direitos de autor.
+
+3. DADOS E PRIVACIDADE
+
+   O Software processa dados de hóspedes e operações hoteleiras localmente.
+   O Licenciado é responsável pelo cumprimento das leis de proteção de dados
+   aplicáveis, incluindo a Lei n.º 22/11 de Angola sobre Proteção de Dados.
+
+4. SUPORTE TÉCNICO
+
+   O suporte técnico é prestado pela HR-TECNOLOGIA mediante contrato de
+   manutenção. Contacto: +244 923 658 211.
+
+5. RESCISÃO
+
+   Este contrato termina automaticamente se o Licenciado violar qualquer
+   disposição. Após a rescisão, o Licenciado deve desinstalar o Software.
+
+6. ISENÇÃO DE GARANTIAS
+
+   O SOFTWARE É FORNECIDO "TAL COMO ESTÁ", SEM GARANTIAS DE QUALQUER TIPO.
+
+7. LIMITAÇÃO DE RESPONSABILIDADE
+
+   Em nenhuma circunstância a HR-TECNOLOGIA será responsável por danos
+   indiretos, incidentais ou consequentes resultantes do uso do Software.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+HR-TECNOLOGIA  |  Luanda, Angola  |  www.hrtecnologia.ao

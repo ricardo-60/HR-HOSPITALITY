@@ -34,6 +34,7 @@ const menuItems: MenuItem[] = [
     { name: 'DASHBOARD', icon: BarChart3, path: '/', category: 'CORE' },
     { name: 'ALOJAMENTO', icon: Home, path: '/alojamento', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-primary)' },
     { name: 'RESTAURAÇÃO', icon: Store, path: '/pos', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-secondary)' },
+    { name: 'SNACK BAR', icon: Store, path: '/snack-bar', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-accent)' },
     { name: 'EVENTOS', icon: Building2, path: '/eventos', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-accent)' },
     { name: 'BEM-ESTAR E LAZER', icon: Heart, path: '/spa', category: 'WELLNESS', isReady: true, brandColor: 'var(--brand-accent)' },
     { name: 'LAVANDARIA', icon: Package, path: '/lavandaria', category: 'OPERATIONS', isReady: true, brandColor: 'var(--brand-primary)' },
@@ -42,6 +43,7 @@ const menuItems: MenuItem[] = [
     { name: 'RECURSOS HUMANOS', icon: Users, path: '/rh', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-primary)' },
     { name: 'CONTROLO ACESSOS', icon: ShieldCheck, path: '/rh/usuarios', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-accent)', adminOnly: true },
     { name: 'CONFIGURAÇÕES', icon: Settings, path: '/configuracoes', category: 'CORE' },
+    { name: 'CENTRAL DE AJUDA', icon: ShieldCheck, path: '/ajuda', category: 'CORE', isReady: true, brandColor: 'var(--brand-accent)' },
 ];
 
 interface SidebarProps {

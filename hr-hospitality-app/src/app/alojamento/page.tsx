@@ -27,7 +27,6 @@ export default function AlojamentoPage() {
         } else if (status === 'OCUPADO') {
             setLoadingCheckout(true);
             try {
-                // 1. Buscar a reserva confirmada para o quarto
                 const { data: reservation, error: resError } = await supabase
                     .from('hotel_reservations')
                     .select('id, guest_name')
@@ -41,13 +40,11 @@ export default function AlojamentoPage() {
                     return;
                 }
 
-                // 2. Buscar consumos desta reserva
                 const { data: consumptions } = await supabase
                     .from('hotel_consumptions')
                     .select('description, total_price, category')
                     .eq('reservation_id', reservation.id);
 
-                // 3. Montar a lista de itens
                 const itemsList = [
                     { description: 'Hospedagem - Estadia Acumulada', value: 25000.00, category: 'ALOJAMENTO' }
                 ];
@@ -81,13 +78,11 @@ export default function AlojamentoPage() {
     const handleFinalizeCheckout = async () => {
         if (!checkoutData) return;
         try {
-            // Atualizar quarto para DISPONIVEL
             await supabase
                 .from('hotel_rooms')
                 .update({ status: 'DISPONIVEL' })
                 .eq('id', checkoutData.roomNumber);
 
-            // Atualizar status da reserva para CHECKED_OUT
             await supabase
                 .from('hotel_reservations')
                 .update({ status: 'CHECKED_OUT' } as any)
@@ -102,84 +97,81 @@ export default function AlojamentoPage() {
 
     return (
         <DashboardLayout>
-            <div className="max-w-[1500px] mx-auto space-y-20 pb-20 px-4">
+            <div className="max-w-[1500px] mx-auto space-y-10 md:space-y-16 pb-20 px-4">
+                {/* Header */}
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col md:flex-row justify-between items-end gap-12 border-b border-white/5 pb-16"
+                    className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8 md:gap-12 border-b border-white/5 pb-10 md:pb-16"
                 >
                     <div>
-                        <div className="flex items-center gap-4 mb-8">
-                            <div className="w-1.5 h-6 bg-[#00F2FF] shadow-[0_0_15px_#00F2FF]" />
-                            <span className="text-[10px] font-black text-[#00F2FF] uppercase tracking-[0.6em]">Hospitality Module • Active</span>
+                        <div className="flex items-center gap-3 md:gap-4 mb-5 md:mb-8">
+                            <div className="w-1.5 h-5 md:h-6 bg-[#00F2FF] shadow-[0_0_15px_#00F2FF]" />
+                            <span className="text-[9px] md:text-[10px] font-black text-[#00F2FF] uppercase tracking-[0.4em] md:tracking-[0.6em]">Hospitality Module • Active</span>
                         </div>
-                        <h1 className="text-8xl font-black text-white tracking-tighter leading-none uppercase stroke-white/20">
+                        <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-white tracking-tighter leading-none uppercase">
                             ALOJA<span className="text-[#00F2FF]">MENTO</span>
                         </h1>
-                        <p className="text-white/20 font-black uppercase tracking-[0.8em] text-[11px] mt-10 max-w-lg leading-relaxed">
+                        <p className="text-white/20 font-black uppercase tracking-[0.5em] md:tracking-[0.8em] text-[10px] md:text-[11px] mt-6 md:mt-10 max-w-lg leading-relaxed">
                             HR-HOSPITALITY ROOM MANAGEMENT & GUEST CHECK-IN
                         </p>
                     </div>
 
-                    <div className="flex gap-6">
+                    <div className="flex flex-col sm:flex-row gap-3 md:gap-6 w-full md:w-auto">
                         <button
                             onClick={() => window.location.href = '/alojamento/checkin'}
-                            className="px-12 py-8 bg-gradient-to-r from-cyber-cyan to-cyber-purple text-black font-black text-[10px] uppercase tracking-[0.5em] rounded-[30px] shadow-[0_20px_40px_rgba(0,255,255,0.2)] hover:scale-105 transition-all flex items-center gap-4"
+                            className="flex-1 sm:flex-none px-6 md:px-12 py-4 md:py-8 bg-gradient-to-r from-cyber-cyan to-cyber-purple text-black font-black text-[10px] uppercase tracking-[0.3em] md:tracking-[0.5em] rounded-2xl md:rounded-[30px] shadow-[0_20px_40px_rgba(0,255,255,0.2)] hover:scale-105 transition-all flex items-center justify-center gap-3"
                         >
-                            Check-in 360 <Zap className="w-5 h-5" />
+                            Check-in 360 <Zap className="w-4 h-4" />
                         </button>
                         <button
                             onClick={() => setShowCheckout(true)}
-                            className="px-12 py-8 bg-black border border-[#00F2FF]/40 text-[#00F2FF] font-black text-[10px] uppercase tracking-[0.5em] rounded-[30px] shadow-[0_20px_40px_rgba(0,0,0,0.8)] hover:bg-[#00F2FF] hover:text-black transition-all flex items-center gap-4"
+                            className="flex-1 sm:flex-none px-6 md:px-12 py-4 md:py-8 bg-black border border-[#00F2FF]/40 text-[#00F2FF] font-black text-[10px] uppercase tracking-[0.3em] md:tracking-[0.5em] rounded-2xl md:rounded-[30px] hover:bg-[#00F2FF] hover:text-black transition-all flex items-center justify-center gap-3"
                         >
-                            Fast Check-out Mode <ArrowRight className="w-5 h-5" />
+                            Check-out <ArrowRight className="w-4 h-4" />
                         </button>
                     </div>
                 </motion.div>
 
                 {/* Fotografia Oficial do Alojamento com fallback */}
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="relative w-full h-[350px] md:h-[450px] rounded-[50px] overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.6)] border border-white/10 group mb-16">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="relative w-full h-[220px] sm:h-[320px] md:h-[400px] rounded-[32px] md:rounded-[50px] overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.6)] border border-white/10 group">
                     <div className="absolute inset-0 bg-black/40 z-10 group-hover:bg-black/20 transition-all duration-700 pointer-events-none" />
-                    {/* Fundo gradiente como fallback se a imagem não existir */}
                     <div className="absolute inset-0 bg-gradient-to-br from-cyan-900/60 via-blue-950 to-black" />
-                    <div className="absolute inset-0 flex items-center justify-center opacity-10">
-                        <div className="w-64 h-64 rounded-full bg-cyan-400/20 blur-3xl" />
-                    </div>
-                    <Image 
-                        src="/images/quarto-casal-luxo-hotel-lukweku.png" 
-                        alt="Quarto Casal Luxo" 
-                        fill 
+                    <Image
+                        src="/images/quarto-casal-luxo-hotel-lukweku.png"
+                        alt="Quarto Casal Luxo"
+                        fill
                         className="object-cover object-center group-hover:scale-105 transition-transform duration-1000"
                         priority
                     />
-                    <div className="absolute top-8 right-8 z-20 px-4 py-2 bg-black/50 backdrop-blur-md border border-white/10 rounded-full">
-                        <span className="text-white/70 font-black text-[9px] uppercase tracking-widest flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_#10B981]"></span>
+                    <div className="absolute top-4 md:top-8 right-4 md:right-8 z-20 px-3 md:px-4 py-2 bg-black/50 backdrop-blur-md border border-white/10 rounded-full">
+                        <span className="text-white/70 font-black text-[8px] md:text-[9px] uppercase tracking-widest flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_#10B981]"></span>
                             Vista Otimizada
                         </span>
                     </div>
-                    <div className="absolute bottom-0 left-0 w-full p-10 md:p-14 bg-gradient-to-t from-black/95 via-black/50 to-transparent z-20 flex flex-col justify-end">
-                        <span className="text-[#00F2FF] font-black text-[10px] md:text-[12px] uppercase tracking-[0.4em] mb-3 block drop-shadow-[0_0_8px_rgba(0,242,255,0.5)]">Standard Excellency</span>
-                        <h2 className="text-4xl md:text-6xl font-black text-white uppercase tracking-tighter drop-shadow-lg">Suítes Executivas</h2>
+                    <div className="absolute bottom-0 left-0 w-full p-6 md:p-10 lg:p-14 bg-gradient-to-t from-black/95 via-black/50 to-transparent z-20 flex flex-col justify-end">
+                        <span className="text-[#00F2FF] font-black text-[9px] md:text-[12px] uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 md:mb-3 block drop-shadow-[0_0_8px_rgba(0,242,255,0.5)]">Standard Excellency</span>
+                        <h2 className="text-2xl sm:text-4xl md:text-6xl font-black text-white uppercase tracking-tighter drop-shadow-lg">Suítes Executivas</h2>
                     </div>
                 </motion.div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8 lg:gap-10">
                     {[
                         { label: 'Check-ins Hoje', value: '12', icon: Calendar, color: '#00F2FF' },
                         { label: 'Quartos Livres', value: '45', icon: Home, color: '#10B981' },
                         { label: 'A chegar', value: '08', icon: Users, color: '#8B5CF6' },
                         { label: 'Chaves Ativas', value: '156', icon: Key, color: '#F59E0B' },
                     ].map((stat, i) => (
-                        <div key={i} className="bg-[#111111] border border-white/10 p-12 rounded-[50px] shadow-2xl group hover:border-[#00F2FF]/40 transition-all">
-                            <div className="flex justify-between items-start mb-12">
-                                <div className="p-5 bg-white/5 rounded-2xl border border-white/5 group-hover:border-[#00F2FF]/20 transition-all">
-                                    <stat.icon className="w-8 h-8" style={{ color: stat.color }} />
+                        <div key={i} className="bg-[#111111] border border-white/10 p-5 md:p-10 lg:p-12 rounded-[20px] md:rounded-[40px] lg:rounded-[50px] shadow-2xl group hover:border-[#00F2FF]/40 transition-all">
+                            <div className="flex justify-between items-start mb-5 md:mb-10 lg:mb-12">
+                                <div className="p-3 md:p-4 lg:p-5 bg-white/5 rounded-xl md:rounded-2xl border border-white/5 group-hover:border-[#00F2FF]/20 transition-all">
+                                    <stat.icon className="w-4 h-4 md:w-6 md:h-6 lg:w-8 lg:h-8" style={{ color: stat.color }} />
                                 </div>
-                                <span className="text-white/10 font-black text-[9px] uppercase tracking-widest">Live Sensor</span>
                             </div>
-                            <p className="text-5xl font-black text-white tracking-tighter mb-4 tabular-nums">{stat.value}</p>
-                            <p className="text-[11px] font-black text-white/30 uppercase tracking-[0.4em]">{stat.label}</p>
+                            <p className="text-2xl md:text-4xl lg:text-5xl font-black text-white tracking-tighter mb-2 md:mb-4 tabular-nums">{stat.value}</p>
+                            <p className="text-[9px] md:text-[10px] lg:text-[11px] font-black text-white/30 uppercase tracking-[0.3em] md:tracking-[0.4em]">{stat.label}</p>
                         </div>
                     ))}
                 </div>

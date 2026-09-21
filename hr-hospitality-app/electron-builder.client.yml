@@ -1,0 +1,32 @@
+appId: "com.hrhospitality.client"
+productName: "HR Hospitality Cliente"
+
+directories:
+  output: "dist"
+
+files:
+  - "out/**/*"
+  - "electron/**/*"
+  - "package.json"
+  - "!electron/build_config.server.json"
+
+extraResources:
+  - from: "electron/build_config.client.json"
+    to:   "electron/build_config.json"
+
+win:
+  target:
+    - target: "nsis"
+      arch:
+        - "x64"
+  icon: "public/icon-client.png"
+  artifactName: "HR-Hospitality-Cliente-Setup-${version}.exe"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "HR Hospitality Cliente"
+  license: "public/license.txt"

@@ -200,6 +200,7 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
                             onClick={handleLogout}
                             className="p-2 hover:bg-red-500/10 hover:text-red-500 border border-transparent hover:border-red-500/20 rounded-xl transition-all text-white/40"
                             title="Sair do Sistema"
+                            aria-label="Terminar sessão"
                         >
                             <LogOut className="w-4 h-4" />
                         </button>
@@ -211,6 +212,7 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
                         onClick={handleLogout}
                         className="p-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-xl hover:bg-red-500 hover:text-white transition-all"
                         title="Sair do Sistema"
+                        aria-label="Terminar sessão"
                     >
                         <LogOut className="w-4 h-4" />
                     </button>

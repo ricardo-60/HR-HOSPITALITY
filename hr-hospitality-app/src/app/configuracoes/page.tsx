@@ -7,19 +7,13 @@ import { useAuth } from '@/context/AuthContext';
 import { DEFAULT_TENANT } from '@/config/tenants';
 import {
     Settings, Building2, Wifi, Users, Database, Shield,
-    Save, CheckCircle, AlertTriangle, Server, Globe, Key,
+    CheckCircle, AlertTriangle, Server, Globe, Key,
     Monitor, RefreshCw
 } from 'lucide-react';
 
 export default function ConfiguracoesPage() {
     const { user, users } = useAuth();
     const [activeTab, setActiveTab] = useState<'hotel' | 'rede' | 'sistema' | 'modulos'>('hotel');
-    const [saved, setSaved] = useState(false);
-
-    const handleSave = () => {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-    };
 
     const tabs = [
         { id: 'hotel' as const, label: 'Hotel', icon: Building2 },
@@ -52,19 +46,7 @@ export default function ConfiguracoesPage() {
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                        {saved && (
-                            <motion.div
-                                initial={{ opacity: 0, x: 10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0 }}
-                                className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl"
-                            >
-                                <CheckCircle className="w-4 h-4 text-emerald-400" />
-                                <span className="text-xs font-black text-emerald-400 uppercase tracking-wider">Guardado</span>
-                            </motion.div>
-                        )}
-                    </div>
+                    <div className="flex items-center gap-3" />
                 </motion.div>
 
                 {/* Tabs */}

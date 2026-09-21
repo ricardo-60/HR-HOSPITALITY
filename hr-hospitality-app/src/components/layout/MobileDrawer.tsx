@@ -160,6 +160,7 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
                                     onClick={handleLogout}
                                     className="p-2 hover:bg-red-500/15 hover:text-red-400 border border-transparent hover:border-red-500/20 rounded-lg transition-all text-white/30 flex-shrink-0"
                                     title="Sair"
+                                    aria-label="Terminar sessão"
                                 >
                                     <LogOut className="w-4 h-4" />
                                 </button>

@@ -1,0 +1,12 @@
+-- ============================================================
+--   HR-HOSPITALITY — MIGRAÇÃO 003 · FILA DE SINCRONIZAÇÃO (Supabase)
+--
+--   NO-OP INTENCIONAL: a tabela `sync_queue` é exclusiva do
+--   SQLite local (hospitality_local.db) — é a fila de eventos
+--   offline que o src/lib/syncEngine.ts consome e reconcilia
+--   com o Supabase. Não faz sentido existir na nuvem.
+--
+--   Esta migração existe para manter o número de versão alinhado
+--   entre os dois ambientes (sqlite ↔ supabase).
+-- ============================================================
+SELECT 'sync_queue é local-only — nenhuma alteração no Supabase' AS info;

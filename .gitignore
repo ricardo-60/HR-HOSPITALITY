@@ -40,5 +40,8 @@ test-results/
 # Binários
 mingit.zip
 
+# Snapshots de base de dados (podem conter dados operacionais)
+backups/
+
 # Subprojects / external repos
 hotel-lukweku-repo/

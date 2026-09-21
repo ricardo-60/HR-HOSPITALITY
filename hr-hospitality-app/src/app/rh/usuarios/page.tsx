@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useAuth, User } from '@/context/AuthContext';
+import { useAuth, User, UserInput } from '@/context/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion } from 'framer-motion';
 import { Users, UserPlus, Shield, Ban, Eye, Key, ToggleLeft, Trash2, Edit3, CheckCircle, XCircle } from 'lucide-react';
@@ -68,10 +68,11 @@ export default function UsuariosManagementPage() {
 
     const handleCreate = (e: React.FormEvent) => {
         e.preventDefault();
-        const newUser: User = {
+        // A palavra-passe é convertida em hash PBKDF2 dentro do AuthContext
+        const newUser: UserInput = {
             id: id || `EMP-2026-${Math.floor(100 + Math.random() * 900)}`,
             name,
-            password: password || '123456',
+            password: password || undefined,
             role,
             commissionRate,
             restrictions,
@@ -86,10 +87,11 @@ export default function UsuariosManagementPage() {
         e.preventDefault();
         if (!editingUser) return;
 
-        const updated: User = {
+        // Campo em branco preserva o hash existente (tratado no AuthContext)
+        const updated: UserInput = {
             id: editingUser.id,
             name,
-            password: password || editingUser.password,
+            password: password || undefined,
             role,
             commissionRate,
             restrictions,
@@ -105,7 +107,7 @@ export default function UsuariosManagementPage() {
         setIsCreating(false);
         setId(user.id);
         setName(user.name);
-        setPassword(user.password || '');
+        setPassword(''); // Nunca pré-preencher credenciais
         setRole(user.role);
         setCommissionRate(user.commissionRate);
         setRestrictions(user.restrictions || []);

@@ -6,6 +6,7 @@
  */
 import { supabaseClient } from './supabaseClient';
 import { localQuery, localExecute, checkServerHealth } from './db/localDB';
+import { startAutoSync, scheduleFlushAfterWrite } from './syncEngine';
 
 // Estado global de conectividade
 let onlineStatus: boolean | null = null;
@@ -40,6 +41,9 @@ if (typeof window !== 'undefined') {
     onlineStatus = false;
     console.log('[HOSPITALITY/DataLayer] Sem conexão física à rede.');
   });
+
+  // CORREÇÃO: ativa o motor de reconciliação da sync_queue -> Supabase
+  startAutoSync();
 }
 
 // Garantir a existência da tabela sync_queue no SQLite local
@@ -189,7 +193,13 @@ class HybridQueryBuilder {
     // Tentar Supabase primeiro se disponível
     if (isOnline() && supabaseClient) {
       try {
-        return await this.executeSupabase();
+        const result = await this.executeSupabase();
+        // Se Supabase devolveu erro (DNS, rede, 404, etc.), fallback para local
+        if (result && result.error) {
+          console.warn(`[HOSPITALITY/DataLayer] Supabase retornou erro, fallback local:`, result.error?.message || result.error);
+          return await this.executeLocal();
+        }
+        return result;
       } catch (err) {
         console.warn(`[HOSPITALITY/DataLayer] Supabase falhou, tentando fallback local:`, err);
       }
@@ -288,7 +298,10 @@ class HybridQueryBuilder {
       if (this.method === 'select') {
         return await this.executeLocalSelect();
       } else {
-        return await this.executeLocalWrite();
+        const result = await this.executeLocalWrite();
+        // Escrita local concluída: agenda tentativa de reconciliação com a nuvem
+        scheduleFlushAfterWrite();
+        return result;
       }
     } catch (err: any) {
       console.error(`[HOSPITALITY/DataLayer] Erro de execução local:`, err);

@@ -25,5 +25,20 @@ build/
 .env.production.local
 .env
 
+# Local SQLite databases (nunca commitar dados operacionais)
+hospitality_local.db
+hospitality_local.db-shm
+hospitality_local.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Playwright artifacts
+playwright-report/
+test-results/
+
+# Binários
+mingit.zip
+
 # Subprojects / external repos
 hotel-lukweku-repo/

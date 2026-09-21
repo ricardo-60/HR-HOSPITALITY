@@ -2,10 +2,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useAuth, User } from '@/context/AuthContext';
+import { useAuth, UserInput } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { UserPlus, User as UserIcon, Key, IdentificationIcon, Shield, ArrowLeft } from 'lucide-react';
+import { UserPlus, User as UserIcon, Key, Shield, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
 export default function CadastroPage() {
@@ -22,7 +22,8 @@ export default function CadastroPage() {
         e.preventDefault();
         setLoading(true);
 
-        const newUser: User = {
+        // A palavra-passe é convertida em hash PBKDF2 dentro do AuthContext
+        const newUser: UserInput = {
             id: id || `EMP-2026-${Math.floor(100 + Math.random() * 900)}`,
             name,
             role,

@@ -19,6 +19,16 @@
 
 # production
 /build
+/dist
+
+# local sqlite database (Electron local server)
+*.db
+*.db-shm
+*.db-wal
+
+# playwright
+/test-results/
+/playwright-report/
 
 # misc
 .DS_Store
@@ -30,8 +40,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — NUNCA commitar segredos (chaves Supabase, etc.)
 .env*
+!.env.example
 
 # vercel
 .vercel

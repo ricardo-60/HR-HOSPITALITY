@@ -47,10 +47,22 @@ export default function LoginPage() {
         setLoading(false);
 
         if (success) {
-            router.push('/');
+            navigateAfterLogin();
         } else {
             setError('Credenciais inválidas. Verifique o ID/Nome e palavra-passe.');
         }
+    };
+
+    /** SEGURANÇA: contas com palavra-passe padrão vão para alteração obrigatória. */
+    const navigateAfterLogin = () => {
+        try {
+            const session = JSON.parse(localStorage.getItem('hr_active_user') || 'null');
+            if (session?.mustChangePassword) {
+                router.push('/alterar-palavra-passe');
+                return;
+            }
+        } catch { /* segue fluxo normal */ }
+        router.push('/');
     };
 
     const handleQuickLogin = async (id: string, pass: string) => {
@@ -59,7 +71,7 @@ export default function LoginPage() {
         const success = await login(id, pass);
         setLoading(false);
         if (success) {
-            router.push('/');
+            navigateAfterLogin();
         }
     };
 

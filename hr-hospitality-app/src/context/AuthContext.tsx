@@ -105,6 +105,8 @@ export interface User {
     restrictions: string[]; // List of paths or modules blocked (e.g. ['/spa', '/logistica'])
     allowedModules: string[]; // For ACESSO role, e.g. ['pos', 'lavandaria']
     status: 'ATIVO' | 'BLOQUEADO';
+    /** true = credencial conhecida/padrão; o login redireciona para alteração obrigatória. */
+    mustChangePassword?: boolean;
 }
 
 /** Input aceite ao criar/editar utilizadores: pode incluir texto simples, que é convertido em hash. */
@@ -119,6 +121,8 @@ interface AuthContextType {
     updateUser: (updatedUser: UserInput) => void;
     deleteUser: (id: string) => void;
     checkAccess: (path: string) => boolean;
+    /** Altera a palavra-passe do utilizador em sessão (exige a atual). */
+    changeOwnPassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -185,18 +189,29 @@ async function migrateUsers(rawList: any[]): Promise<User[]> {
     for (const u of rawList) {
         const user: User & { password?: string } = { ...u };
 
-        if (user.password && typeof user.password === 'string' && !user.passwordHash) {
+        const hadLegacyPlaintext = Boolean(user.password && typeof user.password === 'string' && !user.passwordHash);
+
+        if (hadLegacyPlaintext) {
             // Legado: hash do texto simples existente e remoção do campo
-            const { hash, salt } = await hashPassword(user.password);
+            const { hash, salt } = await hashPassword(user.password as string);
             user.passwordHash = hash;
             user.passwordSalt = salt;
             delete user.password;
         } else if (!user.passwordHash) {
-            // Conta nova de demonstração sem credencial: semear hash inicial
+            // Conta nova de demonstração sem credencial: semear hash inicial temporário
             const initial = INITIAL_CREDENTIALS[user.id] ?? DEFAULT_PASSWORD;
             const { hash, salt } = await hashPassword(initial);
             user.passwordHash = hash;
             user.passwordSalt = salt;
+        } else {
+            delete user.password;
+        }
+
+        // SEGURANÇA: contas com credencial padrão/conhecida (seed) ou migradas de
+        // texto simples exigem alteração de palavra-passe no primeiro login.
+        if (user.mustChangePassword === undefined) {
+            user.mustChangePassword = hadLegacyPlaintext
+                || INITIAL_CREDENTIALS[user.id] !== undefined;
         }
 
         delete user.password; // Garantia: nunca persistir texto simples
@@ -318,7 +333,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             const { password: _p, ...rest } = newUser;
-            const stored: User = { ...(rest as User), passwordHash, passwordSalt };
+            const stored: User = { ...(rest as User), passwordHash, passwordSalt, mustChangePassword: false };
             saveUsers([...users, stored]);
         })();
     };
@@ -337,7 +352,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             const { password: _p, ...rest } = updatedUser;
-            const stored: User = { ...(rest as User), passwordHash, passwordSalt };
+            const stored: User = {
+                ...(rest as User),
+                passwordHash,
+                passwordSalt,
+                // Nova palavra-passe definida pelo administrador limpa a exigência
+                mustChangePassword: updatedUser.password ? false : (existing?.mustChangePassword ?? false),
+            };
             const updated = users.map(u => (u.id === stored.id ? stored : u));
             saveUsers(updated);
 
@@ -348,6 +369,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 localStorage.setItem('hr_active_user', JSON.stringify(publicUser));
             }
         })();
+    };
+
+    /** Alteração obrigatória/voluntária da palavra-passe do utilizador em sessão. */
+    const changeOwnPassword = async (currentPassword: string, newPassword: string): Promise<boolean> => {
+        if (!user) return false;
+
+        const stored = users.find(u => u.id === user.id);
+        if (!stored?.passwordHash || !stored?.passwordSalt) {
+            console.error('[HOSPITALITY/Auth] Utilizador sem credencial válida:', stored?.id);
+            return false;
+        }
+
+        // Exigir a palavra-passe atual
+        if (!(await verifyPassword(currentPassword, stored.passwordHash, stored.passwordSalt))) {
+            return false;
+        }
+
+        // Política mínima: 8 caracteres
+        if (!newPassword || newPassword.length < 8) {
+            alert('A nova palavra-passe deve ter pelo menos 8 caracteres.');
+            return false;
+        }
+
+        if (newPassword === currentPassword) {
+            alert('A nova palavra-passe deve ser diferente da atual.');
+            return false;
+        }
+
+        const { hash, salt } = await hashPassword(newPassword);
+        const updated = users.map(u =>
+            u.id === stored.id
+                ? { ...u, passwordHash: hash, passwordSalt: salt, mustChangePassword: false }
+                : u
+        );
+        saveUsers(updated);
+
+        const updatedStored = updated.find(u => u.id === stored.id)!;
+        const publicUser = toPublicUser(updatedStored);
+        setUser(publicUser);
+        localStorage.setItem('hr_active_user', JSON.stringify(publicUser));
+        return true;
     };
 
     const deleteUser = (id: string) => {
@@ -387,7 +449,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     return (
-        <AuthContext.Provider value={{ user, users, login, logout, registerUser, updateUser, deleteUser, checkAccess }}>
+        <AuthContext.Provider value={{ user, users, login, logout, registerUser, updateUser, deleteUser, checkAccess, changeOwnPassword }}>
             {children}
         </AuthContext.Provider>
     );

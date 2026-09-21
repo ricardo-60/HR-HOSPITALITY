@@ -81,9 +81,19 @@ Consome a fila `sync_queue` e reconcilia com o Supabase:
 - **Palavras-passe com hash PBKDF2-SHA256** (Web Crypto, 150 000 iterações,
   salt aleatório de 16 bytes, comparação em tempo constante). Nenhuma senha
   é armazenada em texto simples; a sessão ativa não contém material de hash.
+- **Alteração obrigatória no 1.º login**: contas com credencial padrão
+  (`mustChangePassword = true`) são redirecionadas para `/alterar-palavra-passe`,
+  que exige a senha atual, nova senha com mínimo de 8 caracteres e confirmação.
 - Migração automática de contas legadas no arranque.
-- Contas de demonstração (1.ª execução): `admin` / `user123` / `staff` /
-  `snack` — **alterar no primeiro login**.
+- Contas de demonstração (1.ª execução) — credenciais **temporárias** de
+  primeiro acesso (o sistema força a substituição no login):
+
+  | Utilizador | ID | Palavra-passe temporária |
+  |---|---|---|
+  | Ricardo Ferreira (Administrador) | `EMP-2026-001` | `admin` |
+  | Ana Sousa (Permissão) | `EMP-2026-002` | `user123` |
+  | João Silva (Acesso) | `EMP-2026-003` | `staff` |
+  | Operador Snack Bar (Acesso) | `EMP-2026-004` | `snack` |
 
 ---
 

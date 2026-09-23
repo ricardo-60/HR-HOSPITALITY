@@ -1,9 +1,18 @@
 'use client';
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { motion } from 'framer-motion';
-import { Heart, Droplets, Sun, Zap, Star, Clock } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Heart, Droplets, Sun, Zap, Star, Clock, X, CalendarCheck } from 'lucide-react';
 import Image from 'next/image';
+import { useState, useEffect } from 'react';
+
+interface SpaReserva {
+    id: string;
+    cliente: string;
+    servico: string;
+    data: string;
+    hora: string;
+}
 
 const services = [
     { name: 'Massagem Relaxante', duration: '60 min', price: '15.000 Kz', icon: Heart, status: 'DISPONÍVEL' },
@@ -14,14 +23,56 @@ const services = [
     { name: 'Yoga & Meditação', duration: '50 min', price: '5.000 Kz', icon: Clock, status: 'RESERVADO' },
 ];
 
-const stats = [
-    { label: 'Sessões Hoje', value: '14', color: '#40E0D0' },
-    { label: 'Clientes Ativos', value: '8', color: '#FFD700' },
-    { label: 'Receita Diária', value: '142K Kz', color: '#10B981' },
-    { label: 'Avaliação Média', value: '4.9★', color: '#0047AB' },
-];
-
 export default function SpaPage() {
+    const [reservas, setReservas] = useState<SpaReserva[]>([]);
+
+    // KPIs derivados das reservas reais (localStorage) — nunca valores fixos
+    const precoNum = (p: string) => parseFloat(p.replace(/\./g, '').replace(/[^\d]/g, '')) || 0;
+    const hojeIso = new Date().toISOString().split('T')[0];
+    const reservasHoje = reservas.filter(r => r.data === hojeIso);
+    const clientesAtivos = new Set(reservas.map(r => r.cliente)).size;
+    const receitaHoje = reservasHoje.reduce((acc, r) => {
+        const svc = services.find(s => s.name === r.servico);
+        return acc + (svc ? precoNum(svc.price) : 0);
+    }, 0);
+    const stats = [
+        { label: 'Sessões Hoje', value: String(reservasHoje.length), color: '#40E0D0' },
+        { label: 'Clientes Ativos', value: String(clientesAtivos), color: '#FFD700' },
+        { label: 'Receita Diária', value: `${receitaHoje.toLocaleString('pt-PT')} Kz`, color: '#10B981' },
+        { label: 'Reservas Totais', value: String(reservas.length), color: '#0047AB' },
+    ];
+    const [showReservaModal, setShowReservaModal] = useState(false);
+    const [cliente, setCliente] = useState('');
+    const [servico, setServico] = useState(services[0].name);
+    const [data, setData] = useState('');
+    const [hora, setHora] = useState('');
+
+    useEffect(() => {
+        try { setReservas(JSON.parse(localStorage.getItem('spa_reservas') || '[]')); } catch { /* ignorar dados inválidos */ }
+    }, []);
+
+    const guardarReservas = (lista: SpaReserva[]) => {
+        setReservas(lista);
+        localStorage.setItem('spa_reservas', JSON.stringify(lista));
+    };
+
+    const criarReserva = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!cliente.trim() || !data || !hora) return;
+        const nova: SpaReserva = {
+            id: `SPA-${Date.now().toString().slice(-6)}`,
+            cliente: cliente.trim(),
+            servico,
+            data,
+            hora,
+        };
+        guardarReservas([nova, ...reservas]);
+        setCliente('');
+        setData('');
+        setHora('');
+        setShowReservaModal(false);
+    };
+
     return (
         <DashboardLayout>
             <div className="max-w-[1500px] mx-auto space-y-16 pb-20 px-4">
@@ -44,7 +95,7 @@ export default function SpaPage() {
                         </p>
                     </div>
                     <div className="flex gap-4">
-                        <button className="px-8 py-5 bg-[var(--brand-accent)] text-black font-black text-[10px] uppercase tracking-[0.4em] rounded-[24px] hover:scale-105 transition-all shadow-[0_10px_30px_rgba(64,224,208,0.3)]">
+                        <button onClick={() => setShowReservaModal(true)} className="px-8 py-5 bg-[var(--brand-accent)] text-black font-black text-[10px] uppercase tracking-[0.4em] rounded-[24px] hover:scale-105 transition-all shadow-[0_10px_30px_rgba(64,224,208,0.3)]">
                             Nova Reserva
                         </button>
                     </div>
@@ -141,7 +192,113 @@ export default function SpaPage() {
                         </motion.div>
                     ))}
                 </div>
+
+                {/* Próximas Reservas */}
+                <div>
+                    <div className="flex items-center gap-4 mb-10">
+                        <div className="w-1.5 h-6 bg-[var(--brand-accent)] shadow-[0_0_10px_var(--brand-accent)]" />
+                        <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Próximas Reservas</h2>
+                        <span className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border text-[var(--brand-accent)] border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/10">{reservas.length}</span>
+                    </div>
+                    {reservas.length === 0 ? (
+                        <div className="glass-panel rounded-[32px] border border-white/10 p-10 text-center">
+                            <CalendarCheck className="w-8 h-8 text-white/20 mx-auto mb-4" />
+                            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.4em]">Sem reservas agendadas — clique em "Nova Reserva"</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <AnimatePresence mode="popLayout">
+                                {reservas.map((r, i) => (
+                                    <motion.div key={r.id} layout
+                                        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+                                        transition={{ delay: 0.04 * i }}
+                                        className="glass-panel rounded-[24px] border border-white/10 p-6 flex flex-col md:flex-row md:items-center gap-4 md:gap-8 hover:border-[var(--brand-accent)]/40 transition-all"
+                                    >
+                                        <div className="p-3 bg-[var(--brand-accent)]/10 border border-[var(--brand-accent)]/20 rounded-xl">
+                                            <CalendarCheck className="w-5 h-5 text-[var(--brand-accent)]" />
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-sm font-black text-white uppercase tracking-tight">{r.cliente}</p>
+                                            <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mt-1">{r.id}</p>
+                                        </div>
+                                        <p className="text-[10px] font-black text-[var(--brand-accent)] uppercase tracking-widest">{r.servico}</p>
+                                        <p className="text-[11px] font-black text-white/50 tabular-nums uppercase">{r.data} • {r.hora}</p>
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+                        </div>
+                    )}
+                </div>
             </div>
+
+            {/* Modal Nova Reserva */}
+            <AnimatePresence>
+                {showReservaModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+                    >
+                        <motion.form
+                            onSubmit={criarReserva}
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-[#0A0A0A] border border-white/10 rounded-3xl p-8 w-full max-w-lg space-y-5 max-h-[90vh] overflow-y-auto"
+                        >
+                            <div className="flex items-center justify-between border-b border-white/5 pb-5">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-1.5 h-5 bg-[var(--brand-accent)] shadow-[0_0_10px_var(--brand-accent)]" />
+                                    <h3 className="text-lg font-black text-white uppercase tracking-widest">Nova Reserva</h3>
+                                </div>
+                                <button type="button" onClick={() => setShowReservaModal(false)} className="text-white/30 hover:text-white transition-colors">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Cliente</label>
+                                <input type="text" required value={cliente} onChange={(e) => setCliente(e.target.value)}
+                                    placeholder="Ex: Carlos Mendes"
+                                    className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-accent)] transition-all font-bold" />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Serviço</label>
+                                <select value={servico} onChange={(e) => setServico(e.target.value)}
+                                    className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-accent)] transition-all font-bold">
+                                    {services.map(s => (
+                                        <option key={s.name} value={s.name} className="bg-[#0A0A0A]">{s.name} — {s.price}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Data</label>
+                                    <input type="date" required value={data} onChange={(e) => setData(e.target.value)}
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-accent)] transition-all font-bold" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Hora</label>
+                                    <input type="time" required value={hora} onChange={(e) => setHora(e.target.value)}
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-accent)] transition-all font-bold" />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button type="button" onClick={() => setShowReservaModal(false)}
+                                    className="flex-1 px-6 py-4 bg-white/5 border border-white/10 text-white/60 font-black text-[10px] uppercase tracking-widest rounded-2xl hover:bg-white/10 transition-all">
+                                    Cancelar
+                                </button>
+                                <button type="submit"
+                                    className="flex-1 px-6 py-4 bg-[var(--brand-accent)] text-black font-black text-[10px] uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-[0_10px_30px_rgba(64,224,208,0.3)]">
+                                    Confirmar Reserva
+                                </button>
+                            </div>
+                        </motion.form>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </DashboardLayout>
     );
 }

@@ -17,10 +17,12 @@ export default function CadastroPage() {
     const [role, setRole] = useState<'PERMISSAO' | 'ACESSO'>('ACESSO');
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
+    const [error, setError] = useState('');
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+        setError('');
 
         // A palavra-passe é convertida em hash PBKDF2 dentro do AuthContext
         const newUser: UserInput = {
@@ -41,7 +43,7 @@ export default function CadastroPage() {
                 router.push('/login');
             }, 2000);
         } catch (err) {
-            alert('Erro ao registar utilizador.');
+            setError((err as any)?.message || 'Erro ao registar utilizador. Verifique os dados e tente novamente.');
         } finally {
             setLoading(false);
         }
@@ -77,6 +79,16 @@ export default function CadastroPage() {
                     <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[var(--brand-accent)] to-transparent opacity-50" />
                     
                     <h2 className="text-xl font-black uppercase tracking-wider text-center mb-8">Criar Conta</h2>
+
+                    {error && !success && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-2xl text-[10px] font-black uppercase tracking-wider mb-6 text-center"
+                        >
+                            {error}
+                        </motion.div>
+                    )}
 
                     {success ? (
                         <motion.div

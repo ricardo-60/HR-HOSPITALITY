@@ -3,8 +3,8 @@
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Car, MapPin, Clock, User, Phone, CheckCircle2, Circle, Plus, Navigation } from 'lucide-react';
-import { useState } from 'react';
+import { Car, MapPin, Clock, User, Phone, CheckCircle2, Circle, Plus, Navigation, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 interface Transfer {
     id: string;
@@ -19,7 +19,7 @@ interface Transfer {
     type: 'AEROPORTO' | 'HOTEL' | 'CITY TOUR' | 'EXECUTIVO';
 }
 
-const transfers: Transfer[] = [
+const seedTransfers: Transfer[] = [
     { id: 'TRF-001', guest: 'Carlos Mendes', room: '101', from: 'Hotel Lukweku', to: 'Aeroporto Internacional', time: '06:30', driver: 'António Silva', vehicle: 'Toyota Land Cruiser', status: 'CONCLUÍDO', type: 'AEROPORTO' },
     { id: 'TRF-002', guest: 'Maria Santos', room: '205', from: 'Aeroporto Internacional', to: 'Hotel Lukweku', time: '10:15', driver: 'José Ferreira', vehicle: 'Mercedes E-Class', status: 'EM CURSO', type: 'AEROPORTO' },
     { id: 'TRF-003', guest: 'João Baptista', room: '312', from: 'Hotel Lukweku', to: 'Mausoléo António Agostinho Neto', time: '14:00', driver: 'Carlos Gomes', vehicle: 'Land Rover Defender', status: 'AGENDADO', type: 'CITY TOUR' },
@@ -44,6 +44,48 @@ const typeConfig = {
 export default function TransferPage() {
     const [activeFilter, setActiveFilter] = useState<string>('TODOS');
     const filters = ['TODOS', 'AGENDADO', 'EM CURSO', 'CONCLUÍDO'];
+
+    // Lista em estado (seed = array base), persistida em localStorage
+    const [transfers, setTransfers] = useState<Transfer[]>(seedTransfers);
+    useEffect(() => {
+        try {
+            const guardados = JSON.parse(localStorage.getItem('transfer_transfers') || 'null');
+            if (Array.isArray(guardados) && guardados.length > 0) setTransfers(guardados);
+        } catch { /* ignorar dados inválidos */ }
+    }, []);
+
+    const guardarTransfers = (lista: Transfer[]) => {
+        setTransfers(lista);
+        localStorage.setItem('transfer_transfers', JSON.stringify(lista));
+    };
+
+    const alterarStatus = (id: string, novoStatus: Transfer['status']) => {
+        guardarTransfers(transfers.map(t => t.id === id ? { ...t, status: novoStatus } : t));
+    };
+
+    // Modal "Novo Transfer"
+    const [showModal, setShowModal] = useState(false);
+    const [form, setForm] = useState({ guest: '', room: '', from: '', to: '', time: '', driver: '', type: 'AEROPORTO' as Transfer['type'] });
+
+    const criarTransfer = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!form.guest.trim() || !form.from.trim() || !form.to.trim()) return;
+        const novo: Transfer = {
+            id: `TRF-${String(transfers.length + 1).padStart(3, '0')}-${Date.now().toString().slice(-3)}`,
+            guest: form.guest.trim(),
+            room: form.room.trim() || '—',
+            from: form.from.trim(),
+            to: form.to.trim(),
+            time: form.time || '00:00',
+            driver: form.driver.trim() || 'Por alocar',
+            vehicle: 'Por alocar',
+            status: 'AGENDADO',
+            type: form.type,
+        };
+        guardarTransfers([novo, ...transfers]);
+        setForm({ guest: '', room: '', from: '', to: '', time: '', driver: '', type: 'AEROPORTO' });
+        setShowModal(false);
+    };
 
     const agendados = transfers.filter(t => t.status === 'AGENDADO').length;
     const emCurso = transfers.filter(t => t.status === 'EM CURSO').length;
@@ -82,7 +124,7 @@ export default function TransferPage() {
                                 </div>
                             ))}
                         </div>
-                        <button className="flex items-center gap-3 px-8 py-5 bg-[var(--brand-secondary)] text-black font-black text-[10px] uppercase tracking-[0.4em] rounded-[24px] hover:scale-105 transition-all shadow-[0_10px_30px_rgba(255,215,0,0.3)]">
+                        <button onClick={() => setShowModal(true)} className="flex items-center gap-3 px-8 py-5 bg-[var(--brand-secondary)] text-black font-black text-[10px] uppercase tracking-[0.4em] rounded-[24px] hover:scale-105 transition-all shadow-[0_10px_30px_rgba(255,215,0,0.3)]">
                             <Plus className="w-4 h-4" /> Novo Transfer
                         </button>
                     </div>
@@ -168,12 +210,12 @@ export default function TransferPage() {
 
                                         {/* Action */}
                                         {t.status === 'AGENDADO' && (
-                                            <button className="flex items-center gap-2 px-5 py-2 bg-cyan-400 text-black text-[9px] font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all shadow-[0_0_15px_rgba(34,211,238,0.3)] whitespace-nowrap">
+                                            <button onClick={() => alterarStatus(t.id, 'EM CURSO')} className="flex items-center gap-2 px-5 py-2 bg-cyan-400 text-black text-[9px] font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all shadow-[0_0_15px_rgba(34,211,238,0.3)] whitespace-nowrap">
                                                 <Navigation className="w-3 h-3" /> Iniciar
                                             </button>
                                         )}
                                         {t.status === 'EM CURSO' && (
-                                            <button className="flex items-center gap-2 px-5 py-2 bg-emerald-500 text-black text-[9px] font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all whitespace-nowrap">
+                                            <button onClick={() => alterarStatus(t.id, 'CONCLUÍDO')} className="flex items-center gap-2 px-5 py-2 bg-emerald-500 text-black text-[9px] font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all whitespace-nowrap">
                                                 <CheckCircle2 className="w-3 h-3" /> Concluir
                                             </button>
                                         )}
@@ -219,6 +261,92 @@ export default function TransferPage() {
                     </div>
                 </motion.div>
             </div>
+
+            {/* Modal Novo Transfer */}
+            <AnimatePresence>
+                {showModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+                    >
+                        <motion.form
+                            onSubmit={criarTransfer}
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-[#0A0A0A] border border-white/10 rounded-3xl p-8 w-full max-w-lg space-y-5 max-h-[90vh] overflow-y-auto"
+                        >
+                            <div className="flex items-center justify-between border-b border-white/5 pb-5">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-1.5 h-5 bg-[var(--brand-secondary)] shadow-[0_0_10px_var(--brand-secondary)]" />
+                                    <h3 className="text-lg font-black text-white uppercase tracking-widest">Novo Transfer</h3>
+                                </div>
+                                <button type="button" onClick={() => setShowModal(false)} className="text-white/30 hover:text-white transition-colors">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2 col-span-2 sm:col-span-1">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Hóspede</label>
+                                    <input type="text" required value={form.guest} onChange={(e) => setForm({ ...form, guest: e.target.value })}
+                                        placeholder="Ex: Ana Rodrigues"
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-secondary)] transition-all font-bold" />
+                                </div>
+                                <div className="space-y-2 col-span-2 sm:col-span-1">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Quarto</label>
+                                    <input type="text" value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })}
+                                        placeholder="Ex: 205"
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-secondary)] transition-all font-bold" />
+                                </div>
+                                <div className="space-y-2 col-span-2 sm:col-span-1">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Origem</label>
+                                    <input type="text" required value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })}
+                                        placeholder="Ex: Hotel Lukweku"
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-secondary)] transition-all font-bold" />
+                                </div>
+                                <div className="space-y-2 col-span-2 sm:col-span-1">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Destino</label>
+                                    <input type="text" required value={form.to} onChange={(e) => setForm({ ...form, to: e.target.value })}
+                                        placeholder="Ex: Aeroporto Internacional"
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-secondary)] transition-all font-bold" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Hora</label>
+                                    <input type="time" value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })}
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-secondary)] transition-all font-bold" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Tipo</label>
+                                    <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as Transfer['type'] })}
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-secondary)] transition-all font-bold">
+                                        {(['AEROPORTO', 'HOTEL', 'CITY TOUR', 'EXECUTIVO'] as const).map(t => (
+                                            <option key={t} value={t} className="bg-[#0A0A0A]">{t}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="space-y-2 col-span-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Motorista</label>
+                                    <input type="text" value={form.driver} onChange={(e) => setForm({ ...form, driver: e.target.value })}
+                                        placeholder="Ex: José Ferreira"
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-secondary)] transition-all font-bold" />
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button type="button" onClick={() => setShowModal(false)}
+                                    className="flex-1 px-6 py-4 bg-white/5 border border-white/10 text-white/60 font-black text-[10px] uppercase tracking-widest rounded-2xl hover:bg-white/10 transition-all">
+                                    Cancelar
+                                </button>
+                                <button type="submit"
+                                    className="flex-1 px-6 py-4 bg-[var(--brand-secondary)] text-black font-black text-[10px] uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-[0_10px_30px_rgba(255,215,0,0.3)]">
+                                    Criar Transfer
+                                </button>
+                            </div>
+                        </motion.form>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </DashboardLayout>
     );
 }

@@ -4,7 +4,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { QuickSale } from '@/components/pos/QuickSale';
 import { BillModal } from '@/components/pos/BillModal';
 import { Zap, Search, Filter } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 import Image from 'next/image';
 
@@ -17,9 +17,12 @@ const initialSnackTables = [
     { id: 'S6', number: 6, status: 'FREE' },
 ];
 
+const snackAreas = ['Interior Deck', 'Pool Area'];
+
 export default function SnackBarPage() {
     const [tableList, setTableList] = useState(initialSnackTables);
     const [selectedTable, setSelectedTable] = useState<any | null>(null);
+    const [activeArea, setActiveArea] = useState(snackAreas[0]);
 
     const handleBillClosed = (tableId: string) => {
         setTableList(prev => prev.map(t => {
@@ -66,17 +69,42 @@ export default function SnackBarPage() {
                     <div className="w-full lg:col-span-7 space-y-8 md:space-y-12">
                         <div className="flex justify-between items-center bg-[#111111] px-5 md:px-6 py-3 md:py-4 rounded-full border border-white/10 shadow-lg hidden md:flex">
                             <div className="flex gap-6 md:gap-8">
-                                <button className="btn-base btn-ghost btn-sm text-[var(--brand-accent)] relative font-black uppercase tracking-widest">
-                                    Interior Deck
-                                    <motion.div layoutId="snackNav" className="absolute -bottom-2 left-0 right-0 h-1 bg-[var(--brand-accent)] rounded-full drop-shadow-[0_0_8px_var(--brand-accent)]" />
-                                </button>
-                                <button className="btn-base btn-ghost btn-sm text-white/40 hover:text-[var(--brand-primary)] font-black uppercase tracking-widest transition-colors">Pool Area</button>
+                                {snackAreas.map((area) => (
+                                    <button key={area} onClick={() => setActiveArea(area)}
+                                        className={`btn-base btn-ghost btn-sm relative font-black uppercase tracking-widest transition-colors ${
+                                            activeArea === area ? 'text-[var(--brand-accent)]' : 'text-white/40 hover:text-[var(--brand-primary)]'
+                                        }`}>
+                                        {area}
+                                        {activeArea === area && (
+                                            <motion.div layoutId="snackNav" className="absolute -bottom-2 left-0 right-0 h-1 bg-[var(--brand-accent)] rounded-full drop-shadow-[0_0_8px_var(--brand-accent)]" />
+                                        )}
+                                    </button>
+                                ))}
                             </div>
                             <div className="flex gap-6">
                                 <Search className="w-5 h-5 text-white/20 cursor-pointer hover:text-[var(--brand-accent)] transition-all" />
                                 <Filter className="w-5 h-5 text-white/20 cursor-pointer hover:text-[var(--brand-accent)] transition-all" />
                             </div>
                         </div>
+
+                        {/* Cabeçalho/Legenda da grelha — reflete a área ativa (visível também em mobile) */}
+                        <AnimatePresence mode="wait">
+                            <motion.div key={activeArea}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -10 }}
+                                transition={{ duration: 0.25 }}
+                                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 bg-white/[0.02] border border-[var(--brand-accent)]/20 rounded-2xl"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <span className="w-2 h-2 rounded-full bg-[var(--brand-accent)] animate-pulse shadow-[0_0_10px_var(--brand-accent)]" />
+                                    <span className="text-[10px] font-black text-[var(--brand-accent)] uppercase tracking-[0.4em]">Grelha de Mesas — {activeArea}</span>
+                                </div>
+                                <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em]">
+                                    {activeArea === 'Interior Deck' ? 'Zona interior • Serviço rápido em sala' : 'Zona da piscina • Serviço exterior'}
+                                </span>
+                            </motion.div>
+                        </AnimatePresence>
 
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 md:gap-10">
                             {tableList.map((table) => (

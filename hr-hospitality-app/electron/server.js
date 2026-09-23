@@ -3,6 +3,8 @@ const cors = require('cors');
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { spawn } = require('child_process');
 
 // Carregar o caminho de dados do utilizador definido pelo main process
 const userDataPath = process.env.USER_DATA_PATH || process.cwd();
@@ -87,6 +89,75 @@ app.post('/api/db/query', (req, res) => {
     console.error(`[HospitalityServer] Erro em Query: ${sql}`, err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Rota de Transcrição de Voz — faster-whisper local (POST /api/voice/transcribe)
+// Aceita bytes de áudio brutos (audio/webm do MediaRecorder ou wav) e devolve { text, language, confidence }
+app.post('/api/voice/transcribe', express.raw({ type: () => true, limit: '25mb' }), (req, res) => {
+  const VOICE_TIMEOUT_MS = 120000;
+
+  if (!req.body || !req.body.length) {
+    return res.status(400).json({ error: 'Sem áudio no corpo do pedido' });
+  }
+
+  const lang = (req.query.lang || 'pt').toString();
+  const contentType = (req.headers['content-type'] || '').toLowerCase();
+  const ext = contentType.includes('wav') ? 'wav' : contentType.includes('mp4') ? 'mp4' : 'webm';
+  const tmpFile = path.join(os.tmpdir(), `hrh-voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`);
+
+  try {
+    fs.writeFileSync(tmpFile, req.body);
+  } catch (e) {
+    return res.status(500).json({ error: 'Falha ao guardar áudio temporário: ' + e.message });
+  }
+
+  const worker = path.join(__dirname, 'voice_worker.py');
+  const pythonBin = process.env.PYTHON_BIN || 'python';
+  const py = spawn(pythonBin, [worker, tmpFile, lang], { windowsHide: true });
+
+  let stdout = '';
+  let stderr = '';
+  let settled = false;
+
+  const cleanup = () => { try { fs.unlinkSync(tmpFile); } catch { /* ignore */ } };
+
+  const timer = setTimeout(() => {
+    if (!settled) {
+      settled = true;
+      py.kill();
+      cleanup();
+      res.status(504).json({ error: 'Transcrição excedeu o tempo limite (120s)' });
+    }
+  }, VOICE_TIMEOUT_MS);
+
+  py.stdout.on('data', d => { stdout += d.toString(); });
+  py.stderr.on('data', d => { stderr += d.toString(); });
+
+  py.on('error', (err) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    cleanup();
+    console.error('[HospitalityServer] Voz: falha ao invocar Python:', err.message);
+    res.status(500).json({ error: 'Motor de voz indisponível (' + pythonBin + '). Instale Python + faster-whisper ou defina PYTHON_BIN.' });
+  });
+
+  py.on('close', (code) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    cleanup();
+    if (code !== 0) {
+      console.error('[HospitalityServer] Voz: worker falhou (exit ' + code + '):', stderr.slice(0, 400));
+      return res.status(500).json({ error: 'Falha na transcrição: ' + (stderr.trim().split('\n').pop() || 'exit ' + code) });
+    }
+    try {
+      const result = JSON.parse(stdout.trim().split('\n').pop());
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: 'Resposta inválida do motor de voz' });
+    }
+  });
 });
 
 // Rota de Execução (INSERT, UPDATE, DELETE)

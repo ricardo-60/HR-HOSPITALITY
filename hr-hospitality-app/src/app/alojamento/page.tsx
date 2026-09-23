@@ -5,7 +5,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { CheckoutConsolidated } from '@/components/finance/CheckoutConsolidated';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Home, Users, Key, Calendar, ArrowRight, Zap, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { HoloRoomMap } from '@/components/alojamento/HoloRoomMap';
 import { supabase } from '@/lib/supabase';
@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase';
 export default function AlojamentoPage() {
     const [showCheckout, setShowCheckout] = useState(false);
     const [loadingCheckout, setLoadingCheckout] = useState(false);
+    const [checkoutHint, setCheckoutHint] = useState(false);
     const [checkoutData, setCheckoutData] = useState<{
         guestName: string;
         roomNumber: string;
@@ -20,6 +21,35 @@ export default function AlojamentoPage() {
         taxes: number;
         reservationId: string;
     } | null>(null);
+
+    const [kpis, setKpis] = useState<{ checkins: string; livres: string; aChegar: string; chaves: string } | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        const fallback = { checkins: '—', livres: '—', aChegar: '—', chaves: '—' };
+        (async () => {
+            try {
+                const hoje = new Date().toISOString().split('T')[0];
+                const [roomsRes, resRes] = await Promise.all([
+                    supabase.from('hotel_rooms').select('status'),
+                    supabase.from('hotel_reservations').select('check_in_date, status'),
+                ]);
+                if (cancelled) return;
+                if (roomsRes.error || !roomsRes.data) { setKpis(fallback); return; }
+                const rooms = roomsRes.data as { status: string }[];
+                const reservas = resRes.error ? [] : ((resRes.data || []) as { check_in_date: string | null; status: string }[]);
+                setKpis({
+                    checkins: String(reservas.filter(r => r.check_in_date === hoje).length),
+                    livres: String(rooms.filter(r => r.status === 'DISPONIVEL').length),
+                    aChegar: String(reservas.filter(r => (r.check_in_date || '') > hoje && r.status !== 'CHECKED_OUT').length),
+                    chaves: String(rooms.filter(r => r.status === 'OCUPADO').length),
+                });
+            } catch {
+                if (!cancelled) setKpis(fallback);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
 
     const handleSelectRoom = async (roomId: string, status: string) => {
         if (status === 'DISPONIVEL') {
@@ -75,6 +105,19 @@ export default function AlojamentoPage() {
         }
     };
 
+    // Botão CHECK-OUT do header: dispara o fluxo de checkout.
+    // Sem extrato consolidado (quarto ainda não selecionado no mapa), dá feedback inline
+    // e leva o utilizador ao Mapa de Quartos para escolher o quarto ocupado.
+    const handleHeaderCheckout = () => {
+        if (checkoutData) {
+            setShowCheckout(true);
+            return;
+        }
+        setCheckoutHint(true);
+        document.getElementById('room-map')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => setCheckoutHint(false), 5000);
+    };
+
     const handleFinalizeCheckout = async () => {
         if (!checkoutData) return;
         try {
@@ -102,7 +145,7 @@ export default function AlojamentoPage() {
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8 md:gap-12 border-b border-white/5 pb-10 md:pb-16"
+                    className="flex flex-col md:flex-row flex-wrap justify-between items-start md:items-end gap-8 md:gap-12 border-b border-white/5 pb-10 md:pb-16"
                 >
                     <div>
                         <div className="flex items-center gap-3 md:gap-4 mb-5 md:mb-8">
@@ -117,7 +160,7 @@ export default function AlojamentoPage() {
                         </p>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-3 md:gap-6 w-full md:w-auto">
+                    <div className="flex flex-col sm:flex-row gap-3 md:gap-6 w-full md:w-auto ml-auto">
                         <button
                             onClick={() => window.location.href = '/alojamento/checkin'}
                             className="flex-1 sm:flex-none px-6 md:px-12 py-4 md:py-8 bg-gradient-to-r from-cyber-cyan to-cyber-purple text-black font-black text-[10px] uppercase tracking-[0.3em] md:tracking-[0.5em] rounded-2xl md:rounded-[30px] shadow-[0_20px_40px_rgba(0,255,255,0.2)] hover:scale-105 transition-all flex items-center justify-center gap-3"
@@ -125,7 +168,7 @@ export default function AlojamentoPage() {
                             Check-in 360 <Zap className="w-4 h-4" />
                         </button>
                         <button
-                            onClick={() => setShowCheckout(true)}
+                            onClick={handleHeaderCheckout}
                             className="flex-1 sm:flex-none px-6 md:px-12 py-4 md:py-8 bg-black border border-[#00F2FF]/40 text-[#00F2FF] font-black text-[10px] uppercase tracking-[0.3em] md:tracking-[0.5em] rounded-2xl md:rounded-[30px] hover:bg-[#00F2FF] hover:text-black transition-all flex items-center justify-center gap-3"
                         >
                             Check-out <ArrowRight className="w-4 h-4" />
@@ -159,10 +202,10 @@ export default function AlojamentoPage() {
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8 lg:gap-10">
                     {[
-                        { label: 'Check-ins Hoje', value: '12', icon: Calendar, color: '#00F2FF' },
-                        { label: 'Quartos Livres', value: '45', icon: Home, color: '#10B981' },
-                        { label: 'A chegar', value: '08', icon: Users, color: '#8B5CF6' },
-                        { label: 'Chaves Ativas', value: '156', icon: Key, color: '#F59E0B' },
+                        { label: 'Check-ins Hoje', value: kpis?.checkins ?? '—', icon: Calendar, color: '#00F2FF' },
+                        { label: 'Quartos Livres', value: kpis?.livres ?? '—', icon: Home, color: '#10B981' },
+                        { label: 'A chegar', value: kpis?.aChegar ?? '—', icon: Users, color: '#8B5CF6' },
+                        { label: 'Chaves Ativas', value: kpis?.chaves ?? '—', icon: Key, color: '#F59E0B' },
                     ].map((stat, i) => (
                         <div key={i} className="bg-[#111111] border border-white/10 p-5 md:p-10 lg:p-12 rounded-[20px] md:rounded-[40px] lg:rounded-[50px] shadow-2xl group hover:border-[#00F2FF]/40 transition-all">
                             <div className="flex justify-between items-start mb-5 md:mb-10 lg:mb-12">
@@ -176,7 +219,27 @@ export default function AlojamentoPage() {
                     ))}
                 </div>
 
-                <HoloRoomMap onSelectRoom={handleSelectRoom} />
+                <div id="room-map">
+                    <HoloRoomMap onSelectRoom={handleSelectRoom} />
+                </div>
+
+                {/* Feedback inline do CHECK-OUT (sem extrato carregado) */}
+                <AnimatePresence>
+                    {checkoutHint && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 30 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 30 }}
+                            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[260] px-6 py-4 bg-[#0A0A0A] border border-[#00F2FF]/40 rounded-2xl shadow-[0_0_30px_rgba(0,242,255,0.2)] flex items-center gap-4 max-w-[90vw]"
+                        >
+                            <span className="w-2 h-2 rounded-full bg-[#00F2FF] animate-pulse shadow-[0_0_10px_#00F2FF] flex-shrink-0" />
+                            <p className="text-[10px] font-black text-white uppercase tracking-widest">
+                                CHECK-OUT: selecione um quarto <span className="text-[#00F2FF]">ocupado</span> no mapa para consolidar o extrato
+                            </p>
+                            <button onClick={() => setCheckoutHint(false)} className="text-white/30 hover:text-white text-sm font-bold flex-shrink-0">&times;</button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 {/* Loading checkout state overlay */}
                 <AnimatePresence>

@@ -25,6 +25,7 @@ export default function UsuariosManagementPage() {
     const { user: currentUser, users, registerUser, updateUser, deleteUser } = useAuth();
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [isCreating, setIsCreating] = useState(false);
+    const [formError, setFormError] = useState('');
 
     // Form states
     const [id, setId] = useState('');
@@ -64,6 +65,7 @@ export default function UsuariosManagementPage() {
         setStatus('ATIVO');
         setEditingUser(null);
         setIsCreating(false);
+        setFormError('');
     };
 
     const handleCreate = (e: React.FormEvent) => {
@@ -79,8 +81,13 @@ export default function UsuariosManagementPage() {
             allowedModules: role === 'ACESSO' ? allowedModules : ['*'],
             status
         };
-        registerUser(newUser);
-        resetForm();
+        try {
+            registerUser(newUser);
+            setFormError('');
+            resetForm();
+        } catch (err) {
+            setFormError(err instanceof Error ? err.message : 'Erro ao registar utilizador.');
+        }
     };
 
     const handleUpdate = (e: React.FormEvent) => {
@@ -98,8 +105,13 @@ export default function UsuariosManagementPage() {
             allowedModules: role === 'ACESSO' ? allowedModules : ['*'],
             status
         };
-        updateUser(updated);
-        resetForm();
+        try {
+            updateUser(updated);
+            setFormError('');
+            resetForm();
+        } catch (err) {
+            setFormError(err instanceof Error ? err.message : 'Erro ao atualizar utilizador.');
+        }
     };
 
     const startEdit = (user: User) => {
@@ -296,6 +308,12 @@ export default function UsuariosManagementPage() {
                                 </div>
                             )}
 
+                            {formError && (
+                                <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
+                                    {formError}
+                                </p>
+                            )}
+
                             {/* Actions Buttons */}
                             <div className="flex gap-4">
                                 <button
@@ -370,8 +388,9 @@ export default function UsuariosManagementPage() {
                                             </button>
                                             <button
                                                 onClick={() => deleteUser(u.id)}
-                                                className="p-3 bg-white/5 hover:bg-red-500/10 border border-white/5 hover:border-red-500/20 rounded-xl text-white/40 hover:text-red-500 transition-all"
-                                                title="Apagar"
+                                                disabled={u.id === currentUser?.id}
+                                                title={u.id === currentUser?.id ? 'Não é possível apagar a conta em sessão' : 'Apagar'}
+                                                className={`p-3 border rounded-xl transition-all ${u.id === currentUser?.id ? 'bg-white/5 border-white/5 text-white/20 cursor-not-allowed' : 'bg-white/5 hover:bg-red-500/10 border-white/5 hover:border-red-500/20 text-white/40 hover:text-red-500'}`}
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </button>

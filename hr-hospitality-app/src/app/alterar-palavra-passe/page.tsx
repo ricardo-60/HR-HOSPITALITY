@@ -26,6 +26,7 @@ export default function AlterarPalavraPassePage() {
     const [showCurrent, setShowCurrent] = useState(false);
     const [showNew, setShowNew] = useState(false);
     const [error, setError] = useState('');
+    const [successMsg, setSuccessMsg] = useState('');
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
@@ -48,16 +49,21 @@ export default function AlterarPalavraPassePage() {
             setError('A nova palavra-passe deve ter pelo menos 8 caracteres.');
             return;
         }
+        if (newPassword === currentPassword) {
+            setError('A nova palavra-passe deve ser diferente da atual.');
+            return;
+        }
 
         setLoading(true);
         const ok = await changeOwnPassword(currentPassword, newPassword);
         setLoading(false);
 
         if (ok) {
-            alert('Palavra-passe alterada com sucesso. Bem-vindo!');
-            router.push('/');
+            setError('');
+            setSuccessMsg('Palavra-passe alterada com sucesso. A redirecionar...');
+            setTimeout(() => router.push('/'), 1200);
         } else {
-            setError('Não foi possível alterar. Verifique a palavra-passe atual (mín. 8 caracteres na nova).');
+            setError('Não foi possível alterar. Verifique a palavra-passe atual.');
         }
     };
 
@@ -174,6 +180,12 @@ export default function AlterarPalavraPassePage() {
                     {error && (
                         <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
                             {error}
+                        </p>
+                    )}
+
+                    {successMsg && (
+                        <p className="text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3">
+                            {successMsg}
                         </p>
                     )}
 

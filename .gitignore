@@ -45,3 +45,14 @@ backups/
 
 # Subprojects / external repos
 hotel-lukweku-repo/
+
+# Credenciais de migração (nunca versionar)
+run_migration.ps1
+
+# Credenciais locais de QA/automação
+.env.qa
+**/.env.qa
+
+# Artefactos de auditoria QA (capturas e relatórios)
+qa-audit/
+**/qa-audit/

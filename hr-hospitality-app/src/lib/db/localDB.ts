@@ -38,13 +38,40 @@ function getServerUrl(): string {
   return 'http://localhost:3002';
 }
 
+// Limite de aviso de lentidão (ms) e truncagem do SQL em log.
+// Estado estável do servidor local é ~15ms; só avisamos acima de 1s, para não
+// poluir o console com a contenção natural do dev-mode (compilação Next.js).
+const SLOW_QUERY_THRESHOLD_MS = 1000;
+const MAX_SQL_LOG_LEN = 120;
+const briefSql = (sql: string) =>
+  sql.replace(/\s+/g, ' ').trim().slice(0, MAX_SQL_LOG_LEN) + (sql.length > MAX_SQL_LOG_LEN ? '…' : '');
+
+/**
+ * fetch com 1 retry curto — absorve falhas transitórias de arranque
+ * (ex.: servidor local ainda a inicializar) sem poluir o console.
+ */
+async function fetchWithRetry(url: string, init: RequestInit, retries = 1, delayMs = 300): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+  }
+  throw lastError;
+}
+
 /**
  * Executa uma consulta SQL (SELECT) que retorna linhas de dados.
  */
 export async function localQuery<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   const start = Date.now();
   try {
-    const response = await fetch(`${getServerUrl()}/api/db/query`, {
+    const response = await fetchWithRetry(`${getServerUrl()}/api/db/query`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -56,8 +83,8 @@ export async function localQuery<T = any>(sql: string, params: any[] = []): Prom
     }
     const data = await response.json();
     const duration = Date.now() - start;
-    if (duration > 50) {
-      console.warn(`[HOSPITALITY/LocalDB] Consulta SQLite demorou ${duration}ms:`, sql);
+    if (duration > SLOW_QUERY_THRESHOLD_MS) {
+      console.warn(`[HOSPITALITY/LocalDB] Consulta SQLite demorou ${duration}ms:`, briefSql(sql));
     }
     return data.rows || [];
   } catch (error) {
@@ -72,7 +99,7 @@ export async function localQuery<T = any>(sql: string, params: any[] = []): Prom
 export async function localExecute(sql: string, params: any[] = []): Promise<DBResult> {
   const start = Date.now();
   try {
-    const response = await fetch(`${getServerUrl()}/api/db/execute`, {
+    const response = await fetchWithRetry(`${getServerUrl()}/api/db/execute`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -84,8 +111,8 @@ export async function localExecute(sql: string, params: any[] = []): Promise<DBR
     }
     const result = await response.json();
     const duration = Date.now() - start;
-    if (duration > 50) {
-      console.warn(`[HOSPITALITY/LocalDB] Execução SQLite demorou ${duration}ms:`, sql);
+    if (duration > SLOW_QUERY_THRESHOLD_MS) {
+      console.warn(`[HOSPITALITY/LocalDB] Execução SQLite demorou ${duration}ms:`, briefSql(sql));
     }
     return result;
   } catch (error) {

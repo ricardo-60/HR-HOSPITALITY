@@ -203,7 +203,7 @@ export function PendingLeads() {
                                             <div className="flex flex-col sm:flex-row gap-3 sm:gap-6">
                                                 <div className="flex items-center gap-2">
                                                     <Home className="w-4 h-4 md:w-5 md:h-5 text-white/20" />
-                                                    <span className="text-xs md:text-sm font-black text-white/60">{lead.service_type} • Quarto {lead.room_id || '–'}</span>
+                                                    <span className="text-xs md:text-sm font-black text-white/60">{lead.service_type} • Quarto {rooms.find(r => r.id === lead.room_id)?.room_number || '–'}</span>
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <Calendar className="w-4 h-4 md:w-5 md:h-5 text-white/20" />
@@ -241,7 +241,7 @@ export function PendingLeads() {
                                                                     const selectEl = document.getElementById(`room-select-${lead.id}`) as HTMLSelectElement;
                                                                     const selectedRoomId = selectEl?.value;
                                                                     if (!selectedRoomId) {
-                                                                        alert("Por favor, selecione um quarto!");
+                                                                        setErrorMsg("Selecione um quarto para efetivar a reserva");
                                                                         return;
                                                                     }
                                                                     efetivarReserva(lead.id, selectedRoomId);

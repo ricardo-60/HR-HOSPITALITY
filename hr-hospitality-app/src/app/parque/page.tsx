@@ -4,9 +4,9 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion } from 'framer-motion';
 import { Car, ShieldCheck, Camera, MapPin, Clock, AlertTriangle } from 'lucide-react';
 import Image from 'next/image';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-const parkingSlots = [
+export const parkingSlots = [
     { id: 'A-01', plate: 'LD-12-34-AB', status: 'OCUPADO', entryTime: '08:30', type: 'HÓSPEDE' },
     { id: 'A-02', plate: 'LD-56-78-CD', status: 'OCUPADO', entryTime: '09:15', type: 'HÓSPEDE' },
     { id: 'A-03', plate: '', status: 'LIVRE', entryTime: '', type: '' },
@@ -32,6 +32,15 @@ const getSlotStyle = (status: string) => {
 
 export default function ParquePage() {
     const [filter, setFilter] = useState<'TODOS' | 'LIVRE' | 'OCUPADO'>('TODOS');
+    const [agora, setAgora] = useState('—');
+
+    useEffect(() => {
+        const tick = () => setAgora(new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+    }, []);
+
     const ocupados = parkingSlots.filter(s => s.status === 'OCUPADO').length;
     const livres = parkingSlots.filter(s => s.status === 'LIVRE').length;
     const reservados = parkingSlots.filter(s => s.status === 'RESERVADO').length;
@@ -81,9 +90,9 @@ export default function ParquePage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                     {[
                         { label: 'Capacidade Total', value: `${parkingSlots.length}`, icon: MapPin, color: '#40E0D0' },
-                        { label: 'Viaturas Hoje', value: `${ocupados + 3}`, icon: Car, color: '#FFD700' },
+                        { label: 'Viaturas Hoje', value: `${ocupados}`, icon: Car, color: '#FFD700' },
                         { label: 'Câmeras Ativas', value: '12/12', icon: Camera, color: '#10B981' },
-                        { label: 'Última Atualização', value: 'Agora', icon: Clock, color: '#0047AB' },
+                        { label: 'Última Atualização', value: agora, icon: Clock, color: '#0047AB' },
                     ].map((stat, i) => (
                         <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 * i }}
                             className="bg-[#111111] border border-white/10 p-8 rounded-[32px] shadow-xl flex flex-col gap-4">

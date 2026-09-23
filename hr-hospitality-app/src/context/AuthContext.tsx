@@ -116,6 +116,8 @@ interface AuthContextType {
     user: User | null;
     users: User[];
     login: (idOrName: string, password?: string) => Promise<boolean>;
+    /** Mensagem contextual do AuthContext (ex.: conta bloqueada) para exibição inline. */
+    authError: string | null;
     logout: () => void;
     registerUser: (newUser: UserInput) => void;
     updateUser: (updatedUser: UserInput) => void;
@@ -131,7 +133,32 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Contas de demonstração (apenas semeiam hashes na 1.ª execução)
 // ---------------------------------------------------------------------------
 
+/**
+ * Conta máster — Administrador com acesso total.
+ * O hash PBKDF2-SHA256 (150.000 iterações, salt 16B) foi pré-gerado fora do
+ * código: a palavra-passe em texto simples NUNCA é guardada nem versionada.
+ * mustChangePassword: false — entra diretamente com a credencial definida.
+ */
+const MASTER_USER: User = {
+    id: 'MASTER-001',
+    name: 'Hermenegildo. Ricardo',
+    role: 'ADMINISTRATOR',
+    passwordHash: 'KwvceIR9yZId9Jh3EVZqz3Dy+9gDMcH+ffGMUpBVZmQ=',
+    passwordSalt: 'zAs3NH1gJunoywqG6runfA==',
+    commissionRate: 0,
+    restrictions: [],
+    allowedModules: ['*'],
+    status: 'ATIVO',
+    mustChangePassword: false
+};
+
+/**
+ * HIGIENE DE PRODUÇÃO (Hotel Lukweku): as contas de DEMONSTRAÇÃO nascem
+ * BLOQUEADAS — credenciais seed conhecidas nunca entram no ambiente real.
+ * O administrador pode reativá-las em /rh/usuarios se as precisar em dev.
+ */
 const DEFAULT_USERS: User[] = [
+    MASTER_USER,
     {
         id: 'EMP-2026-001',
         name: 'Ricardo Ferreira',
@@ -139,7 +166,7 @@ const DEFAULT_USERS: User[] = [
         commissionRate: 0.05,
         restrictions: [],
         allowedModules: ['*'],
-        status: 'ATIVO'
+        status: 'BLOQUEADO'
     },
     {
         id: 'EMP-2026-002',
@@ -148,7 +175,7 @@ const DEFAULT_USERS: User[] = [
         commissionRate: 0.03,
         restrictions: ['/spa'], // Example restriction
         allowedModules: ['*'],
-        status: 'ATIVO'
+        status: 'BLOQUEADO'
     },
     {
         id: 'EMP-2026-003',
@@ -157,7 +184,7 @@ const DEFAULT_USERS: User[] = [
         commissionRate: 0.02,
         restrictions: [],
         allowedModules: ['pos', 'lavandaria', 'snack-bar'], // POS, Laundry and Snack Bar
-        status: 'ATIVO'
+        status: 'BLOQUEADO'
     },
     {
         id: 'EMP-2026-004',
@@ -166,7 +193,7 @@ const DEFAULT_USERS: User[] = [
         commissionRate: 0.02,
         restrictions: [],
         allowedModules: ['snack-bar', 'ajuda'], // Snack Bar and Central de Ajuda
-        status: 'ATIVO'
+        status: 'BLOQUEADO'
     }
 ];
 
@@ -231,6 +258,7 @@ function toPublicUser(user: User): User {
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [users, setUsers] = useState<User[]>([]);
+    const [authError, setAuthError] = useState<string | null>(null);
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -248,6 +276,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 }
             } else {
                 list = await migrateUsers(DEFAULT_USERS);
+            }
+
+            // Reconciliação: garantir que a conta máster existe mesmo em
+            // listas já semeadas em navegadores anteriores (localStorage pré-existente).
+            if (!list.some(u => u.id === MASTER_USER.id)) {
+                list = [MASTER_USER, ...list];
+            }
+
+            // HIGIENE DE PRODUÇÃO (Hotel Lukweku): bloqueio único das contas
+            // demo/teste já semeadas em clientes antigos. O administrador pode
+            // reativá-las depois em /rh/usuarios (flag impede re-bloqueio).
+            if (!localStorage.getItem('hr_demo_accounts_disabled_v1')) {
+                const DEMO_ACCOUNT_IDS = [
+                    'EMP-2026-001', 'EMP-2026-002', 'EMP-2026-003', 'EMP-2026-004'
+                ];
+                list = list.map(u =>
+                    DEMO_ACCOUNT_IDS.includes(u.id) && u.status !== 'BLOQUEADO'
+                        ? { ...u, status: 'BLOQUEADO' as const }
+                        : u
+                );
+                localStorage.setItem('hr_demo_accounts_disabled_v1', '1');
             }
 
             if (cancelled) return;
@@ -286,9 +335,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!found) return false;
 
         if (found.status === 'BLOQUEADO') {
-            alert('A sua conta está temporariamente bloqueada. Contacte o Administrador.');
+            setAuthError('A sua conta está temporariamente bloqueada. Contacte o Administrador.');
             return false;
         }
+        setAuthError(null);
 
         // Validação por hash PBKDF2 (sem comparação de texto simples)
         if (!found.passwordHash || !found.passwordSalt) {
@@ -314,8 +364,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const registerUser = (newUser: UserInput) => {
         const exists = users.some(u => u.id === newUser.id || u.name.toLowerCase() === newUser.name.toLowerCase());
         if (exists) {
-            alert('Utilizador já cadastrado com este ID ou Nome.');
-            return;
+            // Lança para a página exibir o erro inline (sem alert bloqueante)
+            throw new Error('Utilizador já cadastrado com este ID ou Nome.');
         }
 
         (async () => {
@@ -386,14 +436,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return false;
         }
 
-        // Política mínima: 8 caracteres
+        // Política mínima: 8 caracteres (validação também na página — sem alert)
         if (!newPassword || newPassword.length < 8) {
-            alert('A nova palavra-passe deve ter pelo menos 8 caracteres.');
             return false;
         }
 
         if (newPassword === currentPassword) {
-            alert('A nova palavra-passe deve ser diferente da atual.');
             return false;
         }
 
@@ -413,8 +461,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const deleteUser = (id: string) => {
+        // Guarda silencioso: o botão de apagar a conta em sessão vem desativado na página
         if (user && user.id === id) {
-            alert('Não é possível apagar o seu próprio utilizador em sessão.');
             return;
         }
         const updated = users.filter(u => u.id !== id);
@@ -449,7 +497,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     return (
-        <AuthContext.Provider value={{ user, users, login, logout, registerUser, updateUser, deleteUser, checkAccess, changeOwnPassword }}>
+        <AuthContext.Provider value={{ user, users, login, logout, registerUser, updateUser, deleteUser, checkAccess, changeOwnPassword, authError }}>
             {children}
         </AuthContext.Provider>
     );

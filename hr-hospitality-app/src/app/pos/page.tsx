@@ -4,17 +4,21 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { HoloTableMap } from '@/components/pos/HoloTableMap';
 import { ShoppingBag, Sparkles } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
+import { useState } from 'react';
+
+const posAreas = ['Main Gastro Hall', 'Executive Lounge', 'External Deck'];
 
 export default function POSPage() {
+    const [activeArea, setActiveArea] = useState(posAreas[0]);
     return (
         <DashboardLayout>
             <div className="max-w-[1500px] mx-auto space-y-12 md:space-y-16 pb-20 px-4">
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="bg-[#111111] p-8 md:p-12 lg:p-16 rounded-[32px] md:rounded-[40px] lg:rounded-[60px] border border-white/10 flex flex-col lg:flex-row justify-between items-center gap-10 relative overflow-hidden shadow-[0_50px_100px_rgba(0,0,0,0.8)]"
+                    className="bg-[#111111] p-8 md:p-12 lg:p-16 rounded-[32px] md:rounded-[40px] lg:rounded-[60px] border border-white/10 flex flex-col lg:flex-row lg:flex-wrap justify-between items-center gap-10 relative overflow-hidden shadow-[0_50px_100px_rgba(0,0,0,0.8)]"
                 >
                     <div className="absolute top-0 right-0 w-64 h-64 md:w-96 md:h-96 bg-[var(--brand-secondary)]/5 blur-[80px] md:blur-[120px] -mr-32 -mt-32 md:-mr-48 md:-mt-48" />
 
@@ -31,7 +35,7 @@ export default function POSPage() {
                         </p>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row gap-4 md:gap-6 relative z-10 w-full lg:w-auto">
+                    <div className="flex flex-col sm:flex-row gap-4 md:gap-6 relative z-10 w-full lg:w-auto lg:ml-auto">
                         <div className="bg-black/60 border border-white/5 rounded-[32px] md:rounded-[40px] p-6 md:p-10 flex flex-col items-center justify-center min-w-[160px] md:min-w-[200px] shadow-2xl flex-1 sm:flex-auto">
                             <p className="text-[9px] md:text-[10px] font-black text-white/20 uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 md:mb-4 text-center">Pending Tasks</p>
                             <p className="text-4xl md:text-5xl font-black text-[#FFFFFF] tracking-tighter tabular-nums">08</p>
@@ -50,6 +54,7 @@ export default function POSPage() {
                         src="/images/snak-bar.jpg" 
                         alt="Snack Bar / Restaurante" 
                         fill 
+                        priority
                         className="object-cover object-center group-hover:scale-105 transition-transform duration-1000"
                     />
                     <div className="absolute top-8 right-8 z-20 px-4 py-2 bg-black/50 backdrop-blur-md border border-[var(--brand-secondary)]/20 rounded-full">
@@ -66,14 +71,40 @@ export default function POSPage() {
 
                 <div className="flex flex-col sm:flex-row justify-between items-center px-4 md:px-10 border-b border-white/5 pb-6 md:pb-8 gap-4 overflow-x-auto no-scrollbar">
                     <div className="flex gap-6 md:gap-10 min-w-max">
-                        <button className="btn-base btn-ghost btn-sm text-[var(--brand-secondary)] relative font-black uppercase tracking-widest text-[10px] md:text-xs">
-                            Main Gastro Hall
-                            <motion.div layoutId="posNav" className="absolute bottom-0 left-0 right-0 h-1 bg-[var(--brand-secondary)] rounded-full drop-shadow-[0_0_8px_var(--brand-secondary)]" />
-                        </button>
-                        <button className="btn-base btn-ghost btn-sm text-[10px] md:text-xs font-black uppercase tracking-widest text-white/40 hover:text-[var(--brand-secondary)] transition-colors">Executive Lounge</button>
-                        <button className="btn-base btn-ghost btn-sm text-[10px] md:text-xs font-black uppercase tracking-widest text-white/40 hover:text-[var(--brand-secondary)] transition-colors">External Deck</button>
+                        {posAreas.map((area) => (
+                            <button key={area} onClick={() => setActiveArea(area)}
+                                className={`btn-base btn-ghost btn-sm relative font-black uppercase tracking-widest text-[10px] md:text-xs transition-colors ${
+                                    activeArea === area ? 'text-[var(--brand-secondary)]' : 'text-white/40 hover:text-[var(--brand-secondary)]'
+                                }`}>
+                                {area}
+                                {activeArea === area && (
+                                    <motion.div layoutId="posNav" className="absolute bottom-0 left-0 right-0 h-1 bg-[var(--brand-secondary)] rounded-full drop-shadow-[0_0_8px_var(--brand-secondary)]" />
+                                )}
+                            </button>
+                        ))}
                     </div>
                 </div>
+
+                {/* Legenda da área ativa — reflexo visível do separador escolhido */}
+                <AnimatePresence mode="wait">
+                    <motion.div key={activeArea}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.25 }}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 md:px-6 py-4 bg-white/[0.02] border border-[var(--brand-secondary)]/20 rounded-2xl"
+                    >
+                        <div className="flex items-center gap-3">
+                            <span className="w-2 h-2 rounded-full bg-[var(--brand-secondary)] animate-pulse shadow-[0_0_10px_var(--brand-secondary)]" />
+                            <span className="text-[10px] font-black text-[var(--brand-secondary)] uppercase tracking-[0.4em]">Mapa de Mesas — {activeArea}</span>
+                        </div>
+                        <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em]">
+                            {activeArea === 'Main Gastro Hall' ? 'Salão principal • 6 mesas ativas' :
+                             activeArea === 'Executive Lounge' ? 'Lounge executivo • Mesa reservadas & VIP' :
+                             'Esplanada externa • Serviço ao ar livre'}
+                        </span>
+                    </motion.div>
+                </AnimatePresence>
 
                 <HoloTableMap />
             </div>

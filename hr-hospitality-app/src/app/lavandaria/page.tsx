@@ -3,8 +3,8 @@
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Package, Shirt, Clock, CheckCircle2, AlertCircle, RefreshCw, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { Package, Shirt, Clock, CheckCircle2, AlertCircle, RefreshCw, Plus, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 interface LaundryOrder {
     id: string;
@@ -17,7 +17,7 @@ interface LaundryOrder {
     readyAt?: string;
 }
 
-const orders: LaundryOrder[] = [
+const seedOrders: LaundryOrder[] = [
     { id: 'LAV-001', room: '101', guest: 'Carlos Mendes', items: 4, type: 'NORMAL', status: 'ENTREGUE', submittedAt: '08:00', readyAt: '14:00' },
     { id: 'LAV-002', room: '205', guest: 'Ana Silva', items: 2, type: 'EXPRESS', status: 'PRONTO', submittedAt: '09:30', readyAt: '12:30' },
     { id: 'LAV-003', room: '312', guest: 'João Baptista', items: 6, type: 'NORMAL', status: 'EM LAVAGEM', submittedAt: '10:15' },
@@ -36,6 +36,48 @@ const statusConfig = {
 export default function LavandariaPage() {
     const [activeFilter, setActiveFilter] = useState<string>('TODOS');
     const filters = ['TODOS', 'RECOLHIDO', 'EM LAVAGEM', 'PRONTO', 'ENTREGUE'];
+
+    // Lista em estado (seed = array base), persistida em localStorage
+    const [orders, setOrders] = useState<LaundryOrder[]>(seedOrders);
+    useEffect(() => {
+        try {
+            const guardadas = JSON.parse(localStorage.getItem('lavandaria_ordens') || 'null');
+            if (Array.isArray(guardadas) && guardadas.length > 0) setOrders(guardadas);
+        } catch { /* ignorar dados inválidos */ }
+    }, []);
+
+    const guardarOrdens = (lista: LaundryOrder[]) => {
+        setOrders(lista);
+        localStorage.setItem('lavandaria_ordens', JSON.stringify(lista));
+    };
+
+    const alterarStatusOrdem = (id: string, novo: LaundryOrder['status']) => {
+        guardarOrdens(orders.map(o => o.id === id
+            ? { ...o, status: novo, readyAt: novo === 'PRONTO' || novo === 'ENTREGUE' ? new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : o.readyAt }
+            : o));
+    };
+
+    // Modal "Nova Ordem"
+    const [showModal, setShowModal] = useState(false);
+    const [form, setForm] = useState({ room: '', guest: '', items: '1', type: 'NORMAL' });
+
+    const criarOrdem = (e: React.FormEvent) => {
+        e.preventDefault();
+        const nItens = parseInt(form.items, 10);
+        if (!form.room.trim() || !form.guest.trim() || !nItens || nItens < 1) return;
+        const nova: LaundryOrder = {
+            id: `LAV-${Date.now().toString().slice(-6)}`,
+            room: form.room.trim(),
+            guest: form.guest.trim(),
+            items: nItens,
+            type: form.type,
+            status: 'RECOLHIDO',
+            submittedAt: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
+        };
+        guardarOrdens([nova, ...orders]);
+        setForm({ room: '', guest: '', items: '1', type: 'NORMAL' });
+        setShowModal(false);
+    };
 
     const recolhidos = orders.filter(o => o.status === 'RECOLHIDO').length;
     const emLavagem = orders.filter(o => o.status === 'EM LAVAGEM').length;
@@ -62,7 +104,7 @@ export default function LavandariaPage() {
                             HR-HOSPITALITY LAUNDRY MANAGEMENT • GUEST SERVICE
                         </p>
                     </div>
-                    <button className="flex items-center gap-3 px-8 py-5 bg-[var(--brand-primary)] text-white font-black text-[10px] uppercase tracking-[0.4em] rounded-[24px] hover:scale-105 transition-all shadow-[0_10px_30px_rgba(0,71,171,0.3)]">
+                    <button onClick={() => setShowModal(true)} className="flex items-center gap-3 px-8 py-5 bg-[var(--brand-primary)] text-white font-black text-[10px] uppercase tracking-[0.4em] rounded-[24px] hover:scale-105 transition-all shadow-[0_10px_30px_rgba(0,71,171,0.3)]">
                         <Plus className="w-4 h-4" />Nova Ordem
                     </button>
                 </motion.div>
@@ -144,13 +186,18 @@ export default function LavandariaPage() {
 
                                     {/* Action */}
                                     {order.status === 'PRONTO' && (
-                                        <button className="px-5 py-2 bg-emerald-500 text-black text-[9px] font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] whitespace-nowrap">
+                                        <button onClick={() => alterarStatusOrdem(order.id, 'ENTREGUE')} className="px-5 py-2 bg-emerald-500 text-black text-[9px] font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] whitespace-nowrap">
                                             Marcar Entregue
                                         </button>
                                     )}
                                     {order.status === 'RECOLHIDO' && (
-                                        <button className="px-5 py-2 bg-cyan-400 text-black text-[9px] font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all shadow-[0_0_15px_rgba(34,211,238,0.3)] whitespace-nowrap">
-                                            Iniciar Lavagem
+                                        <button onClick={() => alterarStatusOrdem(order.id, 'EM LAVAGEM')} className="flex items-center gap-2 px-5 py-2 bg-cyan-400 text-black text-[9px] font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all shadow-[0_0_15px_rgba(34,211,238,0.3)] whitespace-nowrap">
+                                            <RefreshCw className="w-3 h-3" /> Iniciar Lavagem
+                                        </button>
+                                    )}
+                                    {order.status === 'EM LAVAGEM' && (
+                                        <button onClick={() => alterarStatusOrdem(order.id, 'PRONTO')} className="flex items-center gap-2 px-5 py-2 bg-white/10 border border-white/20 text-white text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-white/20 transition-all whitespace-nowrap">
+                                            <CheckCircle2 className="w-3 h-3" /> Marcar Pronto
                                         </button>
                                     )}
                                 </motion.div>
@@ -171,6 +218,74 @@ export default function LavandariaPage() {
                     </div>
                 </motion.div>
             </div>
+
+            {/* Modal Nova Ordem */}
+            <AnimatePresence>
+                {showModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+                    >
+                        <motion.form
+                            onSubmit={criarOrdem}
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-[#0A0A0A] border border-white/10 rounded-3xl p-8 w-full max-w-lg space-y-5 max-h-[90vh] overflow-y-auto"
+                        >
+                            <div className="flex items-center justify-between border-b border-white/5 pb-5">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-1.5 h-5 bg-[var(--brand-primary)] shadow-[0_0_10px_var(--brand-primary)]" />
+                                    <h3 className="text-lg font-black text-white uppercase tracking-widest">Nova Ordem de Lavandaria</h3>
+                                </div>
+                                <button type="button" onClick={() => setShowModal(false)} className="text-white/30 hover:text-white transition-colors">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Quarto</label>
+                                    <input type="text" required value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })}
+                                        placeholder="Ex: 205"
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-primary)] transition-all font-bold" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Nº Itens</label>
+                                    <input type="number" min={1} required value={form.items} onChange={(e) => setForm({ ...form, items: e.target.value })}
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-primary)] transition-all font-bold tabular-nums" />
+                                </div>
+                                <div className="space-y-2 col-span-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Hóspede</label>
+                                    <input type="text" required value={form.guest} onChange={(e) => setForm({ ...form, guest: e.target.value })}
+                                        placeholder="Ex: Maria Santos"
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-primary)] transition-all font-bold" />
+                                </div>
+                                <div className="space-y-2 col-span-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-1">Tipo</label>
+                                    <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}
+                                        className="w-full px-5 py-4 bg-black/40 border border-white/10 rounded-2xl text-sm text-white focus:outline-none focus:border-[var(--brand-primary)] transition-all font-bold">
+                                        <option value="NORMAL" className="bg-[#0A0A0A]">Normal</option>
+                                        <option value="EXPRESS" className="bg-[#0A0A0A]">Express</option>
+                                        <option value="DELICADO" className="bg-[#0A0A0A]">Delicado</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button type="button" onClick={() => setShowModal(false)}
+                                    className="flex-1 px-6 py-4 bg-white/5 border border-white/10 text-white/60 font-black text-[10px] uppercase tracking-widest rounded-2xl hover:bg-white/10 transition-all">
+                                    Cancelar
+                                </button>
+                                <button type="submit"
+                                    className="flex-1 px-6 py-4 bg-[var(--brand-primary)] text-white font-black text-[10px] uppercase tracking-widest rounded-2xl hover:scale-105 transition-all shadow-[0_10px_30px_rgba(0,71,171,0.3)]">
+                                    Criar Ordem
+                                </button>
+                            </div>
+                        </motion.form>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </DashboardLayout>
     );
 }

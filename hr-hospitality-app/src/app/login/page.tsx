@@ -1,7 +1,7 @@
 /* eslint-disable */
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
@@ -9,12 +9,18 @@ import { Shield, Key, User as UserIcon, LogIn, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
 export default function LoginPage() {
-    const { login, users } = useAuth();
+    const { login, users, authError } = useAuth();
     const router = useRouter();
     const [idOrName, setIdOrName] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [netMsg, setNetMsg] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+
+    // Exibe mensagem contextual vinda do AuthContext (ex.: conta bloqueada)
+    useEffect(() => {
+        if (authError) setError(authError);
+    }, [authError]);
 
     // Estados de Configuração de Rede Local
     const [showNetworkSettings, setShowNetworkSettings] = useState(false);
@@ -65,16 +71,6 @@ export default function LoginPage() {
         router.push('/');
     };
 
-    const handleQuickLogin = async (id: string, pass: string) => {
-        setError('');
-        setLoading(true);
-        const success = await login(id, pass);
-        setLoading(false);
-        if (success) {
-            navigateAfterLogin();
-        }
-    };
-
     const handleSaveNetworkSettings = () => {
         if (typeof window !== 'undefined') {
             // Salvar no localStorage local
@@ -85,13 +81,13 @@ export default function LoginPage() {
             if (win.electronAPI && typeof win.electronAPI.saveAppConfig === 'function') {
                 try {
                     win.electronAPI.saveAppConfig({ mode: appMode, serverIp });
-                    alert('Configurações de rede guardadas com sucesso! Se mudou o Modo de Operação (Servidor vs Cliente), por favor encerre e volte a abrir a aplicação para aplicar as alterações.');
+                    setNetMsg('Configurações de rede guardadas. Se mudou o Modo de Operação (Servidor vs Cliente), encerre e volte a abrir a aplicação para aplicar as alterações.');
                 } catch (e) {
                     console.error('Falha ao comunicar com Electron API:', e);
-                    alert('Falha ao comunicar com o Electron para persistir configurações de rede.');
+                    setNetMsg('Falha ao comunicar com o Electron para persistir configurações de rede.');
                 }
             } else {
-                alert('Configurações de IP guardadas com sucesso no browser local.');
+                setNetMsg('Configurações de IP guardadas com sucesso no browser local.');
             }
         }
     };
@@ -190,41 +186,6 @@ export default function LoginPage() {
                         </button>
                     </form>
 
-                    {/* Quick Demos Access */}
-                    <div className="mt-10 pt-8 border-t border-white/5">
-                        <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-4 text-center">Acesso Rápido para Testes</p>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                onClick={() => handleQuickLogin('EMP-2026-001', 'admin')}
-                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group font-mono text-[9px]"
-                            >
-                                <p className="text-[8px] font-black text-[var(--brand-accent)] uppercase tracking-wider">ADMIN (Ricardo)</p>
-                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">Controlo Total</p>
-                            </button>
-                            <button
-                                onClick={() => handleQuickLogin('EMP-2026-002', 'user123')}
-                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group font-mono text-[9px]"
-                            >
-                                <p className="text-[8px] font-black text-white/80 uppercase tracking-wider">PERMISSÃO (Ana S.)</p>
-                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">Bloqueia SPA</p>
-                            </button>
-                            <button
-                                onClick={() => handleQuickLogin('EMP-2026-003', 'staff')}
-                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group font-mono text-[9px]"
-                            >
-                                <p className="text-[8px] font-black text-indigo-400 uppercase tracking-wider">LIMITADO (João S.)</p>
-                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">POS & Lavandaria</p>
-                            </button>
-                            <button
-                                onClick={() => handleQuickLogin('EMP-2026-004', 'snack')}
-                                className="p-3 bg-white/5 hover:bg-[var(--brand-primary)]/20 border border-white/5 hover:border-[var(--brand-primary)]/40 rounded-xl text-left transition-all group font-mono text-[9px]"
-                            >
-                                <p className="text-[8px] font-black text-[var(--brand-accent)] uppercase tracking-wider">SNACK BAR (Operador)</p>
-                                <p className="text-[9px] font-bold text-white/40 group-hover:text-white mt-1">Apenas Snack Bar</p>
-                            </button>
-                        </div>
-                    </div>
-
                     {/* Local Network Configurations */}
                     <div className="mt-8 pt-6 border-t border-white/5">
                         <button
@@ -285,6 +246,12 @@ export default function LoginPage() {
                                 >
                                     Gravar Configurações
                                 </button>
+
+                                {netMsg && (
+                                    <p className="mt-3 text-[9px] font-black uppercase tracking-widest text-center text-[var(--brand-accent)]">
+                                        {netMsg}
+                                    </p>
+                                )}
                             </div>
                         )}
                     </div>

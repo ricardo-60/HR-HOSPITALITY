@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Plus, AlertCircle } from 'lucide-react';
+import { Plus, AlertCircle, Check } from 'lucide-react';
 import { useState } from 'react';
 
 const quickProducts = [
@@ -15,6 +15,8 @@ const quickProducts = [
 
 export function QuickSale() {
     const [statusError, setStatusError] = useState<string | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
+    const [total, setTotal] = useState(0);
 
     return (
         <div className="bg-[#111111] border border-[var(--brand-accent)]/20 rounded-[24px] md:rounded-[32px] p-5 md:p-6 lg:p-8 h-full flex flex-col shadow-[0_50px_100px_rgba(0,0,0,1)] relative overflow-hidden group">
@@ -44,6 +46,17 @@ export function QuickSale() {
                 </motion.div>
             )}
 
+            {notice && (
+                <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    className="mb-8 p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center gap-4 text-emerald-500"
+                >
+                    <Check size={20} />
+                    <p className="text-[10px] font-black uppercase tracking-widest">{notice}</p>
+                </motion.div>
+            )}
+
             <div className="space-y-4 flex-1 overflow-y-auto pr-6 custom-scrollbar relative z-10">
                 {quickProducts.map((product, i) => (
                     <motion.button
@@ -53,7 +66,9 @@ export function QuickSale() {
                         onClick={() => {
                             // Simulação de bloqueio
                             if (statusError) return;
-                            alert('Lançamento autorizado pelo sistema de auditoria.');
+                            setTotal(t => t + product.price);
+                            setNotice(`${product.name} lançado (+${product.price.toFixed(2)} Kz).`);
+                            setTimeout(() => setNotice(null), 2500);
                         }}
                         className={`w-full p-4 md:p-4.5 rounded-2xl border border-white/5 bg-black/40 flex justify-between items-center group transition-all duration-300 shadow-xl ${statusError ? 'opacity-30 cursor-not-allowed' : 'hover:border-[var(--brand-primary)]/40 hover:bg-[var(--brand-primary)]/10 hover:shadow-[0_0_20px_rgba(0,71,171,0.2)]'}`}
                     >
@@ -96,13 +111,18 @@ export function QuickSale() {
                     <div>
                         <p className="text-white/20 font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-[8px] md:text-[9px] mb-2">Operational Total</p>
                         <p className="text-4xl md:text-5xl font-black text-white tracking-tighter tabular-nums leading-none drop-shadow-2xl">
-                            0.00<span className="text-[var(--brand-accent)] drop-shadow-[0_0_10px_var(--brand-accent)] text-lg md:text-xl ml-2 md:ml-3">Kz</span>
+                            {total.toFixed(2)}<span className="text-[var(--brand-accent)] drop-shadow-[0_0_10px_var(--brand-accent)] text-lg md:text-xl ml-2 md:ml-3">Kz</span>
                         </p>
                     </div>
                 </div>
                 <button 
-                    disabled={!!statusError}
-                    className="btn-base btn-primary btn-md w-full"
+                    disabled={!!statusError || total <= 0}
+                    onClick={() => {
+                        setNotice(`Ordem de ${total.toFixed(2)} Kz transmitida ao sistema.`);
+                        setTotal(0);
+                        setTimeout(() => setNotice(null), 3000);
+                    }}
+                    className="btn-base btn-primary btn-md w-full disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                     TRANSMIT ORDER
                 </button>

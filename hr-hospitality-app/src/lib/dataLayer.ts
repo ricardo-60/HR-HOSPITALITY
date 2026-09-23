@@ -46,12 +46,21 @@ if (typeof window !== 'undefined') {
   startAutoSync();
 }
 
-// Garantir a existência da tabela sync_queue no SQLite local
-let isQueueChecked = false;
-async function ensureSyncQueueTable() {
-  if (isQueueChecked) return;
-  try {
-    await localExecute(`
+// Garantir a existência da tabela sync_queue no SQLite local.
+// Memoizado numa única Promise: antes, cada novo HybridQueryBuilder reemitia o
+// CREATE TABLE (dezenas de execuções duplicadas por página).
+let syncQueuePromise: Promise<void> | null = null;
+let syncQueueReady = false;
+let syncQueueCooldownUntil = 0;
+function ensureSyncQueueTable(): Promise<void> {
+  if (syncQueueReady) return Promise.resolve();
+  if (syncQueuePromise) return syncQueuePromise;
+  if (Date.now() < syncQueueCooldownUntil) {
+    // Falha recente: não repetir fetch a cada query (evita spam quando o
+    // servidor local está em baixo). Próxima tentativa após a pausa.
+    return Promise.resolve();
+  }
+  syncQueuePromise = localExecute(`
       CREATE TABLE IF NOT EXISTS sync_queue (
         id TEXT PRIMARY KEY,
         table_name TEXT NOT NULL,
@@ -60,11 +69,93 @@ async function ensureSyncQueueTable() {
         data TEXT,
         timestamp INTEGER NOT NULL
       )
-    `);
-    isQueueChecked = true;
-  } catch (error) {
-    console.error('[HOSPITALITY/DataLayer] Falha ao criar tabela sync_queue:', error);
+    `)
+      .then(() => {
+        syncQueueReady = true;
+      })
+      .catch((error) => {
+        // Falha transitória (servidor local ainda a arrancar): pausa de 10s
+        // antes da nova tentativa, para não gerar um erro por query.
+        syncQueuePromise = null;
+        syncQueueCooldownUntil = Date.now() + 10_000;
+        console.warn('[HOSPITALITY/DataLayer] Falha ao criar tabela sync_queue (nova tentativa dentro de 10s):', error);
+      });
+  return syncQueuePromise;
+}
+
+// Circuit breaker de tabelas inexistentes no Supabase: após o primeiro 404 de
+// schema cache, passa-se direto ao SQLite local sem repetir o pedido à nuvem.
+// Persistido em localStorage para suprimir os 404 também em próximos loads
+// (reavaliado ao fim de 1h, para detetar migrações aplicadas entretanto).
+const CLOUD_MISSING_KEY = 'hr_cloud_missing_tables';
+const CLOUD_MISSING_TTL_MS = 60 * 60 * 1000;
+const cloudMissingTables = new Set<string>();
+
+function loadCloudMissingTables() {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(CLOUD_MISSING_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.ts === 'number' && Date.now() - parsed.ts < CLOUD_MISSING_TTL_MS && Array.isArray(parsed.tables)) {
+      parsed.tables.forEach((t: string) => cloudMissingTables.add(t));
+    }
+  } catch { /* storage indisponível — segue sem cache */ }
+}
+
+function rememberCloudMissingTable(table: string) {
+  cloudMissingTables.add(table);
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(CLOUD_MISSING_KEY, JSON.stringify({ ts: Date.now(), tables: [...cloudMissingTables] }));
+  } catch { /* ignore */ }
+}
+loadCloudMissingTables();
+
+function isCloudMissingTableError(err: any): boolean {
+  if (!err) return false;
+  const msg = String(err.message || err.details || '');
+  return err.code === 'PGRST205' || /Could not find the table/i.test(msg);
+}
+
+// Evita spam de avisos repetidos (mesma tabela + mesmo erro) e breaker de rede:
+// 2 falhas consecutivas de ligação suspendem a nuvem por 30s.
+const warnedCloudErrors = new Set<string>();
+let cloudFailureStreak = 0;
+let cloudDownUntil = 0;
+// Sonda por tabela: na primeira visita vários componentes pedem à nuvem em
+// paralelo — só o primeiro vai lá; os restantes esperam pelo desfecho antes de
+// decidirem (evita a rajada de 404 quando a tabela ainda não foi migrada).
+const cloudProbes = new Map<string, Promise<void>>();
+
+function warnCloudOnce(tableName: string, message: string, error: any) {
+  const key = `${tableName}:${message.slice(0, 80)}`;
+  if (warnedCloudErrors.has(key)) return;
+  warnedCloudErrors.add(key);
+  console.warn(`[HOSPITALITY/DataLayer] Supabase retornou erro em '${tableName}', fallback local:`, message || error);
+}
+
+// Falha de rede (pedido abortado/indisponível): transitória, já coberta pelo
+// breaker de streak — registo como info para não poluir o console com avisos.
+function noteCloudNetworkFailure(tableName: string, error: any) {
+  cloudFailureStreak++;
+  if (cloudFailureStreak >= 2) {
+    cloudDownUntil = Date.now() + 30_000;
+    console.info('[HOSPITALITY/DataLayer] Supabase inacessível — a usar SQLite local nos próximos 30s.');
+    return;
   }
+  const key = `net:${tableName}`;
+  if (warnedCloudErrors.has(key)) return;
+  warnedCloudErrors.add(key);
+  console.info(
+    `[HOSPITALITY/DataLayer] Rede indisponível para '${tableName}' — a usar SQLite local:`,
+    String((error && (error.message || error.details)) || error)
+  );
+}
+
+function isCloudNetworkError(err: any): boolean {
+  const msg = String((err && (err.message || err.details)) || err || '');
+  return /Failed to fetch|NetworkError|Load failed|network/i.test(msg);
 }
 
 // Classe que emula o PostgrestQueryBuilder do Supabase
@@ -80,7 +171,9 @@ class HybridQueryBuilder {
 
   constructor(tableName: string) {
     this.tableName = tableName;
-    ensureSyncQueueTable();
+    // Fire-and-forget: a tabela é garantida uma única vez (Promise memoizada)
+    // e cada escrita espera por ela em executeLocal().
+    void ensureSyncQueueTable();
   }
 
   select(fields: string = '*') {
@@ -189,19 +282,70 @@ class HybridQueryBuilder {
     }
   }
 
-  private async execute() {
-    // Tentar Supabase primeiro se disponível
-    if (isOnline() && supabaseClient) {
-      try {
-        const result = await this.executeSupabase();
-        // Se Supabase devolveu erro (DNS, rede, 404, etc.), fallback para local
-        if (result && result.error) {
-          console.warn(`[HOSPITALITY/DataLayer] Supabase retornou erro, fallback local:`, result.error?.message || result.error);
-          return await this.executeLocal();
+  private canTryCloud(): boolean {
+    return (
+      isOnline() &&
+      !!supabaseClient &&
+      Date.now() >= cloudDownUntil &&
+      !cloudMissingTables.has(this.tableName)
+    );
+  }
+
+  /** Tenta a nuvem uma vez. `done: true` ⇒ `value` é o resultado final (dados ou fallback local já resolvido). */
+  private async runCloud(): Promise<{ done: boolean; value?: any }> {
+    try {
+      const result = await this.executeSupabase();
+      // Se Supabase devolveu erro (DNS, rede, 404, etc.), fallback para local
+      if (result && result.error) {
+        if (isCloudMissingTableError(result.error)) {
+          rememberCloudMissingTable(this.tableName);
+          console.info(
+            `[HOSPITALITY/DataLayer] Tabela '${this.tableName}' ainda não existe no Supabase — a usar SQLite local até a migração ser aplicada.`
+          );
+        } else if (isCloudNetworkError(result.error)) {
+          noteCloudNetworkFailure(this.tableName, result.error);
+        } else {
+          warnCloudOnce(this.tableName, result.error?.message || String(result.error), result.error);
         }
-        return result;
-      } catch (err) {
-        console.warn(`[HOSPITALITY/DataLayer] Supabase falhou, tentando fallback local:`, err);
+        return { done: true, value: await this.executeLocal() };
+      }
+      cloudFailureStreak = 0;
+      return { done: true, value: result };
+    } catch (err: any) {
+      if (isCloudNetworkError(err)) {
+        noteCloudNetworkFailure(this.tableName, err);
+      } else {
+        warnCloudOnce(this.tableName, String(err?.message || err), err);
+      }
+      return { done: false };
+    }
+  }
+
+  private async execute() {
+    // Tentar Supabase primeiro se disponível:
+    //  - tabelas confirmadas como inexistentes na nuvem são evitadas (breaker)
+    //  - se a nuvem está em queda (2 falhas de rede seguidas), 30s de pausa
+    //  - sondas por tabela serializam a rajada inicial (1 único 404 à nuvem)
+    if (this.canTryCloud()) {
+      const probe = cloudProbes.get(this.tableName);
+      if (probe) {
+        // Já existe um pedido em voo para esta tabela — esperar pelo desfecho
+        await probe;
+      } else {
+        let settleProbe: () => void = () => {};
+        cloudProbes.set(this.tableName, new Promise<void>(res => { settleProbe = res; }));
+        try {
+          const out = await this.runCloud();
+          if (out.done) return out.value;
+        } finally {
+          settleProbe();
+        }
+        return await this.executeLocal();
+      }
+      // Sonda já resolvida: só repetir se a nuvem ainda estiver utilizável
+      if (this.canTryCloud()) {
+        const out = await this.runCloud();
+        if (out.done) return out.value;
       }
     }
     // Fallback para SQLite local
@@ -293,16 +437,20 @@ class HybridQueryBuilder {
   }
 
   private async executeLocal() {
-    await ensureSyncQueueTable();
     try {
       if (this.method === 'select') {
+        // Leituras não dependem da sync_queue — nunca as bloquear por ela.
         return await this.executeLocalSelect();
-      } else {
-        const result = await this.executeLocalWrite();
-        // Escrita local concluída: agenda tentativa de reconciliação com a nuvem
-        scheduleFlushAfterWrite();
-        return result;
       }
+      // Escritas exigem a tabela sync_queue para enfileirar a reconciliação com a nuvem
+      await ensureSyncQueueTable();
+      if (!syncQueueReady) {
+        return { data: null, error: { message: 'Servidor de base de dados local indisponível.' } };
+      }
+      const result = await this.executeLocalWrite();
+      // Escrita local concluída: agenda tentativa de reconciliação com a nuvem
+      scheduleFlushAfterWrite();
+      return result;
     } catch (err: any) {
       console.error(`[HOSPITALITY/DataLayer] Erro de execução local:`, err);
       return { data: null, error: { message: err.message, details: err } };

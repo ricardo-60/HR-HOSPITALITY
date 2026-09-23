@@ -13,6 +13,7 @@ interface BillModalProps {
 
 export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
     const [isProcessing, setIsProcessing] = useState(false);
+    const [notice, setNotice] = useState<{ tone: 'error' | 'success' | 'warn'; text: string } | null>(null);
     const [paymentType, setPaymentType] = useState<'IMMEDIATE' | 'ROOM' | null>(null);
     const [selectedGuestId, setSelectedGuestId] = useState('');
     const [activeGuests, setActiveGuests] = useState<Guest[]>([]);
@@ -62,10 +63,11 @@ export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
         if (!paymentType) return;
 
         if (paymentType === 'ROOM' && !selectedGuestId) {
-            alert('Selecione um hóspede ativo para lançar a conta no quarto.');
+            setNotice({ tone: 'error', text: 'Selecione um hóspede ativo para lançar a conta no quarto.' });
             return;
         }
 
+        setNotice(null);
         setIsProcessing(true);
 
         try {
@@ -90,23 +92,27 @@ export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
                     )
                 `, [selectedGuestId, description, billAmount, billAmount]);
 
-                alert(`Conta de ${billAmount.toFixed(2)}Kz lançada com sucesso no Quarto do hóspede!`);
+                setNotice({ tone: 'success', text: `Conta de ${billAmount.toFixed(2)}Kz lançada com sucesso no Quarto do hóspede!` });
             } else {
-                alert(`Conta da Mesa ${table.number} fechada com sucesso via Pagamento Imediato!`);
+                setNotice({ tone: 'success', text: `Conta da Mesa ${table.number} fechada com sucesso via Pagamento Imediato!` });
             }
 
-            // Notificar o pai que a mesa foi liberada
-            if (onBillClosed) {
-                onBillClosed(table.id);
-            }
-            onClose();
+            // Notificar o pai que a mesa foi liberada (após o utilizador ver o aviso inline)
+            setTimeout(() => {
+                if (onBillClosed) {
+                    onBillClosed(table.id);
+                }
+                onClose();
+            }, 1200);
         } catch (err: any) {
             console.error('[HOSPITALITY/BillModal] Falha ao processar fecho de conta:', err);
-            alert(`Aviso: Banco de Dados offline. A fechar a conta em Modo Demo.`);
-            if (onBillClosed) {
-                onBillClosed(table.id);
-            }
-            onClose();
+            setNotice({ tone: 'warn', text: 'Aviso: Banco de Dados offline. A fechar a conta em Modo Demo.' });
+            setTimeout(() => {
+                if (onBillClosed) {
+                    onBillClosed(table.id);
+                }
+                onClose();
+            }, 1600);
         } finally {
             setIsProcessing(false);
         }
@@ -160,6 +166,12 @@ export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
                                 ))}
                             </select>
                         </div>
+                    )}
+
+                    {notice && (
+                        <p className={`p-3 rounded-xl text-[10px] font-black uppercase tracking-widest text-center border ${notice.tone === 'success' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : notice.tone === 'warn' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}>
+                        {notice.text}
+                    </p>
                     )}
 
                     <button

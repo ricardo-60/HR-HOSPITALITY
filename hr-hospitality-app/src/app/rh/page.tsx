@@ -4,8 +4,59 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion } from 'framer-motion';
 import { Users, Timer, CalendarClock, TrendingUp, ShieldAlert, HeartPulse, DoorOpen, Activity, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { EMPREGADOS_BASE } from '@/app/rh/empregados/page';
+import { SEED_PICAGENS } from '@/app/rh/picagem/page';
+import { SEED_VENCIMENTOS } from '@/app/rh/salarios/page';
+import { SEED_TURNOS } from '@/app/rh/escalas/page';
+import { SEED_DESLIGAMENTOS } from '@/app/rh/saidas/page';
+
+type PicagemRow = { data: string; status: string };
+type EmpregadoRow = { id: string; status: string };
+type VencimentoRow = { status: string };
+type TurnoRow = { id: string };
+type DesligamentoRow = { id: string };
+
+/** KPIs do hub RH: seeds por defeito, sobrepostos pelo que existir em localStorage. */
+function computarStats(
+    estados: Record<string, string>,
+    picagens: PicagemRow[],
+    empregados: EmpregadoRow[],
+    vencimentos: VencimentoRow[],
+    turnos: TurnoRow[],
+    desligamentos: DesligamentoRow[],
+) {
+    const staff = empregados.map(e => ({ ...e, status: estados[e.id] || e.status }));
+    const hoje = picagens.filter(p => p.data === 'Hoje');
+    const atrasos = hoje.filter(p => p.status === 'Atraso').length;
+    return {
+        total: staff.length,
+        presentes: hoje.length,
+        ativos: staff.filter(e => e.status === 'Ativo').length,
+        emFerias: staff.filter(e => e.status === 'Férias' || e.status === 'Folga').length,
+        pontualidade: hoje.length > 0 ? Math.round(((hoje.length - atrasos) / hoje.length) * 100) : 100,
+        turnos: turnos.length,
+        pendentes: vencimentos.filter(v => v.status === 'Pendente').length,
+        desligamentos: desligamentos.length,
+    };
+}
 
 export default function ModoRHPage() {
+    const [rhStats, setRhStats] = useState(() =>
+        computarStats({}, SEED_PICAGENS, EMPREGADOS_BASE, SEED_VENCIMENTOS, SEED_TURNOS, SEED_DESLIGAMENTOS)
+    );
+
+    useEffect(() => {
+        try {
+            const estados = JSON.parse(localStorage.getItem('rh_empregados_estado') || '{}');
+            const picagens = JSON.parse(localStorage.getItem('rh_picagens') || 'null') || SEED_PICAGENS;
+            const vencimentos = JSON.parse(localStorage.getItem('rh_salarios') || 'null') || SEED_VENCIMENTOS;
+            const turnos = JSON.parse(localStorage.getItem('rh_escalas') || 'null') || SEED_TURNOS;
+            const desligamentos = JSON.parse(localStorage.getItem('rh_saidas') || 'null') || SEED_DESLIGAMENTOS;
+            setRhStats(computarStats(estados, picagens, EMPREGADOS_BASE, vencimentos, turnos, desligamentos));
+        } catch { /* mantém os valores seed */ }
+    }, []);
+
     const modules = [
         { 
             title: 'Diretório de Staff', 
@@ -13,7 +64,7 @@ export default function ModoRHPage() {
             icon: Users, 
             path: '/rh/empregados', 
             color: '#00F2FF',
-            stats: '42 Ativos'
+            stats: `${rhStats.ativos} Ativos`
         },
         { 
             title: 'Tempo & Presença', 
@@ -21,7 +72,7 @@ export default function ModoRHPage() {
             icon: Timer, 
             path: '/rh/picagem', 
             color: '#10B981',
-            stats: '98% Pontualidade'
+            stats: `${rhStats.pontualidade}% Pontualidade`
         },
         { 
             title: 'Gestão de Férias', 
@@ -29,7 +80,7 @@ export default function ModoRHPage() {
             icon: HeartPulse, 
             path: '/rh/ferias', 
             color: '#F43F5E',
-            stats: '3 Em Férias'
+            stats: `${rhStats.emFerias} Em Férias`
         },
         { 
             title: 'Escalas e Turnos', 
@@ -37,7 +88,7 @@ export default function ModoRHPage() {
             icon: CalendarClock, 
             path: '/rh/escalas', 
             color: '#F59E0B',
-            stats: 'Ocupação 84%'
+            stats: `${rhStats.turnos} Turnos Planeados`
         },
         { 
             title: 'Proc. Salarial', 
@@ -45,7 +96,7 @@ export default function ModoRHPage() {
             icon: TrendingUp, 
             path: '/rh/salarios', 
             color: '#8B5CF6',
-            stats: 'Fecho Pendente'
+            stats: `${rhStats.pendentes} Pendentes`
         },
         { 
             title: 'Desligamentos', 
@@ -53,7 +104,7 @@ export default function ModoRHPage() {
             icon: DoorOpen, 
             path: '/rh/saidas', 
             color: '#EC4899',
-            stats: '0 Registos'
+            stats: `${rhStats.desligamentos} Registos`
         },
     ];
 
@@ -86,7 +137,7 @@ export default function ModoRHPage() {
                             </div>
                             <span className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-black tracking-widest text-white/50">HOJE</span>
                         </div>
-                        <p className="text-4xl font-black text-white tracking-tighter mb-2">38<span className="text-xl text-white/20">/42</span></p>
+                        <p className="text-4xl font-black text-white tracking-tighter mb-2">{rhStats.presentes}<span className="text-xl text-white/20">/{rhStats.total}</span></p>
                         <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Colaboradores Presentes</p>
                     </div>
                     
@@ -97,7 +148,7 @@ export default function ModoRHPage() {
                             </div>
                             <span className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-black tracking-widest text-white/50">TURNO</span>
                         </div>
-                        <p className="text-4xl font-black text-white tracking-tighter mb-2">98%</p>
+                        <p className="text-4xl font-black text-white tracking-tighter mb-2">{rhStats.pontualidade}%</p>
                         <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Taxa de Pontualidade</p>
                     </div>
 
@@ -108,7 +159,7 @@ export default function ModoRHPage() {
                             </div>
                             <span className="px-3 py-1 bg-[#F43F5E]/10 rounded-full text-[10px] font-black tracking-widest text-[#F43F5E]">ALERTA</span>
                         </div>
-                        <p className="text-4xl font-black text-white tracking-tighter mb-2">4</p>
+                        <p className="text-4xl font-black text-white tracking-tighter mb-2">{rhStats.emFerias}</p>
                         <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Ausências / Férias</p>
                     </div>
 

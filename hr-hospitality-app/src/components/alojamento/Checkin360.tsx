@@ -4,6 +4,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { User, Car, CreditCard, CheckCircle2, Shield, Dumbbell, Zap, ArrowRight, ArrowLeft } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import VoiceInput from '@/components/voice/VoiceInput';
 import { supabase } from '@/lib/supabase';
 
 interface Checkin360Props {
@@ -17,7 +18,7 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
     const [isSuccess, setIsSuccess] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [selectedRoomId, setSelectedRoomId] = useState(roomId || '');
-    const [availableRooms, setAvailableRooms] = useState<{ id: string; type: string; status: string }[]>([]);
+    const [availableRooms, setAvailableRooms] = useState<{ id: string; room_number?: string; room_type?: string; status: string }[]>([]);
 
     useEffect(() => {
         if (roomId) {
@@ -64,7 +65,8 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
         nationality: 'Portugal',
         plate: '',
         gymAccess: false,
-        creditLimit: 500
+        creditLimit: 500,
+        notes: ''
     });
 
     const handleFinalize = async () => {
@@ -158,6 +160,23 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
                         </div>
                     </div>
                     <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">Observações do Hóspede (ditado por voz)</label>
+                            <VoiceInput
+                                compact
+                                language="pt"
+                                onText={(t) => setFormData(prev => ({ ...prev, notes: prev.notes ? prev.notes + ' ' + t : t }))}
+                            />
+                        </div>
+                        <textarea
+                            value={formData.notes}
+                            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                            rows={2}
+                            placeholder="EX: PREFEIRE ANDAR ALTO, ALERGIA A FRUTOS SECOS... (ou use o microfone para ditar)"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white font-bold text-sm tracking-wide focus:border-cyber-cyan outline-none transition-all placeholder:text-white/10 resize-none"
+                        />
+                    </div>
+                    <div className="space-y-2">
                         <label className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">Quarto Designado</label>
                         {roomId ? (
                             <input
@@ -175,7 +194,7 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
                                 <option value="" disabled>Selecionar Quarto...</option>
                                 {availableRooms.map(r => (
                                     <option key={r.id} value={r.id} className="bg-[#111827]">
-                                        Quarto {r.id} ({r.type})
+                                        Quarto {r.room_number || r.id} ({r.room_type || 'Standard'})
                                     </option>
                                 ))}
                             </select>

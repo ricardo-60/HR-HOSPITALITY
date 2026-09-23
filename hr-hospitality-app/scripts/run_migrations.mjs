@@ -219,7 +219,9 @@ try {
         if (!health?.status) {
             console.error(`ERRO: servidor SQLite local não responde em ${serverUrl}.`);
             console.error('Inicie a app (npm run electron:dev) ou o servidor local (node electron/server.js).');
-            process.exit(1);
+            // Throw em vez de process.exit: preserva exit code 1 sem a
+            // Assertion UV_HANDLE_CLOSING (sockets keep-alive) no Windows.
+            throw new Error(`servidor SQLite indisponível em ${serverUrl}`);
         }
         console.log(`Servidor local ativo em ${serverUrl} ✓`);
     }
@@ -242,56 +244,81 @@ try {
     if (onlyStatus) {
         const current = applied.length ? applied[applied.length - 1] : null;
         console.log(`\nVersão atual do esquema: ${current ? `${current.version} (${current.name}, aplicada em ${current.applied_at})` : 'NENHUMA'}`);
-        process.exit(0);
-    }
-
-    if (pending.length === 0) {
+        if (pgClient) { try { await pgClient.end(); } catch { /* ignore */ } }
+        // Saida natural: deixa os sockets keep-alive do fetch fecharem sem
+        // provocar "Assertion failed: UV_HANDLE_CLOSING" (exit 0xC0000409) no Windows.
+        process.exitCode = 0;
+    } else if (pending.length === 0) {
         console.log('\n✔ Nenhuma migração pendente. Esquema atualizado.');
-        process.exit(0);
-    }
+        if (pgClient) { try { await pgClient.end(); } catch { /* ignore */ } }
+        process.exitCode = 0;
+    } else {
 
-    // Snapshot antes de aplicar alterações
-    if (doSnapshot) {
-        console.log('\nA exportar snapshot do esquema...');
-        const snap = target === 'sqlite' ? await sqliteSnapshot() : await supabaseSnapshot();
-        console.log(`✔ Snapshot gravado: ${snap.file} (${snap.objects} objectos)`);
-    }
-
-    // Aplicar pendentes, em ordem, com transação (SQLite) e registo de versão
-    for (const m of pending) {
-        console.log(`\n→ A aplicar ${m.name} ...`);
-        const statements = splitStatements(readFileSync(m.path, 'utf8'));
-        try {
-            if (target === 'sqlite') await sqliteExecute('BEGIN');
-            for (const s of statements) {
-                await execStatement(s);
-            }
-            await execStatement(
-                target === 'sqlite'
-                    ? `INSERT INTO _schema_migrations (version, name) VALUES (?, ?)`
-                    : `INSERT INTO public._schema_migrations (version, name) VALUES ('${m.version}', '${m.name}')`,
-                target === 'sqlite' ? [m.version, m.name] : []
-            );
-            if (target === 'sqlite') await sqliteExecute('COMMIT');
-            console.log(`  ✔ ${statements.length} statements aplicados — versão ${m.version} registada.`);
-        } catch (err) {
-            if (target === 'sqlite') {
-                try { await sqliteExecute('ROLLBACK'); } catch { /* pode já não haver transação */ }
-            }
-            console.error(`  ✖ FALHA em ${m.name}: ${err.message}`);
-            console.error('  Execução interrompida — nenhuma migração posterior foi aplicada.');
-            process.exit(2);
+        // Snapshot antes de aplicar alterações
+        if (doSnapshot) {
+            console.log('\nA exportar snapshot do esquema...');
+            const snap = target === 'sqlite' ? await sqliteSnapshot() : await supabaseSnapshot();
+            console.log(`✔ Snapshot gravado: ${snap.file} (${snap.objects} objectos)`);
         }
+
+        // Aplicar pendentes, em ordem, com transação (SQLite) e registo de versão
+        for (const m of pending) {
+            console.log(`\n→ A aplicar ${m.name} ...`);
+            const statements = splitStatements(readFileSync(m.path, 'utf8'));
+            try {
+                if (target === 'sqlite') await sqliteExecute('BEGIN');
+                for (const s of statements) {
+                    try {
+                        await execStatement(s);
+                    } catch (stmtErr) {
+                        // Idempotência: bases locais legadas (GestPro) podem já
+                        // conter o objeto/coluna que a migração tenta adicionar.
+                        const msg = String(stmtErr?.message || stmtErr);
+                        if (/duplicate column name|already exists/i.test(msg)) {
+                            console.log(`  · já existe (ignorado): ${msg.split('\n')[0]}`);
+                            continue;
+                        }
+                        throw stmtErr;
+                    }
+                }
+                await execStatement(
+                    target === 'sqlite'
+                        ? `INSERT INTO _schema_migrations (version, name) VALUES (?, ?)`
+                        : `INSERT INTO public._schema_migrations (version, name) VALUES ('${m.version}', '${m.name}')`,
+                    target === 'sqlite' ? [m.version, m.name] : []
+                );
+                if (target === 'sqlite') await sqliteExecute('COMMIT');
+                console.log(`  ✔ ${statements.length} statements aplicados — versão ${m.version} registada.`);
+            } catch (err) {
+                if (target === 'sqlite') {
+                    try { await sqliteExecute('ROLLBACK'); } catch { /* pode já não haver transação */ }
+                }
+                console.error(`  ✖ FALHA em ${m.name}: ${err.message}`);
+                console.error('  Execução interrompida — nenhuma migração posterior foi aplicada.');
+                // Saida via throw (nao process.exit): evita a Assertion
+                // UV_HANDLE_CLOSING no Windows com sockets keep-alive e
+                // preserva o exit code 2 no fim do script.
+                throw Object.assign(new Error(`migração ${m.name} falhou`), { migExit: 2 });
+            }
+        }
+
+        const finalApplied = await getApplied(execQuery);
+        const current = finalApplied[finalApplied.length - 1];
+        console.log(`\n=== CONCLUÍDO · versão atual do esquema (${target}): ${current.version} — ${current.name} ===`);
+
+        if (pgClient) { try { await pgClient.end(); } catch { /* ignore */ } }
+        // Saida natural (ver comentario acima): sem process.exit aqui.
+        process.exitCode = 0;
     }
-
-    const finalApplied = await getApplied(execQuery);
-    const current = finalApplied[finalApplied.length - 1];
-    console.log(`\n=== CONCLUÍDO · versão atual do esquema (${target}): ${current.version} — ${current.name} ===`);
-
-    if (pgClient) { try { await pgClient.end(); } catch { /* ignore */ } }
-    process.exit(0);
 } catch (err) {
-    console.error('ERRO fatal:', err.message);
+    if (err && typeof err.migExit === 'number') {
+        // Mensagens de contexto já impressas pelo bloco que falhou.
+        process.exitCode = err.migExit;
+    } else {
+        console.error('ERRO fatal:', err.message);
+        process.exitCode = 1;
+    }
     if (pgClient) { try { await pgClient.end(); } catch { /* ignore */ } }
-    process.exit(1);
+    // Saida natural (sem process.exit): os sockets keep-alive do fetch
+    // fecham limposamente, sem "Assertion UV_HANDLE_CLOSING" (0xC0000409).
 }

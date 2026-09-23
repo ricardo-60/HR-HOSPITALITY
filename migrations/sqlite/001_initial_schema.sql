@@ -15,8 +15,18 @@ CREATE TABLE IF NOT EXISTS tenants (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
-INSERT OR IGNORE INTO tenants (id, name, slug, currency)
-VALUES ('11111111-1111-1111-1111-111111111111', 'Hotel Lukweku', 'hotel-lukweku', 'Kz');
+-- Reconciliação com bases legadas (esquema GestPro antigo, com
+-- company_name NOT NULL e sem name/slug/currency). Os ADD COLUMN
+-- falham com "duplicate column name" numa base já nova — o executor
+-- de migrações ignora esses erros (idempotência) e o INSERT abaixo
+-- passa a funcionar em AMBOS os formatos.
+ALTER TABLE tenants ADD COLUMN name TEXT;
+ALTER TABLE tenants ADD COLUMN slug TEXT;
+ALTER TABLE tenants ADD COLUMN currency TEXT DEFAULT 'Kz';
+ALTER TABLE tenants ADD COLUMN company_name TEXT;
+
+INSERT OR IGNORE INTO tenants (id, name, slug, currency, company_name)
+VALUES ('11111111-1111-1111-1111-111111111111', 'Hotel Lukweku', 'hotel-lukweku', 'Kz', 'Hotel Lukweku');
 
 -- ── Quartos do hotel ────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS hotel_rooms (

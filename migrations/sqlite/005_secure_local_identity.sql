@@ -18,6 +18,13 @@ CREATE INDEX IF NOT EXISTS idx_app_users_email
 ALTER TABLE app_users DROP COLUMN password_hash;
 ALTER TABLE app_users DROP COLUMN password_salt;
 
-ALTER TABLE hotel_consumptions ADD COLUMN updated_at TEXT DEFAULT (datetime('now'));
+-- SQLite recusa defaults não constantes em ADD COLUMN ("Cannot add a column
+-- with non-constant default"), por isso a coluna é criada sem default e as
+-- linhas existentes são preenchidas em seguida. Os novos registos já são
+-- escritos com `updated_at` explícito pelo registry de operações.
+ALTER TABLE hotel_consumptions ADD COLUMN updated_at TEXT;
+
+UPDATE hotel_consumptions SET updated_at = COALESCE(registered_at, created_at, datetime('now'))
+    WHERE updated_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_consumptions_tenant ON hotel_consumptions(tenant_id);

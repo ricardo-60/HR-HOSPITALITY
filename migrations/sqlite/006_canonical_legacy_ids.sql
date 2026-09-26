@@ -90,7 +90,84 @@ UPDATE hotel_reservations SET id = 'b2222222-2222-4222-8222-000000000002' WHERE 
 UPDATE hotel_reservations SET id = 'b2222222-2222-4222-8222-000000000003' WHERE id = 'res-demo-3' AND NOT EXISTS (SELECT 1 FROM hotel_reservations WHERE id = 'b2222222-2222-4222-8222-000000000003');
 UPDATE hotel_reservations SET id = 'b2222222-2222-4222-8222-000000000004' WHERE id = 'res-demo-4' AND NOT EXISTS (SELECT 1 FROM hotel_reservations WHERE id = 'b2222222-2222-4222-8222-000000000004');
 
-UPDATE sync_queue SET record_id = 'a1111111-1111-4111-8111-000000000101' WHERE table_name = 'hotel_rooms' AND record_id = 'room-101';
+-- ── Resolução de colisões ────────────────────────────────────
+-- A migração 001 também semeia reservas canónicas. Quando o UUID canónico já
+-- existe (base com os dois conjuntos de demonstração), a renomeação acima é
+-- ignorada e sobrariam duas reservas do mesmo hóspede. Neste caso a linha
+-- canónica recebe os campos que só existem na legada e a legada é removida,
+-- para não perder o vínculo ao quarto.
+UPDATE hotel_reservations
+SET     room_id           = COALESCE(room_id, (SELECT s.room_id FROM hotel_reservations s WHERE s.id = 'res-demo-1')),
+    room_number       = COALESCE(room_number, (SELECT s.room_number FROM hotel_reservations s WHERE s.id = 'res-demo-1')),
+    check_in_date     = COALESCE(check_in_date, (SELECT s.check_in_date FROM hotel_reservations s WHERE s.id = 'res-demo-1')),
+    check_out_date    = COALESCE(check_out_date, (SELECT s.check_out_date FROM hotel_reservations s WHERE s.id = 'res-demo-1')),
+    reservation_date  = COALESCE(reservation_date, (SELECT s.reservation_date FROM hotel_reservations s WHERE s.id = 'res-demo-1')),
+    total_amount      = COALESCE(total_amount, (SELECT s.total_amount FROM hotel_reservations s WHERE s.id = 'res-demo-1')),
+    notes             = COALESCE(notes, (SELECT s.notes FROM hotel_reservations s WHERE s.id = 'res-demo-1')),
+    updated_at       = datetime('now')
+WHERE id = 'b2222222-2222-4222-8222-000000000001'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'res-demo-1');
+
+DELETE FROM sync_queue WHERE table_name = 'hotel_reservations' AND record_id = 'res-demo-1'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'b2222222-2222-4222-8222-000000000001');
+
+DELETE FROM hotel_reservations WHERE id = 'res-demo-1'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'b2222222-2222-4222-8222-000000000001');
+
+UPDATE hotel_reservations
+SET     room_id           = COALESCE(room_id, (SELECT s.room_id FROM hotel_reservations s WHERE s.id = 'res-demo-2')),
+    room_number       = COALESCE(room_number, (SELECT s.room_number FROM hotel_reservations s WHERE s.id = 'res-demo-2')),
+    check_in_date     = COALESCE(check_in_date, (SELECT s.check_in_date FROM hotel_reservations s WHERE s.id = 'res-demo-2')),
+    check_out_date    = COALESCE(check_out_date, (SELECT s.check_out_date FROM hotel_reservations s WHERE s.id = 'res-demo-2')),
+    reservation_date  = COALESCE(reservation_date, (SELECT s.reservation_date FROM hotel_reservations s WHERE s.id = 'res-demo-2')),
+    total_amount      = COALESCE(total_amount, (SELECT s.total_amount FROM hotel_reservations s WHERE s.id = 'res-demo-2')),
+    notes             = COALESCE(notes, (SELECT s.notes FROM hotel_reservations s WHERE s.id = 'res-demo-2')),
+    updated_at       = datetime('now')
+WHERE id = 'b2222222-2222-4222-8222-000000000002'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'res-demo-2');
+
+DELETE FROM sync_queue WHERE table_name = 'hotel_reservations' AND record_id = 'res-demo-2'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'b2222222-2222-4222-8222-000000000002');
+
+DELETE FROM hotel_reservations WHERE id = 'res-demo-2'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'b2222222-2222-4222-8222-000000000002');
+
+UPDATE hotel_reservations
+SET     room_id           = COALESCE(room_id, (SELECT s.room_id FROM hotel_reservations s WHERE s.id = 'res-demo-3')),
+    room_number       = COALESCE(room_number, (SELECT s.room_number FROM hotel_reservations s WHERE s.id = 'res-demo-3')),
+    check_in_date     = COALESCE(check_in_date, (SELECT s.check_in_date FROM hotel_reservations s WHERE s.id = 'res-demo-3')),
+    check_out_date    = COALESCE(check_out_date, (SELECT s.check_out_date FROM hotel_reservations s WHERE s.id = 'res-demo-3')),
+    reservation_date  = COALESCE(reservation_date, (SELECT s.reservation_date FROM hotel_reservations s WHERE s.id = 'res-demo-3')),
+    total_amount      = COALESCE(total_amount, (SELECT s.total_amount FROM hotel_reservations s WHERE s.id = 'res-demo-3')),
+    notes             = COALESCE(notes, (SELECT s.notes FROM hotel_reservations s WHERE s.id = 'res-demo-3')),
+    updated_at       = datetime('now')
+WHERE id = 'b2222222-2222-4222-8222-000000000003'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'res-demo-3');
+
+DELETE FROM sync_queue WHERE table_name = 'hotel_reservations' AND record_id = 'res-demo-3'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'b2222222-2222-4222-8222-000000000003');
+
+DELETE FROM hotel_reservations WHERE id = 'res-demo-3'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'b2222222-2222-4222-8222-000000000003');
+
+UPDATE hotel_reservations
+SET     room_id           = COALESCE(room_id, (SELECT s.room_id FROM hotel_reservations s WHERE s.id = 'res-demo-4')),
+    room_number       = COALESCE(room_number, (SELECT s.room_number FROM hotel_reservations s WHERE s.id = 'res-demo-4')),
+    check_in_date     = COALESCE(check_in_date, (SELECT s.check_in_date FROM hotel_reservations s WHERE s.id = 'res-demo-4')),
+    check_out_date    = COALESCE(check_out_date, (SELECT s.check_out_date FROM hotel_reservations s WHERE s.id = 'res-demo-4')),
+    reservation_date  = COALESCE(reservation_date, (SELECT s.reservation_date FROM hotel_reservations s WHERE s.id = 'res-demo-4')),
+    total_amount      = COALESCE(total_amount, (SELECT s.total_amount FROM hotel_reservations s WHERE s.id = 'res-demo-4')),
+    notes             = COALESCE(notes, (SELECT s.notes FROM hotel_reservations s WHERE s.id = 'res-demo-4')),
+    updated_at       = datetime('now')
+WHERE id = 'b2222222-2222-4222-8222-000000000004'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'res-demo-4');
+
+DELETE FROM sync_queue WHERE table_name = 'hotel_reservations' AND record_id = 'res-demo-4'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'b2222222-2222-4222-8222-000000000004');
+
+DELETE FROM hotel_reservations WHERE id = 'res-demo-4'
+  AND EXISTS (SELECT 1 FROM hotel_reservations s WHERE s.id = 'b2222222-2222-4222-8222-000000000004');
+
 UPDATE sync_queue SET record_id = 'a1111111-1111-4111-8111-000000000102' WHERE table_name = 'hotel_rooms' AND record_id = 'room-102';
 UPDATE sync_queue SET record_id = 'a1111111-1111-4111-8111-000000000103' WHERE table_name = 'hotel_rooms' AND record_id = 'room-103';
 UPDATE sync_queue SET record_id = 'a1111111-1111-4111-8111-000000000104' WHERE table_name = 'hotel_rooms' AND record_id = 'room-104';

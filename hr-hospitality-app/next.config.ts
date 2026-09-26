@@ -1,4 +1,5 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
+import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 
 const nextConfig: NextConfig = {
   output: 'export',
@@ -7,4 +8,15 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+const config = (phase: string): NextConfig => {
+  if (phase === PHASE_PRODUCTION_BUILD) {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      throw new Error(
+        'NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY são obrigatórios no build de produção.'
+      );
+    }
+  }
+  return nextConfig;
+};
+
+export default config;

@@ -4,18 +4,22 @@
   "author": "HR Hospitality",
   "description": "HR Hospitality Platform",
   "private": true,
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/serve_static.mjs",
     "lint": "eslint",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
+    "electron:build": "node build_setups.js",
     "build:server": "node build_setups.js --only=server",
     "build:client": "node build_setups.js --only=client",
     "build:all": "node build_setups.js",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:security": "node --test tests/security/*.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",
@@ -24,7 +28,8 @@
     "express": "^5.2.1",
     "framer-motion": "^12.35.2",
     "lucide-react": "^0.577.0",
-    "next": "16.1.6",
+    "next": "16.3.6",
+    "pg": "^8.23.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "tailwind-merge": "^3.5.0"
@@ -39,10 +44,9 @@
     "electron": "^42.5.0",
     "electron-builder": "^26.15.3",
     "eslint": "^9",
-    "eslint-config-next": "16.1.6",
+    "eslint-config-next": "16.3.6",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vercel": "^54.14.0",
     "wait-on": "^8.0.2"
   },
   "build": {

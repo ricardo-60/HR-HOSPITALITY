@@ -3,9 +3,8 @@
 
 /**
  * HR-HOSPITALITY — VoiceInput
- * Botão de microfone 🎤 reutilizável: grava com MediaRecorder, envia para o
- * motor faster-whisper local (POST :3002/api/voice/transcribe) e devolve o
- * texto transcrito via callback onText.
+ * Botão de microfone reutilizável: grava com MediaRecorder e envia o áudio,
+ * através do IPC seguro do Electron, para o motor faster-whisper local.
  *
  * USO:
  *   <VoiceInput onText={(t) => setNotes((prev) => (prev ? prev + ' ' + t : t))} />
@@ -35,13 +34,16 @@ export default function VoiceInput({ onText, language = 'pt', compact = false, c
     const chunksRef = useRef<Blob[]>([]);
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    const getVoiceServerUrl = (): string => {
-        if (typeof window !== 'undefined') {
-            const hostname = window.location.hostname || 'localhost';
-            return `http://${hostname}:3002`;
-        }
-        return 'http://localhost:3002';
-    };
+    const blobToBase64 = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Falha ao preparar áudio.'));
+        reader.onload = () => {
+            const result = String(reader.result || '');
+            const comma = result.indexOf(',');
+            resolve(comma >= 0 ? result.slice(comma + 1) : result);
+        };
+        reader.readAsDataURL(blob);
+    });
 
     const startRecording = async () => {
         setError(null);
@@ -91,23 +93,18 @@ export default function VoiceInput({ onText, language = 'pt', compact = false, c
     const transcribe = async (blob: Blob) => {
         setState('processing');
         try {
-            const res = await fetch(`${getVoiceServerUrl()}/api/voice/transcribe?lang=${encodeURIComponent(language)}`, {
-                method: 'POST',
-                headers: { 'Content-Type': blob.type || 'audio/webm' },
-                body: blob,
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-
-            const text = (data?.text || '').trim();
+            const voiceBridge = typeof window !== 'undefined'
+                ? (window as any).electronAPI?.voice
+                : null;
+            if (!voiceBridge || typeof voiceBridge.transcribe !== 'function') {
+                throw new Error('A transcrição está disponível apenas na aplicação Electron Servidor.');
+            }
+            const data = await voiceBridge.transcribe(await blobToBase64(blob), language);
+            const text = String(data?.text || '').trim();
             if (text) onText(text);
             else setError('Nenhuma fala detetada no áudio.');
-        } catch (e: any) {
-            setError(
-                e?.message?.includes('Failed to fetch')
-                    ? 'Servidor de voz local (:3002) não acessível.'
-                    : e?.message || 'Falha na transcrição.'
-            );
+        } catch (error: any) {
+            setError(error?.message || 'Falha na transcrição.');
         } finally {
             setState('idle');
         }

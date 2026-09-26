@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { Table, Guest } from '@/types';
 import { useState, useEffect } from 'react';
 import { CreditCard, Home, X } from 'lucide-react';
-import { localQuery, localExecute } from '@/lib/db/localDB';
+import { localOperation, localQuery } from '@/lib/db/localDB';
 
 interface BillModalProps {
     table: Table;
@@ -22,11 +23,7 @@ export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
         async function fetchGuests() {
             try {
                 // Selecionar reservas checked_in ou confirmadas
-                const rows = await localQuery(`
-                    SELECT id, guest_name as fullName, room_number as roomId, email 
-                    FROM hotel_reservations 
-                    WHERE status IN ('CHECKED_IN', 'CONFIRMADA')
-                `);
+                const rows = await localQuery<any[]>('reservations.activeGuests', {});
                 
                 if (rows && rows.length > 0) {
                     // Converter para o tipo Guest
@@ -42,16 +39,16 @@ export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
                 } else {
                     // Fallback de demonstração caso o banco de dados local esteja sem hóspedes
                     setActiveGuests([
-                        { id: 'res-demo-2', fullName: 'Maria da Conceição', documentId: '54321098', email: 'm.conceicao@email.com', status: 'ACTIVE', roomId: '202' },
-                        { id: 'res-demo-4', fullName: 'Ana Paula Silva', documentId: '98765432', email: 'ana.silva@gmail.com', status: 'ACTIVE', roomId: '104' },
-                        { id: 'res-demo-1', fullName: 'Hermenegildo Ricardo', documentId: '12345678', email: 'h.ricardo@email.com', status: 'ACTIVE', roomId: '101' }
+                        { id: 'b2222222-2222-4222-8222-000000000002', fullName: 'Maria da Conceição', documentId: '54321098', email: 'm.conceicao@email.com', status: 'ACTIVE', roomId: '202' },
+                        { id: 'b2222222-2222-4222-8222-000000000004', fullName: 'Ana Paula Silva', documentId: '98765432', email: 'ana.silva@gmail.com', status: 'ACTIVE', roomId: '104' },
+                        { id: 'b2222222-2222-4222-8222-000000000001', fullName: 'Hermenegildo Ricardo', documentId: '12345678', email: 'h.ricardo@email.com', status: 'ACTIVE', roomId: '101' }
                     ]);
                 }
             } catch (err) {
                 console.error('[HOSPITALITY/BillModal] Falha ao ler hóspedes ativos:', err);
                 // Fallback de segurança
                 setActiveGuests([
-                    { id: 'res-demo-2', fullName: 'Maria da Conceição', documentId: '54321098', email: 'm.conceicao@email.com', status: 'ACTIVE', roomId: '202' }
+                    { id: 'b2222222-2222-4222-8222-000000000002', fullName: 'Maria da Conceição', documentId: '54321098', email: 'm.conceicao@email.com', status: 'ACTIVE', roomId: '202' }
                 ]);
             }
         }
@@ -76,21 +73,13 @@ export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
                 const description = `Consumo Restaurante/Snack-Bar - Mesa ${table.number}`;
                 const billAmount = table.currentBill || 0;
 
-                await localExecute(`
-                    INSERT INTO hotel_consumptions (
-                        id, tenant_id, reservation_id, description, quantity, unit_price, total_price, category, registered_at
-                    ) VALUES (
-                        lower(hex(randomblob(16))),
-                        '11111111-1111-1111-1111-111111111111',
-                        ?,
-                        ?,
-                        1,
-                        ?,
-                        ?,
-                        'restaurante',
-                        datetime('now')
-                    )
-                `, [selectedGuestId, description, billAmount, billAmount]);
+                await localOperation('pos.postConsumption', {
+                    reservationId: selectedGuestId,
+                    description,
+                    unitPrice: billAmount,
+                    totalPrice: billAmount,
+                    category: 'restaurante'
+                });
 
                 setNotice({ tone: 'success', text: `Conta de ${billAmount.toFixed(2)}Kz lançada com sucesso no Quarto do hóspede!` });
             } else {

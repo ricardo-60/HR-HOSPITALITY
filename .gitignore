@@ -18,12 +18,21 @@ build/
 *.sln
 *.sw?
 
-# Local env files
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env
+# Local env files and secret-bearing configuration
+**/.env
+**/.env.*
+!**/.env.example
+**/.vercel/
+*.secret
+*.secret.*
+*credentials*.json
+*-credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+supabase-auth-store.bin
+**/electron/public-config.json
 
 # Local SQLite databases (nunca commitar dados operacionais)
 hospitality_local.db

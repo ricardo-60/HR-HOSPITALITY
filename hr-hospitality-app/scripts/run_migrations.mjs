@@ -27,7 +27,8 @@
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
@@ -44,7 +45,7 @@ const args = Object.fromEntries(
 const target = args.target || 'sqlite';
 const doSnapshot = Boolean(args.snapshot);
 const onlyStatus = Boolean(args.status);
-const serverUrl = args.url || 'http://localhost:3002';
+const sqlitePath = resolve(args.db || join(ROOT, 'hr-hospitality-app', 'hospitality_local.db'));
 
 if (!['sqlite', 'supabase'].includes(target)) {
     console.error(`Alvo inválido: "${target}". Use --target=sqlite ou --target=supabase.`);
@@ -54,45 +55,61 @@ if (!['sqlite', 'supabase'].includes(target)) {
 const MIGRATIONS_DIR = join(ROOT, 'migrations', target);
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
-// ── Executor SQLite (via API HTTP do servidor local :3002) ──
+// ── Executor SQLite (directo, local e fora da API HTTP) ────────────────────
+let sqliteDb = null;
+function openSqlite(readOnly = false) {
+    if (sqliteDb) return;
+    sqliteDb = new DatabaseSync(sqlitePath, { readOnly });
+    if (!readOnly) {
+        sqliteDb.exec('PRAGMA journal_mode = WAL');
+        sqliteDb.exec('PRAGMA foreign_keys = ON');
+        sqliteDb.exec('PRAGMA busy_timeout = 5000');
+    }
+    console.log(`SQLite local${readOnly ? ' (read-only)' : ''}: ${sqlitePath}`);
+}
+
 async function sqliteExecute(sql, params = []) {
-    const res = await fetch(`${serverUrl}/api/db/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sql, params }),
-    });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-    return body;
+    if (!sqliteDb) openSqlite();
+    if (params.length > 0) {
+        const result = sqliteDb.prepare(sql).run(...params);
+        return { changes: Number(result.changes), lastInsertRowid: result.lastInsertRowid };
+    }
+    sqliteDb.exec(sql);
+    return { changes: 0 };
+}
+
+function closeSqlite() {
+    if (sqliteDb) {
+        try { sqliteDb.close(); } catch { /* ignore */ }
+        sqliteDb = null;
+    }
 }
 
 async function sqliteQuery(sql, params = []) {
-    const res = await fetch(`${serverUrl}/api/db/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sql, params }),
-    });
-    const body = await res.json();
-    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-    return body.rows;
+    if (!sqliteDb) openSqlite();
+    return sqliteDb.prepare(sql).all(...params);
 }
 
-// ── Executor Supabase (pg via pooler, PGPASSWORD em env) ────
+// ── Executor Supabase (pg via pooler, secrets apenas em env) ─────────────
 let pgClient = null;
 async function supabaseConnect() {
-    if (!process.env.PGPASSWORD) {
-        console.error('ERRO: PGPASSWORD não definida (necessária para o alvo supabase).');
-        console.error('Uso: PGPASSWORD=... node scripts/run_migrations.mjs --target=supabase');
+    const required = ['PGPASSWORD', 'SUPABASE_DB_HOST', 'SUPABASE_DB_USER', 'SUPABASE_DB_NAME'];
+    const missing = required.filter(name => !process.env[name]);
+    if (missing.length) {
+        console.error(`ERRO: variáveis Supabase em falta: ${missing.join(', ')}.`);
+        console.error('Configure-as no secret manager; não as coloque em scripts ou comandos versionados.');
         process.exit(1);
     }
     const pg = (await import('pg')).default;
     pgClient = new pg.Client({
-        host: 'aws-0-eu-central-1.pooler.supabase.com',
-        port: 6543,
-        database: 'postgres',
-        user: 'postgres.zqmtxxjoocwhaodlnhxg',
+        host: process.env.SUPABASE_DB_HOST,
+        port: Number(process.env.SUPABASE_DB_PORT || 6543),
+        database: process.env.SUPABASE_DB_NAME,
+        user: process.env.SUPABASE_DB_USER,
         password: process.env.PGPASSWORD,
-        ssl: { rejectUnauthorized: false },
+        ssl: {
+            rejectUnauthorized: process.env.SUPABASE_DB_SSL_REJECT_UNAUTHORIZED !== 'false'
+        }
     });
     await pgClient.connect();
 }
@@ -155,8 +172,9 @@ const TRACKING_SQL = {
 async function getApplied(execQuery) {
     try {
         return await execQuery('SELECT version, name, applied_at FROM _schema_migrations ORDER BY version');
-    } catch {
-        return [];
+    } catch (error) {
+        if (/no such table|_schema_migrations.*doesn.t exist/i.test(String(error?.message || error))) return [];
+        throw error;
     }
 }
 
@@ -164,10 +182,10 @@ async function getApplied(execQuery) {
 async function sqliteSnapshot() {
     const rows = await sqliteQuery(
         `SELECT type, name, sql FROM sqlite_master
-         WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_schema_%'
+         WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
          ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, name`
     );
-    const header = `-- HR-HOSPITALITY snapshot do esquema SQLite\n-- Gerado em: ${new Date().toISOString()}\n-- Restauração: servidor local parado, aplicar via /api/db/execute (ou substituir hospitality_local.db por backup ficheiro)\n\nPRAGMA foreign_keys = OFF;\nBEGIN;\n`;
+    const header = `-- HR-HOSPITALITY snapshot do esquema SQLite\n-- Gerado em: ${new Date().toISOString()}\n-- Restauração: parar a aplicação e executar este ficheiro com uma ferramenta SQLite privilegiada.\n\nPRAGMA foreign_keys = OFF;\nBEGIN;\n`;
     const body = rows.map(r => `-- ${r.type}: ${r.name}\n${r.sql};`).join('\n\n');
     const footer = `\nCOMMIT;\nPRAGMA foreign_keys = ON;\n`;
     const outDir = join(BACKUPS_DIR, 'sqlite');
@@ -210,24 +228,20 @@ async function supabaseSnapshot() {
 // ── Main ────────────────────────────────────────────────────
 const execStatement = target === 'sqlite' ? sqliteExecute : pgExec;
 const execQuery = target === 'sqlite' ? sqliteQuery : pgQuery;
+async function closeConnections() {
+    closeSqlite();
+    if (pgClient) {
+        try { await pgClient.end(); } catch { /* ignore */ }
+    }
+}
 
 try {
     if (target === 'supabase') await supabaseConnect();
-    else {
-        // Health check do servidor local
-        const health = await fetch(`${serverUrl}/api/health`).then(r => r.json()).catch(() => null);
-        if (!health?.status) {
-            console.error(`ERRO: servidor SQLite local não responde em ${serverUrl}.`);
-            console.error('Inicie a app (npm run electron:dev) ou o servidor local (node electron/server.js).');
-            // Throw em vez de process.exit: preserva exit code 1 sem a
-            // Assertion UV_HANDLE_CLOSING (sockets keep-alive) no Windows.
-            throw new Error(`servidor SQLite indisponível em ${serverUrl}`);
-        }
-        console.log(`Servidor local ativo em ${serverUrl} ✓`);
-    }
+    else openSqlite(onlyStatus);
 
-    // Garantir tabela de controlo
-    await execStatement(TRACKING_SQL[target]);
+    // --status remains read-only. The tracking table is created only when a
+    // migration will actually be applied.
+    if (!onlyStatus) await execStatement(TRACKING_SQL[target]);
 
     const applied = await getApplied(execQuery);
     const all = listMigrations();
@@ -244,13 +258,13 @@ try {
     if (onlyStatus) {
         const current = applied.length ? applied[applied.length - 1] : null;
         console.log(`\nVersão atual do esquema: ${current ? `${current.version} (${current.name}, aplicada em ${current.applied_at})` : 'NENHUMA'}`);
-        if (pgClient) { try { await pgClient.end(); } catch { /* ignore */ } }
+        await closeConnections();
         // Saida natural: deixa os sockets keep-alive do fetch fecharem sem
         // provocar "Assertion failed: UV_HANDLE_CLOSING" (exit 0xC0000409) no Windows.
         process.exitCode = 0;
     } else if (pending.length === 0) {
         console.log('\n✔ Nenhuma migração pendente. Esquema atualizado.');
-        if (pgClient) { try { await pgClient.end(); } catch { /* ignore */ } }
+        await closeConnections();
         process.exitCode = 0;
     } else {
 
@@ -271,11 +285,13 @@ try {
                     try {
                         await execStatement(s);
                     } catch (stmtErr) {
-                        // Idempotência: bases locais legadas (GestPro) podem já
-                        // conter o objeto/coluna que a migração tenta adicionar.
+                        // A única reconciliação tolerada é a coluna legada
+                        // explícita de `tenants` na migração 001. Qualquer
+                        // outro erro faz a migração falhar e ser revertida.
                         const msg = String(stmtErr?.message || stmtErr);
-                        if (/duplicate column name|already exists/i.test(msg)) {
-                            console.log(`  · já existe (ignorado): ${msg.split('\n')[0]}`);
+                        const isLegacyTenantColumn = /^\s*ALTER\s+TABLE\s+tenants\s+ADD\s+COLUMN\s+(name|slug|currency|company_name)/i.test(s);
+                        if (isLegacyTenantColumn && /duplicate column name/i.test(msg)) {
+                            console.log(`  · coluna legada já existe (ignorado): ${msg.split('\n')[0]}`);
                             continue;
                         }
                         throw stmtErr;
@@ -306,7 +322,7 @@ try {
         const current = finalApplied[finalApplied.length - 1];
         console.log(`\n=== CONCLUÍDO · versão atual do esquema (${target}): ${current.version} — ${current.name} ===`);
 
-        if (pgClient) { try { await pgClient.end(); } catch { /* ignore */ } }
+        await closeConnections();
         // Saida natural (ver comentario acima): sem process.exit aqui.
         process.exitCode = 0;
     }
@@ -318,7 +334,7 @@ try {
         console.error('ERRO fatal:', err.message);
         process.exitCode = 1;
     }
-    if (pgClient) { try { await pgClient.end(); } catch { /* ignore */ } }
+    await closeConnections();
     // Saida natural (sem process.exit): os sockets keep-alive do fetch
     // fecham limposamente, sem "Assertion UV_HANDLE_CLOSING" (0xC0000409).
 }

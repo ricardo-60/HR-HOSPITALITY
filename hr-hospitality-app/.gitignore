@@ -43,9 +43,22 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files — NUNCA commitar segredos (chaves Supabase, etc.)
+# env and secret files — NEVER commit credentials
 .env*
 !.env.example
+**/.env*
+!**/.env.example
+**/.vercel/
+*.secret
+*.secret.*
+*credentials*.json
+*-credentials.json
+*.pem
+*.key
+*.p12
+*.pfx
+supabase-auth-store.bin
+/electron/public-config.json
 
 # vercel
 .vercel

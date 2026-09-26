@@ -1,0 +1,49 @@
+# Normalização de fim-de-linha por tipo de ficheiro.
+# `core.autocrlf=true` converte tudo para CRLF na cópia de trabalho, o que
+# quebra scripts shell (erro `$'\r': command not found`) e é desnecessário
+# para binários.
+
+# Shell / JS / TS / SQL / YAML / Markdown  -> LF sempre
+*.sh    text eol=lf
+*.mjs   text eol=lf
+*.js    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.json  text eol=lf
+*.sql   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+
+# Lotes e PowerShell  -> CRLF (necessário ao cmd/PowerShell 5.1)
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binários  -> nunca convertidos
+*.apk   binary
+*.ipa   binary
+*.aab   binary
+*.exe   binary
+*.msi   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.icns  binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+*.db    binary
+*.db-wal binary
+*.db-shm binary
+*.jks   binary
+*.keystore binary
+*.p12   binary
+*.pem   binary
+*.zip   binary
+*.jar   binary

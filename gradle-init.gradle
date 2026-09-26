@@ -1,0 +1,124 @@
+// HR-HOSPITALITY - init script do Gradle
+//
+// Problema 1: em Windows o caminho absoluto de alguns inputs do CMake
+// (../prefab/<abi>/.../ReactAndroidConfigVersion.cmake) ultrapassa o MAX_PATH
+// de 260 caracteres. O ninja nao consegue fazer "stat" desse ficheiro, marca o
+// edge "build build.ninja: RERUN_CMAKE" como sempre sujo e acaba com:
+//
+//     ninja: error: manifest 'build.ninja' still dirty after 100 tries
+//
+// Solucao: CMAKE_SUPPRESS_REGENERATION=ON remove por completo esse edge do
+// build.ninja gerado, passando o ninja a compilar directamente.
+//
+// Problema 2: CMAKE_OBJECT_PATH_MAX (250 por omissao) limita o tamanho dos
+// caminhos de objecto. Quando um ficheiro nao cabe na estrategia de hash MD5
+// (curta), o CMake escreve o caminho absoluto da fonte com ':' -> '_' :
+//
+//     ninja: error: mkdir(CMakeFiles/reanimated.dir/C_/Users/...): No such file...
+//
+// Solucao: subir o limite para 259 (MAX_PATH = 260 contando o terminador) para
+// manter a estrategia de hash, que nao depende do caminho absoluto da fonte.
+//
+// Problema 3: mesmo com os dois fixes acima, ha caminhos que o CMake NAO
+// encurta (fontes dentro do directorio-fonte, usados tal e qual), p.e.:
+//
+//   <projectDir>/.cxx/RelWithDebInfo/<hash>/<abi>/
+//     rngesturehandler_codegen_autolinked_build/CMakeFiles/react_codegen_...dir/
+//       react/renderer/components/rngesturehandler_codegen/ComponentDescriptors.cpp.o
+//
+// Isso da 296 caracteres com o repo em Desenvolver\HR-HOSPITALITY e falha.
+//
+// Solucao: deslocar o "build staging directory" (a raiz do .cxx) do projecto
+// para um caminho curto fora da arvore do repo. O AGP suporta-o oficialmente:
+//
+//   android.externalNativeBuild.cmake.buildStagingDirectory = '...'
+//
+// Todos os sub-builds do CMake (incluindo os codegen autolinkados) ficam debaixo
+// desse directorio, logo os caminhos de objecto encolhem ~100 caracteres sem
+// tocar no repo, nos nomes das apps, nem no node_modules.
+//
+// As 3 flags sao injectadas em TODOS os projectos Android (a app e todas as
+// bibliotecas do node_modules), porque cada um tem o seu bloco externalNativeBuild.
+//
+// Uso:  gradlew.bat <tarefa> --init-script <repo>/gradle-init.gradle
+
+def HR_CMAKE_FLAG = '-DCMAKE_SUPPRESS_REGENERATION=ON'
+def HR_CMAKE_FLAG2 = '-DCMAKE_OBJECT_PATH_MAX=259'
+def HR_CMAKE_FLAGS = [HR_CMAKE_FLAG, HR_CMAKE_FLAG2]
+
+def HR_IS_WINDOWS = System.getProperty('os.name', '').toLowerCase().contains('windows')
+// Caminho curto, fora da arvore do repo. Criavel por um utilizador normal (sem admin).
+def HR_CXX_ROOT = System.getenv('HR_CXX_ROOT') ?: 'C:\\hrb'
+
+def hrAddCmakeArgs = { p, args, flags ->
+    def rendered = []
+    try { rendered = args.collect { it.toString() } } catch (Throwable ignored) { }
+    flags.each { flag ->
+        if (rendered.contains(flag)) { return }
+        if (args.metaClass.respondsTo(args, 'add', Object)) {
+            args.add(flag)
+        } else if (args.metaClass.respondsTo(args, 'call', Object)) {
+            args.call(flag)
+        } else {
+            args << flag
+        }
+        p.logger.info("[hr] flag cmake aplicada em ${p.path}: ${flag}")
+    }
+}
+
+def hrApplyCmakeFlags = { p ->
+    try {
+        def android = p.extensions.findByName('android')
+        if (android == null) { return }
+        def cmake = android.defaultConfig.externalNativeBuild.cmake
+        def args = cmake.arguments
+        if (args == null) { return }
+        hrAddCmakeArgs(p, args, HR_CMAKE_FLAGS)
+    } catch (Throwable t) {
+        p.logger.warn("[hr] nao foi possivel aplicar as flags cmake em ${p.path}: ${t.message}")
+    }
+}
+
+def hrApplyStagingDir = { p ->
+    if (!HR_IS_WINDOWS) { return }
+    try {
+        def android = p.extensions.findByName('android')
+        if (android == null) { return }
+        def ext = android.externalNativeBuild
+        if (ext == null) { return }
+        def cmake = ext.cmake
+        if (cmake == null) { return }
+
+        // Chave curta e unica por projecto: nome Gradle + hash do directorio-fonte.
+        // String.hashCode() e deterministico na JVM, portanto estavel entre builds.
+        def name = (p.name == null || p.name.trim().isEmpty()) ? 'root' : p.name
+        def key = name.replaceAll('[^A-Za-z0-9._-]', '_')
+        if (key.length() > 40) { key = key.substring(0, 40) }
+        def dirKey = Integer.toHexString(p.projectDir.absolutePath.toLowerCase().hashCode())
+        def staging = HR_CXX_ROOT + '\\' + key + '-' + dirKey
+
+        // Nao lemos cmake.path aqui: o callback do plugins.withId corre antes do
+        // bloco android {} do build.gradle e o path ainda seria null.
+        def applied = false
+        try { cmake.buildStagingDirectory = staging; applied = true } catch (Throwable ignored) { }
+        try { android.defaultConfig.externalNativeBuild.cmake.buildStagingDirectory = staging } catch (Throwable ignored) { }
+        if (applied) {
+            p.logger.lifecycle("[hr] buildStagingDirectory ${p.path} -> ${staging}")
+        }
+    } catch (Throwable t) {
+        p.logger.warn("[hr] nao foi possivel definir buildStagingDirectory em ${p.path}: ${t.message}")
+    }
+}
+
+gradle.projectsLoaded {
+    gradle.rootProject.allprojects { p ->
+        p.plugins.withId('com.android.library') {
+            hrApplyCmakeFlags(p)
+            hrApplyStagingDir(p)
+        }
+        p.plugins.withId('com.android.application') {
+            hrApplyCmakeFlags(p)
+            hrApplyStagingDir(p)
+        }
+    }
+}

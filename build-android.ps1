@@ -183,16 +183,25 @@ foreach ($key in $selected) {
         $gradleProps = Join-Path 'android' 'gradle.properties'
         $props = @()
         if (Test-Path $gradleProps) { $props = @(Get-Content $gradleProps) }
-        $props = @($props | Where-Object { $_ -notmatch '^(org\.gradle\.jvmargs|android\.useAndroidX|android\.enableJetifier)' })
+        $props = @($props | Where-Object { $_ -notmatch '^(org\.gradle\.jvmargs|android\.useAndroidX|android\.enableJetifier|reactNativeArchitectures)' })
         $props += 'org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m'
         $props += 'android.useAndroidX=true'
         $props += 'android.enableJetifier=true'
+        # Apenas ABIs de dispositivo real (telemovel/tablet). Os emuladores usam
+        # x86/x86_64, que nao interessam a distribuicao por LAN da demonstracao.
+        $props += 'reactNativeArchitectures=armeabi-v7a,arm64-v8a'
         $props | Set-Content -Path $gradleProps -Encoding ascii
 
         Write-Host '  -> gradle :app:assembleRelease (a 1a execucao demora varios minutos)...'
         Push-Location 'android'
         try {
-            $code = Invoke-Native { & .\gradlew.bat :app:assembleRelease --no-daemon --console=plain }
+            # gradle-init.gradle injecta CMAKE_SUPPRESS_REGENERATION=ON em todos os
+            # modulos nativos: sem isso o ninja entra em loop
+            # ("manifest 'build.ninja' still dirty after 100 tries") porque o caminho
+            # absoluto de ../prefab/<abi>/.../ReactAndroidConfigVersion.cmake excede
+            # o MAX_PATH de 260 caracteres do Windows.
+            $initScript = Join-Path $Root 'gradle-init.gradle'
+            $code = Invoke-Native { & .\gradlew.bat :app:assembleRelease --no-daemon --console=plain --init-script $initScript }
             if ($code -ne 0) { throw 'gradle assembleRelease falhou' }
         } finally {
             Pop-Location

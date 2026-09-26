@@ -114,6 +114,23 @@ Header adicional: `X-Bootstrap-Token: <token>`. Após confirmar o login, remover
  efeito), os tipos `any` do POS foram substituídos por `Table`/`SnackTable` e
  foram removidos imports e parâmetros não utilizados.
 
+## Pipeline de empacotamento validado, mas ainda não operacional
+
+O `node build_setups.js` foi executado de ponta a ponta e gerou os dois
+instaladores NSIS (`Servidor` e `Cliente`, 171,6 MB e 171,7 MB, Electron
+42.11.8 / electron-builder 26.15.3). Como a `anon` key real ainda não foi
+fornecida, essa execução usou valores **placeholder** e por isso os instaladores
+resultantes **não Allowem autenticação**; foram eliminados de `dist/`, tal como
+`out/`, `.next/` e `electron/public-config.json`.
+
+Quando a credencial existir, o artefacto operacional é obtido com:
+
+```bash
+cd hr-hospitality-app
+npm run build          # falha de forma segura sem NEXT_PUBLIC_SUPABASE_*
+node build_setups.js   # gera dist/HR-Hospitality-{Servidor,Cliente}-Setup-0.1.0.exe
+```
+
 ## Nota sobre histórico Git
 
 A verificação actual não encontrou ficheiros `.env`, `.qa`, chaves `service_role` ou tokens Vercel rastreados pelo `HEAD`. Os ficheiros removidos estavam ignorados. Por isso **não foi feita reescrita destrutiva do histórico Git**; qualquer rotação de chaves continua obrigatória.

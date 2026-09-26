@@ -74,7 +74,7 @@ if /i "%~1"=="-r" set "HR_NEED_BUILD=1"
 
 if "%HR_NEED_BUILD%"=="0" (
     echo   [4/5] Frontend ja compilado - a reutilizar hr-hospitality-app\out
-    echo          (corra "start-server.bat --rebuild" para forcar nova compilacao)
+    echo          Corra "start-server.bat --rebuild" para forcar nova compilacao
     goto :build_done
 )
 
@@ -112,9 +112,10 @@ echo   ============================================================
 echo.
 
 if not exist "dist\download" mkdir "dist\download"
-if exist "hr-hospitality-app\scripts\qr.mjs" (
-    call node "hr-hospitality-app\scripts\qr.mjs" "http://%HR_IP%:%HR_PORT%/download/" --out="dist\download\qr-portal.svg" || echo   [AVISO] QR nao gerado (corra "npm i -D qrcode" em hr-hospitality-app).
-)
+if not exist "hr-hospitality-app\scripts\qr.mjs" goto :qr_done
+call node "hr-hospitality-app\scripts\qr.mjs" "http://%HR_IP%:%HR_PORT%/download/" --out="dist\download\qr-portal.svg"
+if errorlevel 1 echo   [AVISO] QR nao gerado - corra "npm i -D qrcode" em hr-hospitality-app.
+:qr_done
 
 echo.
 echo   [5/5] A preparar a area de download...

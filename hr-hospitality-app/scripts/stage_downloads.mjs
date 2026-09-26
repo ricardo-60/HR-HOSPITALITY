@@ -17,7 +17,7 @@
  * Uso:  node scripts/stage_downloads.mjs [--ip=192.168.1.10] [--port=3000]
  */
 
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -33,9 +33,33 @@ const args = Object.fromEntries(
     })
 );
 
-const ip = args.ip || process.env.HR_IP || 'localhost';
-const port = args.port || process.env.HR_PORT || '3000';
+const ip = args.ip || process.env.HR_IP || envLocal('HR_IP') || 'localhost';
+const port = args.port || process.env.HR_PORT || envLocal('HR_PORT') || '3000';
 const origin = `http://${ip}:${port}`;
+
+/**
+ * Le um valor de hr-hospitality-app/.env.local.
+ * E a fonte usada quando nem o argumento --ip/--port nem a variavel de ambiente
+ * HR_IP/HR_PORT estao definidos — e assim que o .env.local "aponta" a maquina
+ * ao endereco da LAN.
+ */
+function envLocal(name) {
+    const file = join(APP_ROOT, '.env.local');
+    if (!existsSync(file)) return '';
+    try {
+        const line = readFileSync(file, 'utf8')
+            .split(/\r?\n/)
+            .find((l) => new RegExp(`^\\s*${name}\\s*=`).test(l));
+        if (!line) return '';
+        return line
+            .replace(/^[^=]*=\s*/, '')
+            .replace(/\s+#.*$/, '')
+            .trim()
+            .replace(/^["']|["']$/g, '');
+    } catch {
+        return '';
+    }
+}
 
 const OUT = join(APP_ROOT, 'out');
 const DOWNLOAD = join(OUT, 'download');
@@ -58,7 +82,7 @@ const GROUPS = [
     {
         id: 'ios',
         title: 'iOS',
-        hint: 'Construção de distribuição requer macOS + conta Apple Developer (ver ios/BUILD_IOS.md).',
+        hint: 'Construção de distribuição requer macOS + conta Apple Developer (abrir o ficheiro .md desta secção para as instruções).',
         sources: [join(REPO_ROOT, 'dist', 'ios')],
         filter: (f) => f.toLowerCase().endsWith('.ipa') || f.toLowerCase().endsWith('.md'),
     },

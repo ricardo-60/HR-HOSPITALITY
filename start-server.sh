@@ -19,7 +19,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
-PORT="${HR_PORT:-3000}"
+# HR_PORT / HR_IP podem estar fixados em hr-hospitality-app/.env.local (servidor
+# central da LAN). Quando la estao, sao a fonte preferida; caso contrario caimos
+# na deteccao automatica do endereco desta maquina.
+hr_env_local() {
+  local f="hr-hospitality-app/.env.local"
+  [ -f "$f" ] || return 0
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$f" \
+    | head -n1 | tr -d "\"' \r" || true
+}
+
+PORT="${HR_PORT:-$(hr_env_local HR_PORT)}"
+PORT="${PORT:-3000}"
 REBUILD="${1:-}"
 
 echo
@@ -88,7 +99,11 @@ else
 fi
 
 # â”€â”€â”€ 5. EndereÃ§o na rede local â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-HR_IP="$(node -e '
+HR_ENV_IP="$(hr_env_local HR_IP)"
+if [ -n "$HR_ENV_IP" ]; then
+  HR_IP="$HR_ENV_IP"
+else
+  HR_IP="$(node -e '
 const os = require("node:os");
 const nets = os.networkInterfaces();
 for (const name of Object.keys(nets)) {
@@ -100,7 +115,8 @@ for (const name of Object.keys(nets)) {
   }
 }
 ' 2>/dev/null || true)"
-HR_IP="${HR_IP:-127.0.0.1}"
+  HR_IP="${HR_IP:-127.0.0.1}"
+fi
 
 echo
 echo "  ============================================================"

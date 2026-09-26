@@ -23,8 +23,12 @@ if not exist "hr-hospitality-app\.env.local" (
 )
 
 set "HR_SUPA_URL="
+set "HR_ENV_IP="
+set "HR_ENV_PORT="
 for /f "usebackq eol=# tokens=1,* delims==" %%A in ("hr-hospitality-app\.env.local") do (
     if /i "%%A"=="NEXT_PUBLIC_SUPABASE_URL" set "HR_SUPA_URL=%%B"
+    if /i "%%A"=="HR_IP" set "HR_ENV_IP=%%B"
+    if /i "%%A"=="HR_PORT" set "HR_ENV_PORT=%%B"
 )
 set "HR_HAS_CREDS=0"
 if not "%HR_SUPA_URL%"=="" if not "%HR_SUPA_URL%"=="https://SEU-PROJETO.supabase.co" set "HR_HAS_CREDS=1"
@@ -97,9 +101,14 @@ if not "%HR_BUILD_RC%"=="0" (
 :build_done
 
 rem --- 5. Endereco na rede local ---------------------------------------------
-set "HR_IP=127.0.0.1"
-for /f "delims=" %%I in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress"') do set "HR_IP=%%I"
+rem --- 5. Endereco na rede local ---------------------------------------------
+rem HR_IP/HR_PORT vindos de hr-hospitality-app\.env.local tem prioridade;
+rem so deteccao automatica quando la nao estao definidos.
+set "HR_IP="
+if not "%HR_ENV_IP%"=="" set "HR_IP=%HR_ENV_IP%"
+if "%HR_IP%"=="" for /f "delims=" %%I in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } | Select-Object -First 1).IPAddress"') do set "HR_IP=%%I"
 if "%HR_IP%"=="" set "HR_IP=127.0.0.1"
+if not "%HR_ENV_PORT%"=="" set "HR_PORT=%HR_ENV_PORT%"
 if "%HR_PORT%"=="" set "HR_PORT=3000"
 
 echo.

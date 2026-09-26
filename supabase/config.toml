@@ -1,0 +1,6 @@
+# Gateway JWT verification is disabled because the function also exposes a
+# one-time bootstrap action without a user session. Every non-bootstrap action
+# validates the Supabase bearer token and an active ADMINISTRATOR profile in
+# code before using the service-role client.
+[functions.admin-users]
+verify_jwt = false

@@ -1,5 +1,9 @@
 # Auditoria da Fila de Sincronização (`sync_queue`) — 2026-09-21
 
+> **HISTÓRICO / SUPERSEDED (Fase 1, 2026-09-24):** este relatório descreve
+> a implementação anterior. O SQL arbitrário foi removido; use
+> `electron/operations.js` e consulte `docs/PHASE1_SECURITY_CUTOVER.md`.
+
 ## 1. Escopo
 
 Auditoria do mecanismo offline-first: `dataLayer.ts`, `syncEngine.ts`,

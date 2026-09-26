@@ -5,7 +5,7 @@
  * com base na conectividade ao servidor SQLite local (porta 3002).
  */
 import { supabaseClient } from './supabaseClient';
-import { localQuery, localExecute, checkServerHealth } from './db/localDB';
+import { localOperation, localQuery, checkServerHealth } from './db/localDB';
 import { startAutoSync, scheduleFlushAfterWrite } from './syncEngine';
 
 // Estado global de conectividade
@@ -31,6 +31,16 @@ export function isOnline(): boolean {
   return !!(supabaseClient);
 }
 
+async function hasAuthenticatedSupabaseSession(): Promise<boolean> {
+  if (!supabaseClient) return false;
+  try {
+    const { data } = await supabaseClient.auth.getSession();
+    return Boolean(data.session?.access_token);
+  } catch {
+    return false;
+  }
+}
+
 // Monitorizar conectividade no browser
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
@@ -44,43 +54,6 @@ if (typeof window !== 'undefined') {
 
   // CORREÇÃO: ativa o motor de reconciliação da sync_queue -> Supabase
   startAutoSync();
-}
-
-// Garantir a existência da tabela sync_queue no SQLite local.
-// Memoizado numa única Promise: antes, cada novo HybridQueryBuilder reemitia o
-// CREATE TABLE (dezenas de execuções duplicadas por página).
-let syncQueuePromise: Promise<void> | null = null;
-let syncQueueReady = false;
-let syncQueueCooldownUntil = 0;
-function ensureSyncQueueTable(): Promise<void> {
-  if (syncQueueReady) return Promise.resolve();
-  if (syncQueuePromise) return syncQueuePromise;
-  if (Date.now() < syncQueueCooldownUntil) {
-    // Falha recente: não repetir fetch a cada query (evita spam quando o
-    // servidor local está em baixo). Próxima tentativa após a pausa.
-    return Promise.resolve();
-  }
-  syncQueuePromise = localExecute(`
-      CREATE TABLE IF NOT EXISTS sync_queue (
-        id TEXT PRIMARY KEY,
-        table_name TEXT NOT NULL,
-        action TEXT NOT NULL,
-        record_id TEXT NOT NULL,
-        data TEXT,
-        timestamp INTEGER NOT NULL
-      )
-    `)
-      .then(() => {
-        syncQueueReady = true;
-      })
-      .catch((error) => {
-        // Falha transitória (servidor local ainda a arrancar): pausa de 10s
-        // antes da nova tentativa, para não gerar um erro por query.
-        syncQueuePromise = null;
-        syncQueueCooldownUntil = Date.now() + 10_000;
-        console.warn('[HOSPITALITY/DataLayer] Falha ao criar tabela sync_queue (nova tentativa dentro de 10s):', error);
-      });
-  return syncQueuePromise;
 }
 
 // Circuit breaker de tabelas inexistentes no Supabase: após o primeiro 404 de
@@ -158,6 +131,13 @@ function isCloudNetworkError(err: any): boolean {
   return /Failed to fetch|NetworkError|Load failed|network/i.test(msg);
 }
 
+/** Authorization failures must fail closed and must never enter the local queue. */
+function isCloudAuthorizationError(err: any): boolean {
+  const code = String(err?.code || '');
+  const status = Number(err?.status || 0);
+  return code === '42501' || code === 'PGRST301' || status === 401 || status === 403;
+}
+
 // Classe que emula o PostgrestQueryBuilder do Supabase
 class HybridQueryBuilder {
   private tableName: string;
@@ -171,9 +151,6 @@ class HybridQueryBuilder {
 
   constructor(tableName: string) {
     this.tableName = tableName;
-    // Fire-and-forget: a tabela é garantida uma única vez (Promise memoizada)
-    // e cada escrita espera por ela em executeLocal().
-    void ensureSyncQueueTable();
   }
 
   select(fields: string = '*') {
@@ -297,6 +274,12 @@ class HybridQueryBuilder {
       const result = await this.executeSupabase();
       // Se Supabase devolveu erro (DNS, rede, 404, etc.), fallback para local
       if (result && result.error) {
+        if (isCloudAuthorizationError(result.error)) {
+          // RLS/authentication errors are authoritative. Falling back would
+          // create local writes that can never be legitimately synchronized.
+          warnCloudOnce(this.tableName, result.error?.message || String(result.error), result.error);
+          return { done: true, value: result };
+        }
         if (isCloudMissingTableError(result.error)) {
           rememberCloudMissingTable(this.tableName);
           console.info(
@@ -312,6 +295,9 @@ class HybridQueryBuilder {
       cloudFailureStreak = 0;
       return { done: true, value: result };
     } catch (err: any) {
+      if (isCloudAuthorizationError(err)) {
+        return { done: true, value: { data: null, error: err } };
+      }
       if (isCloudNetworkError(err)) {
         noteCloudNetworkFailure(this.tableName, err);
       } else {
@@ -326,7 +312,7 @@ class HybridQueryBuilder {
     //  - tabelas confirmadas como inexistentes na nuvem são evitadas (breaker)
     //  - se a nuvem está em queda (2 falhas de rede seguidas), 30s de pausa
     //  - sondas por tabela serializam a rajada inicial (1 único 404 à nuvem)
-    if (this.canTryCloud()) {
+    if (this.canTryCloud() && await hasAuthenticatedSupabaseSession()) {
       const probe = cloudProbes.get(this.tableName);
       if (probe) {
         // Já existe um pedido em voo para esta tabela — esperar pelo desfecho
@@ -343,7 +329,7 @@ class HybridQueryBuilder {
         return await this.executeLocal();
       }
       // Sonda já resolvida: só repetir se a nuvem ainda estiver utilizável
-      if (this.canTryCloud()) {
+      if (this.canTryCloud() && await hasAuthenticatedSupabaseSession()) {
         const out = await this.runCloud();
         if (out.done) return out.value;
       }
@@ -406,233 +392,128 @@ class HybridQueryBuilder {
 
   private async replicateToLocalSilently() {
     try {
-      if (this.method === 'insert' || this.method === 'update' || this.method === 'upsert') {
-        const rows = Array.isArray(this.writeData) ? this.writeData : [this.writeData];
-        for (const row of rows) {
-          const keys = Object.keys(row).filter(k => typeof row[k] !== 'object' || row[k] === null);
-          const values = keys.map(k => row[k]);
-
-          if (this.method === 'insert' || this.method === 'upsert') {
-            const placeholders = keys.map(() => '?').join(',');
-            const sql = `INSERT OR REPLACE INTO ${this.tableName} (${keys.join(',')}) VALUES (${placeholders})`;
-            await localExecute(sql, values);
-          } else {
-            const idCol = row.id ? 'id' : keys[0];
-            const idVal = row[idCol];
-            const setClause = keys.map(k => `${k} = ?`).join(',');
-            const sql = `UPDATE ${this.tableName} SET ${setClause} WHERE ${idCol} = ?`;
-            await localExecute(sql, [...values, idVal]);
-          }
-        }
+      if (this.method === 'insert' || this.method === 'upsert') {
+        const rows = (Array.isArray(this.writeData) ? this.writeData : [this.writeData]).map(row => {
+          const safeRow = { ...row };
+          delete safeRow.tenant_id;
+          delete safeRow.sync_status;
+          delete safeRow.updated_at;
+          return safeRow;
+        });
+        await localOperation('data.cache.upsert', { resource: this.tableName, rows });
+      } else if (this.method === 'update') {
+        const idFilter = this.filters.find(filter => filter.type === 'eq' && filter.column === 'id');
+        if (!idFilter) throw new Error('Local cache update requires an id filter.');
+        const patch = { ...this.writeData };
+        delete patch.tenant_id;
+        delete patch.sync_status;
+        delete patch.updated_at;
+        await localOperation('data.cache.update', {
+          resource: this.tableName,
+          id: String(idFilter.value),
+          patch
+        });
       } else if (this.method === 'delete') {
-        const eqFilter = this.filters.find(f => f.type === 'eq');
-        if (eqFilter) {
-          const sql = `DELETE FROM ${this.tableName} WHERE ${eqFilter.column} = ?`;
-          await localExecute(sql, [eqFilter.value]);
-        }
+        const idFilter = this.filters.find(filter => filter.type === 'eq' && filter.column === 'id');
+        if (!idFilter) throw new Error('Local cache delete requires an id filter.');
+        await localOperation('data.cache.delete', {
+          resource: this.tableName,
+          id: String(idFilter.value)
+        });
       }
-    } catch (e) {
-      console.warn(`[HOSPITALITY/DataLayer] Erro ao replicar para SQLite:`, e);
+    } catch (error) {
+      console.warn('[HOSPITALITY/DataLayer] Could not refresh the local cache:', error);
     }
   }
 
   private async executeLocal() {
     try {
       if (this.method === 'select') {
-        // Leituras não dependem da sync_queue — nunca as bloquear por ela.
         return await this.executeLocalSelect();
       }
-      // Escritas exigem a tabela sync_queue para enfileirar a reconciliação com a nuvem
-      await ensureSyncQueueTable();
-      if (!syncQueueReady) {
-        return { data: null, error: { message: 'Servidor de base de dados local indisponível.' } };
-      }
       const result = await this.executeLocalWrite();
-      // Escrita local concluída: agenda tentativa de reconciliação com a nuvem
       scheduleFlushAfterWrite();
       return result;
     } catch (err: any) {
-      console.error(`[HOSPITALITY/DataLayer] Erro de execução local:`, err);
-      return { data: null, error: { message: err.message, details: err } };
+      console.error('[HOSPITALITY/DataLayer] Local operation failed:', err);
+      return { data: null, error: { message: err?.message || 'Local database operation failed.' } };
     }
   }
 
   private async executeLocalSelect() {
-    let cleanedSelectFields = this.selectFields;
-    const relationsToFetch: Array<{ relationName: string; fields: string[] }> = [];
-
-    const relationRegex = /(\w+)\(([^)]+)\)/g;
-    let match;
-    while ((match = relationRegex.exec(this.selectFields)) !== null) {
-      const relationName = match[1];
-      const fields = match[2].split(',').map(f => f.trim());
-      relationsToFetch.push({ relationName, fields });
-      cleanedSelectFields = cleanedSelectFields.replace(match[0], '');
-    }
-
-    cleanedSelectFields = cleanedSelectFields
-      .split(',')
-      .map(f => f.trim())
-      .filter(f => f.length > 0)
-      .join(', ');
-
-    if (!cleanedSelectFields) {
-      cleanedSelectFields = '*';
-    }
-
-    let sql = `SELECT ${cleanedSelectFields} FROM ${this.tableName}`;
-    const params: any[] = [];
-
-    if (this.filters.length > 0) {
-      const whereClauses = this.filters.map(f => {
-        if (f.type === 'eq') { params.push(f.value); return `${f.column} = ?`; }
-        else if (f.type === 'neq') { params.push(f.value); return `${f.column} != ?`; }
-        else if (f.type === 'gt') { params.push(f.value); return `${f.column} > ?`; }
-        else if (f.type === 'lt') { params.push(f.value); return `${f.column} < ?`; }
-        else if (f.type === 'gte') { params.push(f.value); return `${f.column} >= ?`; }
-        else if (f.type === 'lte') { params.push(f.value); return `${f.column} <= ?`; }
-        else if (f.type === 'like') { params.push(f.value); return `${f.column} LIKE ?`; }
-        else if (f.type === 'ilike') { params.push(f.value); return `LOWER(${f.column}) LIKE LOWER(?)`; }
-        else if (f.type === 'in') {
-          const placeholders = f.value.map(() => '?').join(',');
-          f.value.forEach((v: any) => params.push(v));
-          return `${f.column} IN (${placeholders})`;
-        }
-        return '1=1';
-      });
-      sql += ` WHERE ${whereClauses.join(' AND ')}`;
-    }
-
-    if (this.orderFields.length > 0) {
-      const orderBy = this.orderFields.map(o => `${o.column} ${o.ascending ? 'ASC' : 'DESC'}`).join(', ');
-      sql += ` ORDER BY ${orderBy}`;
-    }
-
-    if (this.limitCount !== undefined) {
-      sql += ` LIMIT ${this.limitCount}`;
-    }
-
-    const rows = await localQuery(sql, params);
-
-    // Buscar dados das relações
-    if (rows && rows.length > 0 && relationsToFetch.length > 0) {
-      for (const row of rows) {
-        for (const rel of relationsToFetch) {
-          const singularRelation = rel.relationName.endsWith('s') ? rel.relationName.slice(0, -1) : rel.relationName;
-          let fkName = '';
-          if (row[`${singularRelation}_id`] !== undefined) fkName = `${singularRelation}_id`;
-          else if (row[`${rel.relationName}_id`] !== undefined) fkName = `${rel.relationName}_id`;
-
-          if (fkName && row[fkName]) {
-            const relSql = `SELECT ${rel.fields.join(', ')} FROM ${rel.relationName} WHERE id = ?`;
-            try {
-              const relRows = await localQuery(relSql, [row[fkName]]);
-              row[rel.relationName] = relRows[0] || null;
-            } catch (err) {
-              row[rel.relationName] = null;
-            }
-          } else {
-            row[rel.relationName] = null;
-          }
-        }
-      }
-    }
-
-    if (this.isSingle) {
-      return { data: rows[0] || null, error: null };
-    }
-    return { data: rows, error: null };
+    const columns = this.selectFields.trim() === '*'
+      ? undefined
+      : this.selectFields.split(',').map(field => field.trim()).filter(Boolean);
+    const rows = await localQuery<any[]>('data.select', {
+      resource: this.tableName,
+      columns,
+      filters: this.filters.map(filter => ({
+        column: filter.column,
+        op: filter.type,
+        value: filter.value
+      })),
+      orderBy: this.orderFields.map(field => ({
+        column: field.column,
+        ascending: field.ascending
+      })),
+      limit: this.limitCount,
+      single: this.isSingle
+    });
+    return {
+      data: this.isSingle ? (rows[0] || null) : rows,
+      error: null
+    };
   }
 
   private async executeLocalWrite() {
-    const timestamp = Date.now();
-
     if (this.method === 'insert' || this.method === 'upsert') {
       const rows = Array.isArray(this.writeData) ? this.writeData : [this.writeData];
-      const insertedRows: any[] = [];
-
-      for (const row of rows) {
-        if (!row.id) {
-          row.id = crypto.randomUUID ? crypto.randomUUID() : `local-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        }
-        row.sync_status = 'pending';
-        row.updated_at = new Date().toISOString();
-
-        const keys = Object.keys(row);
-        const values = keys.map(k => row[k]);
-        const placeholders = keys.map(() => '?').join(',');
-
-        const sql = `INSERT OR REPLACE INTO ${this.tableName} (${keys.join(',')}) VALUES (${placeholders})`;
-        await localExecute(sql, values);
-
-        await localExecute(
-          `INSERT INTO sync_queue (id, table_name, action, record_id, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)`,
-          [crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), this.tableName, 'INSERT', row.id, JSON.stringify(row), timestamp]
-        );
-
-        insertedRows.push(row);
-      }
-
+      const safeRows = rows.map(row => {
+        const safeRow = { ...row };
+        if (!safeRow.id) safeRow.id = crypto.randomUUID();
+        delete safeRow.tenant_id;
+        delete safeRow.sync_status;
+        delete safeRow.updated_at;
+        return safeRow;
+      });
+      const result = await localOperation<{ data: any[] }>('data.upsert', {
+        resource: this.tableName,
+        rows: safeRows
+      });
+      const insertedRows = result?.data || [];
       return { data: Array.isArray(this.writeData) ? insertedRows : insertedRows[0], error: null };
-
-    } else if (this.method === 'update') {
-      const selectBuilder = new HybridQueryBuilder(this.tableName);
-      selectBuilder.filters = this.filters;
-      const { data: targetRows } = await selectBuilder.executeLocalSelect();
-
-      if (!targetRows || targetRows.length === 0) {
-        return { data: [], error: null };
-      }
-
-      const updatedRows: any[] = [];
-      const keys = Object.keys(this.writeData);
-      const values = keys.map(k => this.writeData[k]);
-      const setClause = keys.map(k => `${k} = ?`).join(',');
-
-      for (const target of targetRows) {
-        const id = target.id;
-        if (!id) continue;
-
-        const updatedTime = new Date().toISOString();
-        const updateSql = `UPDATE ${this.tableName} SET ${setClause}, sync_status = 'pending', updated_at = ? WHERE id = ?`;
-        await localExecute(updateSql, [...values, updatedTime, id]);
-
-        const fullRow = { ...target, ...this.writeData, sync_status: 'pending', updated_at: updatedTime };
-        updatedRows.push(fullRow);
-
-        await localExecute(
-          `INSERT INTO sync_queue (id, table_name, action, record_id, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)`,
-          [crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), this.tableName, 'UPDATE', id, JSON.stringify(fullRow), timestamp]
-        );
-      }
-
-      return { data: this.isSingle ? updatedRows[0] : updatedRows, error: null };
-
-    } else if (this.method === 'delete') {
-      const selectBuilder = new HybridQueryBuilder(this.tableName);
-      selectBuilder.filters = this.filters;
-      const { data: targetRows } = await selectBuilder.executeLocalSelect();
-
-      if (!targetRows || targetRows.length === 0) {
-        return { data: [], error: null };
-      }
-
-      for (const target of targetRows) {
-        const id = target.id;
-        if (!id) continue;
-
-        await localExecute(`DELETE FROM ${this.tableName} WHERE id = ?`, [id]);
-
-        await localExecute(
-          `INSERT INTO sync_queue (id, table_name, action, record_id, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)`,
-          [crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), this.tableName, 'DELETE', id, null, timestamp]
-        );
-      }
-
-      return { data: targetRows, error: null };
     }
 
-    throw new Error('Método inválido no HybridQueryBuilder');
+    if (this.method === 'update') {
+      const idFilter = this.filters.find(filter => filter.type === 'eq' && filter.column === 'id');
+      if (!idFilter) {
+        return { data: null, error: { message: 'Local updates require an id filter.' } };
+      }
+      const patch = { ...this.writeData };
+      delete patch.tenant_id;
+      delete patch.sync_status;
+      delete patch.updated_at;
+      const result = await localOperation<{ data: any }>('data.update', {
+        resource: this.tableName,
+        id: String(idFilter.value),
+        patch
+      });
+      return { data: result?.data || null, error: null };
+    }
+
+    if (this.method === 'delete') {
+      const idFilter = this.filters.find(filter => filter.type === 'eq' && filter.column === 'id');
+      if (!idFilter) {
+        return { data: null, error: { message: 'Local deletes require an id filter.' } };
+      }
+      const result = await localOperation<{ data: any }>('data.delete', {
+        resource: this.tableName,
+        id: String(idFilter.value)
+      });
+      return { data: result?.data || null, error: null };
+    }
+
+    throw new Error('Unsupported data-layer method.');
   }
 }
 
@@ -694,28 +575,13 @@ export const dataLayer = {
       return { data: { session: null }, error: null };
     },
 
-    async signInWithPassword(credentials: any) {
-      if (isOnline() && supabaseClient) {
-        return await supabaseClient.auth.signInWithPassword(credentials);
+    async signInWithPassword(credentials: { email: string; password: string }) {
+      if (!supabaseClient) {
+        return { data: { session: null, user: null }, error: { message: 'Supabase Auth não configurado.' } };
       }
-      // Autenticação offline básica
-      try {
-        const profiles = await localQuery('SELECT * FROM user_profiles WHERE email = ?', [credentials.email]);
-        if (profiles && profiles.length > 0) {
-          const fakeUser = {
-            id: profiles[0].id,
-            email: profiles[0].email,
-            user_metadata: { full_name: profiles[0].full_name },
-          };
-          const fakeSession = {
-            access_token: 'offline_token_' + Date.now(),
-            user: fakeUser,
-            expires_at: Math.floor(Date.now() / 1000) + 86400,
-          };
-          return { data: { session: fakeSession, user: fakeUser }, error: null };
-        }
-      } catch (e) {}
-      return { data: { session: null, user: null }, error: { message: 'Não foi possível autenticar offline.' } };
+      // Authentication is never emulated locally. Offline startup fails closed;
+      // an already authenticated Electron session remains available offline.
+      return await supabaseClient.auth.signInWithPassword(credentials);
     },
 
     async signOut() {

@@ -43,23 +43,22 @@ CREATE TABLE IF NOT EXISTS public.hotel_rooms (
 ALTER TABLE public.hotel_rooms ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "rooms_all_tenant" ON public.hotel_rooms;
-CREATE POLICY "rooms_all_tenant" ON public.hotel_rooms
-    FOR ALL USING (true);  -- Aberto enquanto a app usa auth local; restringir após migrar para Supabase Auth
+-- RLS remains deny-by-default here. Migration 005 installs the RBAC policies.
 
 -- ── Quartos de demonstração — Hotel Lukweku ─────────────────
-INSERT INTO public.hotel_rooms (tenant_id, room_number, room_type, status, price_per_night, floor, description) VALUES
-('11111111-1111-1111-1111-111111111111', '101', 'Standard', 'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para o jardim'),
-('11111111-1111-1111-1111-111111111111', '102', 'Standard', 'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para o jardim'),
-('11111111-1111-1111-1111-111111111111', '103', 'Standard', 'LIMPEZA',    150.00, 1, 'Quarto standard — em limpeza'),
-('11111111-1111-1111-1111-111111111111', '104', 'Standard', 'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para a piscina'),
-('11111111-1111-1111-1111-111111111111', '201', 'Double',   'DISPONIVEL', 220.00, 2, 'Quarto duplo com cama king-size'),
-('11111111-1111-1111-1111-111111111111', '202', 'Double',   'OCUPADO',    220.00, 2, 'Quarto duplo — hóspede activo'),
-('11111111-1111-1111-1111-111111111111', '203', 'Double',   'DISPONIVEL', 220.00, 2, 'Quarto duplo com varanda'),
-('11111111-1111-1111-1111-111111111111', '204', 'Double',   'DISPONIVEL', 220.00, 2, 'Quarto duplo com banheira'),
-('11111111-1111-1111-1111-111111111111', '301', 'Suite',    'DISPONIVEL', 450.00, 3, 'Suite com sala de estar e jacuzzi'),
-('11111111-1111-1111-1111-111111111111', '302', 'Suite',    'OCUPADO',    450.00, 3, 'Suite VIP — hóspede activo'),
-('11111111-1111-1111-1111-111111111111', '303', 'Suite Premium', 'DISPONIVEL', 750.00, 3, 'Suite Presidencial com terraço privativo'),
-('11111111-1111-1111-1111-111111111111', '304', 'Suite',    'MANUTENCAO', 450.00, 3, 'Suite — em manutenção')
+INSERT INTO public.hotel_rooms (id, tenant_id, room_number, room_type, status, price_per_night, floor, description) VALUES
+('a1111111-1111-4111-8111-000000000101', '11111111-1111-1111-1111-111111111111', '101', 'Standard', 'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para o jardim'),
+('a1111111-1111-4111-8111-000000000102', '11111111-1111-1111-1111-111111111111', '102', 'Standard', 'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para o jardim'),
+('a1111111-1111-4111-8111-000000000103', '11111111-1111-1111-1111-111111111111', '103', 'Standard', 'LIMPEZA',    150.00, 1, 'Quarto standard — em limpeza'),
+('a1111111-1111-4111-8111-000000000104', '11111111-1111-1111-1111-111111111111', '104', 'Standard', 'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para a piscina'),
+('a1111111-1111-4111-8111-000000000201', '11111111-1111-1111-1111-111111111111', '201', 'Double',   'DISPONIVEL', 220.00, 2, 'Quarto duplo com cama king-size'),
+('a1111111-1111-4111-8111-000000000202', '11111111-1111-1111-1111-111111111111', '202', 'Double',   'OCUPADO',    220.00, 2, 'Quarto duplo — hóspede activo'),
+('a1111111-1111-4111-8111-000000000203', '11111111-1111-1111-1111-111111111111', '203', 'Double',   'DISPONIVEL', 220.00, 2, 'Quarto duplo com varanda'),
+('a1111111-1111-4111-8111-000000000204', '11111111-1111-1111-1111-111111111111', '204', 'Double',   'DISPONIVEL', 220.00, 2, 'Quarto duplo com banheira'),
+('a1111111-1111-4111-8111-000000000301', '11111111-1111-1111-1111-111111111111', '301', 'Suite',    'DISPONIVEL', 450.00, 3, 'Suite com sala de estar e jacuzzi'),
+('a1111111-1111-4111-8111-000000000302', '11111111-1111-1111-1111-111111111111', '302', 'Suite',    'OCUPADO',    450.00, 3, 'Suite VIP — hóspede activo'),
+('a1111111-1111-4111-8111-000000000303', '11111111-1111-1111-1111-111111111111', '303', 'Suite Premium', 'DISPONIVEL', 750.00, 3, 'Suite Presidencial com terraço privativo'),
+('a1111111-1111-4111-8111-000000000304', '11111111-1111-1111-1111-111111111111', '304', 'Suite',    'MANUTENCAO', 450.00, 3, 'Suite — em manutenção')
 ON CONFLICT (tenant_id, room_number) DO NOTHING;
 
 -- ── Reservas do hotel ───────────────────────────────────────
@@ -82,8 +81,7 @@ CREATE TABLE IF NOT EXISTS public.hotel_reservations (
 ALTER TABLE public.hotel_reservations ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "reservations_all_open" ON public.hotel_reservations;
-CREATE POLICY "reservations_all_open" ON public.hotel_reservations
-    FOR ALL USING (true);
+-- RLS remains deny-by-default here. Migration 005 installs the RBAC policies.
 
 CREATE INDEX IF NOT EXISTS idx_reservations_tenant ON public.hotel_reservations(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_reservations_status ON public.hotel_reservations(status);
@@ -106,18 +104,17 @@ CREATE TABLE IF NOT EXISTS public.hotel_consumptions (
 ALTER TABLE public.hotel_consumptions ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "consumptions_all_open" ON public.hotel_consumptions;
-CREATE POLICY "consumptions_all_open" ON public.hotel_consumptions
-    FOR ALL USING (true);
+-- RLS remains deny-by-default here. Migration 005 installs the RBAC policies.
 
 CREATE INDEX IF NOT EXISTS idx_consumptions_reservation ON public.hotel_consumptions(reservation_id);
 
 -- ── Reservas de demonstração ────────────────────────────────
-INSERT INTO public.hotel_reservations (tenant_id, guest_name, email, service_type, status, reservation_date) VALUES
-('11111111-1111-1111-1111-111111111111', 'Hermenegildo Ricardo', 'h.ricardo@email.com', 'quarto', 'PENDENTE_PAGAMENTO', CURRENT_DATE + 2),
-('11111111-1111-1111-1111-111111111111', 'Maria da Conceição', 'm.conceicao@email.com', 'quarto', 'PENDENTE_PAGAMENTO', CURRENT_DATE + 3),
-('11111111-1111-1111-1111-111111111111', 'Carlos Mendonça', 'c.mendonca@empresa.ao', 'conferencia', 'PENDENTE_PAGAMENTO', CURRENT_DATE + 5),
-('11111111-1111-1111-1111-111111111111', 'Ana Paula Silva', 'ana.silva@gmail.com', 'quarto', 'CONFIRMADA', CURRENT_DATE + 1)
-ON CONFLICT DO NOTHING;
+INSERT INTO public.hotel_reservations (id, tenant_id, guest_name, email, service_type, room_number, room_id, status, reservation_date) VALUES
+('b2222222-2222-4222-8222-000000000001', '11111111-1111-1111-1111-111111111111', 'Hermenegildo Ricardo', 'h.ricardo@email.com', 'quarto', '101', 'a1111111-1111-4111-8111-000000000101', 'PENDENTE_PAGAMENTO', CURRENT_DATE + 2),
+('b2222222-2222-4222-8222-000000000002', '11111111-1111-1111-1111-111111111111', 'Maria da Conceição', 'm.conceicao@email.com', 'quarto', '202', 'a1111111-1111-4111-8111-000000000202', 'CHECKED_IN', CURRENT_DATE),
+('b2222222-2222-4222-8222-000000000003', '11111111-1111-1111-1111-111111111111', 'Carlos Mendonça', 'c.mendonca@empresa.ao', 'conferencia', NULL, NULL, 'PENDENTE_PAGAMENTO', CURRENT_DATE + 5),
+('b2222222-2222-4222-8222-000000000004', '11111111-1111-1111-1111-111111111111', 'Ana Paula Silva', 'ana.silva@gmail.com', 'quarto', '104', 'a1111111-1111-4111-8111-000000000104', 'CHECKED_IN', CURRENT_DATE)
+ON CONFLICT (id) DO NOTHING;
 
 -- ── Realtime — publicar alterações das tabelas ──────────────
 DO $$ BEGIN

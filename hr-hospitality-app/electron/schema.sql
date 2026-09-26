@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS hotel_consumptions (
     category TEXT DEFAULT 'outro' CHECK (category IN ('minibar','restaurante','lavandaria','telefone','outro')),
     registered_at TEXT DEFAULT (datetime('now')),
     created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
     sync_status TEXT DEFAULT 'synced',
     FOREIGN KEY (reservation_id) REFERENCES hotel_reservations(id)
 );
@@ -65,8 +66,8 @@ CREATE INDEX IF NOT EXISTS idx_consumptions_reservation ON hotel_consumptions(re
 -- Fila de sincronização (compatível com GestPro)
 CREATE TABLE IF NOT EXISTS sync_queue (
     id TEXT PRIMARY KEY,
-    table_name TEXT NOT NULL,
-    action TEXT NOT NULL,
+    table_name TEXT NOT NULL CHECK (table_name IN ('hotel_rooms','hotel_reservations','hotel_consumptions')),
+    action TEXT NOT NULL CHECK (action IN ('INSERT','UPDATE','DELETE')),
     record_id TEXT NOT NULL,
     data TEXT,
     timestamp INTEGER NOT NULL
@@ -76,22 +77,22 @@ CREATE TABLE IF NOT EXISTS sync_queue (
 -- DADOS INICIAIS — Quartos do Hotel Lukweku
 -- ─────────────────────────────────────────────────────────────
 INSERT OR IGNORE INTO hotel_rooms (id, tenant_id, room_number, room_type, status, price_per_night, floor, description) VALUES
-('room-101', '11111111-1111-1111-1111-111111111111', '101', 'Standard',      'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para o jardim'),
-('room-102', '11111111-1111-1111-1111-111111111111', '102', 'Standard',      'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para o jardim'),
-('room-103', '11111111-1111-1111-1111-111111111111', '103', 'Standard',      'LIMPEZA',    150.00, 1, 'Quarto standard — em limpeza'),
-('room-104', '11111111-1111-1111-1111-111111111111', '104', 'Standard',      'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para a piscina'),
-('room-201', '11111111-1111-1111-1111-111111111111', '201', 'Double',        'DISPONIVEL', 220.00, 2, 'Quarto duplo com cama king-size'),
-('room-202', '11111111-1111-1111-1111-111111111111', '202', 'Double',        'OCUPADO',    220.00, 2, 'Quarto duplo — hóspede activo'),
-('room-203', '11111111-1111-1111-1111-111111111111', '203', 'Double',        'DISPONIVEL', 220.00, 2, 'Quarto duplo com varanda'),
-('room-204', '11111111-1111-1111-1111-111111111111', '204', 'Double',        'DISPONIVEL', 220.00, 2, 'Quarto duplo com banheira'),
-('room-301', '11111111-1111-1111-1111-111111111111', '301', 'Suite',         'DISPONIVEL', 450.00, 3, 'Suite com sala de estar e jacuzzi'),
-('room-302', '11111111-1111-1111-1111-111111111111', '302', 'Suite',         'OCUPADO',    450.00, 3, 'Suite VIP — hóspede activo'),
-('room-303', '11111111-1111-1111-1111-111111111111', '303', 'Suite Premium', 'DISPONIVEL', 750.00, 3, 'Suite Presidencial com terraço privativo'),
-('room-304', '11111111-1111-1111-1111-111111111111', '304', 'Suite',         'MANUTENCAO', 450.00, 3, 'Suite — em manutenção');
+('a1111111-1111-4111-8111-000000000101', '11111111-1111-1111-1111-111111111111', '101', 'Standard',      'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para o jardim'),
+('a1111111-1111-4111-8111-000000000102', '11111111-1111-1111-1111-111111111111', '102', 'Standard',      'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para o jardim'),
+('a1111111-1111-4111-8111-000000000103', '11111111-1111-1111-1111-111111111111', '103', 'Standard',      'LIMPEZA',    150.00, 1, 'Quarto standard — em limpeza'),
+('a1111111-1111-4111-8111-000000000104', '11111111-1111-1111-1111-111111111111', '104', 'Standard',      'DISPONIVEL', 150.00, 1, 'Quarto standard com vista para a piscina'),
+('a1111111-1111-4111-8111-000000000201', '11111111-1111-1111-1111-111111111111', '201', 'Double',        'DISPONIVEL', 220.00, 2, 'Quarto duplo com cama king-size'),
+('a1111111-1111-4111-8111-000000000202', '11111111-1111-1111-1111-111111111111', '202', 'Double',        'OCUPADO',    220.00, 2, 'Quarto duplo — hóspede activo'),
+('a1111111-1111-4111-8111-000000000203', '11111111-1111-1111-1111-111111111111', '203', 'Double',        'DISPONIVEL', 220.00, 2, 'Quarto duplo com varanda'),
+('a1111111-1111-4111-8111-000000000204', '11111111-1111-1111-1111-111111111111', '204', 'Double',        'DISPONIVEL', 220.00, 2, 'Quarto duplo com banheira'),
+('a1111111-1111-4111-8111-000000000301', '11111111-1111-1111-1111-111111111111', '301', 'Suite',         'DISPONIVEL', 450.00, 3, 'Suite com sala de estar e jacuzzi'),
+('a1111111-1111-4111-8111-000000000302', '11111111-1111-1111-1111-111111111111', '302', 'Suite',         'OCUPADO',    450.00, 3, 'Suite VIP — hóspede activo'),
+('a1111111-1111-4111-8111-000000000303', '11111111-1111-1111-1111-111111111111', '303', 'Suite Premium', 'DISPONIVEL', 750.00, 3, 'Suite Presidencial com terraço privativo'),
+('a1111111-1111-4111-8111-000000000304', '11111111-1111-1111-1111-111111111111', '304', 'Suite',         'MANUTENCAO', 450.00, 3, 'Suite — em manutenção');
 
 -- Reservas de demonstração
 INSERT OR IGNORE INTO hotel_reservations (id, tenant_id, guest_name, email, service_type, status, reservation_date) VALUES
-('res-demo-1', '11111111-1111-1111-1111-111111111111', 'Hermenegildo Ricardo', 'h.ricardo@email.com', 'quarto', 'PENDENTE_PAGAMENTO', date('now', '+2 days')),
-('res-demo-2', '11111111-1111-1111-1111-111111111111', 'Maria da Conceição',   'm.conceicao@email.com', 'quarto', 'CHECKED_IN', date('now')),
-('res-demo-3', '11111111-1111-1111-1111-111111111111', 'Carlos Mendonça',      'c.mendonca@empresa.ao', 'conferencia', 'PENDENTE_PAGAMENTO', date('now', '+5 days')),
-('res-demo-4', '11111111-1111-1111-1111-111111111111', 'Ana Paula Silva',      'ana.silva@gmail.com', 'quarto', 'CHECKED_IN', date('now'));
+('b2222222-2222-4222-8222-000000000001', '11111111-1111-1111-1111-111111111111', 'Hermenegildo Ricardo', 'h.ricardo@email.com', 'quarto', 'PENDENTE_PAGAMENTO', date('now', '+2 days')),
+('b2222222-2222-4222-8222-000000000002', '11111111-1111-1111-1111-111111111111', 'Maria da Conceição',   'm.conceicao@email.com', 'quarto', 'CHECKED_IN', date('now')),
+('b2222222-2222-4222-8222-000000000003', '11111111-1111-1111-1111-111111111111', 'Carlos Mendonça',      'c.mendonca@empresa.ao', 'conferencia', 'PENDENTE_PAGAMENTO', date('now', '+5 days')),
+('b2222222-2222-4222-8222-000000000004', '11111111-1111-1111-1111-111111111111', 'Ana Paula Silva',      'ana.silva@gmail.com', 'quarto', 'CHECKED_IN', date('now'));

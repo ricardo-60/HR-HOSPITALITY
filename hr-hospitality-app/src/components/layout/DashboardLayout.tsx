@@ -48,7 +48,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         if (mounted) {
             if (!user && pathname !== '/login' && pathname !== '/cadastro') {
-                router.push('/login');
+                router.replace('/login');
+                return;
+            }
+            if (user?.mustChangePassword && pathname !== '/alterar-palavra-passe') {
+                router.replace('/alterar-palavra-passe');
+                return;
             }
         }
     }, [user, pathname, mounted, router]);

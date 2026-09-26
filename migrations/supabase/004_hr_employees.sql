@@ -22,8 +22,7 @@ CREATE TABLE IF NOT EXISTS public.hr_employees (
 ALTER TABLE public.hr_employees ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "hr_employees_all_tenant" ON public.hr_employees;
-CREATE POLICY "hr_employees_all_tenant" ON public.hr_employees
-    FOR ALL USING (true);  -- Restringir por tenant após migração para Supabase Auth
+-- RLS remains deny-by-default here. Migration 005 installs the RBAC policies.
 
 CREATE INDEX IF NOT EXISTS idx_hr_employees_tenant ON public.hr_employees(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_hr_employees_status ON public.hr_employees(status);

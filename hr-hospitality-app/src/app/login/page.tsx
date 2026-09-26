@@ -5,16 +5,14 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Shield, Key, User as UserIcon, LogIn, ArrowRight } from 'lucide-react';
-import Link from 'next/link';
+import { Shield, Key, User as UserIcon, LogIn } from 'lucide-react';
 
 export default function LoginPage() {
-    const { login, users, authError } = useAuth();
+    const { login, authError } = useAuth();
     const router = useRouter();
     const [idOrName, setIdOrName] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const [netMsg, setNetMsg] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
     // Exibe mensagem contextual vinda do AuthContext (ex.: conta bloqueada)
@@ -22,27 +20,6 @@ export default function LoginPage() {
         if (authError) setError(authError);
     }, [authError]);
 
-    // Estados de Configuração de Rede Local
-    const [showNetworkSettings, setShowNetworkSettings] = useState(false);
-    const [serverIp, setServerIp] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('server_ip') || '';
-        }
-        return '';
-    });
-    const [appMode, setAppMode] = useState<'server' | 'client'>(() => {
-        if (typeof window !== 'undefined') {
-            const win = window as any;
-            if (win.electronAPI && typeof win.electronAPI.getAppConfig === 'function') {
-                try {
-                    return win.electronAPI.getAppConfig().mode || 'server';
-                } catch (e) {
-                    console.error('Erro ao ler config do Electron no login:', e);
-                }
-            }
-        }
-        return 'server';
-    });
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -53,44 +30,12 @@ export default function LoginPage() {
         setLoading(false);
 
         if (success) {
-            navigateAfterLogin();
+            router.push('/');
         } else {
-            setError('Credenciais inválidas. Verifique o ID/Nome e palavra-passe.');
+            setError(authError || 'Credenciais inválidas. Verifique o email e a palavra-passe.');
         }
     };
 
-    /** SEGURANÇA: contas com palavra-passe padrão vão para alteração obrigatória. */
-    const navigateAfterLogin = () => {
-        try {
-            const session = JSON.parse(localStorage.getItem('hr_active_user') || 'null');
-            if (session?.mustChangePassword) {
-                router.push('/alterar-palavra-passe');
-                return;
-            }
-        } catch { /* segue fluxo normal */ }
-        router.push('/');
-    };
-
-    const handleSaveNetworkSettings = () => {
-        if (typeof window !== 'undefined') {
-            // Salvar no localStorage local
-            localStorage.setItem('server_ip', serverIp);
-            
-            // Comunicar com o processo principal do Electron se aplicável
-            const win = window as any;
-            if (win.electronAPI && typeof win.electronAPI.saveAppConfig === 'function') {
-                try {
-                    win.electronAPI.saveAppConfig({ mode: appMode, serverIp });
-                    setNetMsg('Configurações de rede guardadas. Se mudou o Modo de Operação (Servidor vs Cliente), encerre e volte a abrir a aplicação para aplicar as alterações.');
-                } catch (e) {
-                    console.error('Falha ao comunicar com Electron API:', e);
-                    setNetMsg('Falha ao comunicar com o Electron para persistir configurações de rede.');
-                }
-            } else {
-                setNetMsg('Configurações de IP guardadas com sucesso no browser local.');
-            }
-        }
-    };
 
     return (
         <div className="min-h-screen bg-[#080B11] text-white flex flex-col justify-center items-center relative overflow-hidden px-4">
@@ -134,19 +79,20 @@ export default function LoginPage() {
                     )}
 
                     <form onSubmit={handleSubmit} className="space-y-6">
-                        {/* ID / Username field */}
+                        {/* Email field */}
                         <div className="space-y-2">
-                            <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-2">ID do Funcionário ou Nome</label>
+                            <label className="text-[9px] font-black uppercase tracking-widest text-white/40 block ml-2">Email Corporativo</label>
                             <div className="relative">
                                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white/20">
                                     <UserIcon className="w-5 h-5" />
                                 </div>
                                 <input
-                                    type="text"
+                                    type="email"
+                                    autoComplete="username"
                                     required
                                     value={idOrName}
                                     onChange={(e) => setIdOrName(e.target.value)}
-                                    placeholder="Ex: EMP-2026-001 ou Ricardo"
+                                    placeholder="nome@hotellukweku.ao"
                                     className="w-full pl-12 pr-4 py-4 bg-black/40 border border-white/5 rounded-2xl text-sm focus:outline-none focus:border-[var(--brand-accent)] transition-all font-mono"
                                 />
                             </div>
@@ -185,87 +131,11 @@ export default function LoginPage() {
                             )}
                         </button>
                     </form>
-
-                    {/* Local Network Configurations */}
-                    <div className="mt-8 pt-6 border-t border-white/5">
-                        <button
-                            type="button"
-                            onClick={() => setShowNetworkSettings(!showNetworkSettings)}
-                            className="w-full py-3.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all text-slate-400 hover:text-white"
-                        >
-                            {showNetworkSettings ? 'Ocultar Configurações de Rede' : 'Configurações de Rede Local'}
-                        </button>
-                        
-                        {showNetworkSettings && (
-                            <div className="mt-4 p-5 bg-black/40 border border-white/5 rounded-2xl space-y-4 animate-in slide-in-from-top-2 duration-300">
-                                <div className="space-y-2">
-                                    <label className="text-[8px] font-black uppercase tracking-widest text-white/40 block">Modo de Operação</label>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => setAppMode('server')}
-                                            className={`py-2 px-3 rounded-xl font-bold text-[10px] uppercase border transition-all ${
-                                                appMode === 'server' 
-                                                    ? 'bg-[var(--brand-primary)]/20 border-[var(--brand-primary)] text-white' 
-                                                    : 'bg-transparent border-white/5 text-white/40 hover:border-white/20'
-                                            }`}
-                                        >
-                                            Servidor
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setAppMode('client')}
-                                            className={`py-2 px-3 rounded-xl font-bold text-[10px] uppercase border transition-all ${
-                                                appMode === 'client' 
-                                                    ? 'bg-[var(--brand-accent)]/20 border-[var(--brand-accent)] text-white' 
-                                                    : 'bg-transparent border-white/5 text-white/40 hover:border-white/20'
-                                            }`}
-                                        >
-                                            Cliente
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                {appMode === 'client' && (
-                                    <div className="space-y-2 animate-in fade-in duration-300">
-                                        <label className="text-[8px] font-black uppercase tracking-widest text-white/40 block">IP do Servidor na Rede</label>
-                                        <input
-                                            type="text"
-                                            value={serverIp}
-                                            onChange={(e) => setServerIp(e.target.value)}
-                                            placeholder="Ex: 192.168.1.100"
-                                            className="w-full px-4 py-3 bg-black/60 border border-white/5 rounded-xl text-xs focus:outline-none focus:border-[var(--brand-accent)] transition-all font-mono"
-                                        />
-                                    </div>
-                                )}
-                                
-                                <button
-                                    type="button"
-                                    onClick={handleSaveNetworkSettings}
-                                    className="w-full py-3 bg-gradient-to-r from-[var(--brand-primary)]/80 to-[var(--brand-accent)]/80 hover:brightness-110 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all"
-                                >
-                                    Gravar Configurações
-                                </button>
-
-                                {netMsg && (
-                                    <p className="mt-3 text-[9px] font-black uppercase tracking-widest text-center text-[var(--brand-accent)]">
-                                        {netMsg}
-                                    </p>
-                                )}
-                            </div>
-                        )}
-                    </div>
                 </div>
 
-                {/* Footer Signup Navigation */}
-                <div className="text-center mt-8">
-                    <p className="text-xs text-white/30 font-medium">
-                        Novo no staff?{' '}
-                        <Link href="/cadastro" className="text-[var(--brand-accent)] hover:underline inline-flex items-center gap-1 font-black uppercase tracking-wider text-[10px]">
-                            Registar Conta <ArrowRight className="w-3.5 h-3.5" />
-                        </Link>
-                    </p>
-                </div>
+                <p className="text-center mt-8 text-[9px] font-black uppercase tracking-widest text-white/30">
+                    O acesso é atribuído exclusivamente por convite administrativo
+                </p>
             </motion.div>
         </div>
     );

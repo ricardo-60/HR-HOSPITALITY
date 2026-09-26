@@ -1,138 +1,59 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * Driver da Base de Dados Local (SQLite) - HR-HOSPITALITY
- * Permite interagir com a base de dados local SQLite rodando no servidor Express
- * (porta 3002) de forma transparente para o frontend Next.js.
+ * Secure Electron SQLite transport.
+ *
+ * Raw SQL is intentionally absent from this module. Calls are forwarded over
+ * a context-isolated IPC bridge to the closed operation registry in
+ * `electron/operations.js`. Browser sessions fail closed and use Supabase;
+ * they cannot access a machine-local database through an unauthenticated URL.
  */
+
 export interface DBResult {
   changes: number;
-  lastInsertRowid?: number | string;
+  data?: unknown;
 }
 
-// Obter o base URL do servidor local (porta 3002)
-function getServerUrl(): string {
-  if (typeof window !== 'undefined') {
-    // 1. Verificar localStorage
-    const savedIp = localStorage.getItem('server_ip');
-    if (savedIp) {
-      return `http://${savedIp}:3002`;
-    }
+type ElectronAPI = {
+  localDb?: {
+    invoke: (operation: string, input?: unknown) => Promise<unknown>;
+  };
+};
 
-    // 2. Verificar via Electron API
-    const win = window as any;
-    if (win.electronAPI && typeof win.electronAPI.getAppConfig === 'function') {
-      try {
-        const config = win.electronAPI.getAppConfig();
-        if (config && config.serverIp) {
-          return `http://${config.serverIp}:3002`;
-        }
-      } catch (e) {
-        console.error('Erro ao ler config do Electron em localDB:', e);
-      }
-    }
+function getElectronAPI(): ElectronAPI['localDb'] | null {
+  if (typeof window === 'undefined') return null;
+  return (window as any).electronAPI?.localDb || null;
+}
 
-    // 3. Fallback para o hostname atual (útil se acedido via browser na rede local)
-    const hostname = window.location.hostname || 'localhost';
-    return `http://${hostname}:3002`;
+async function invoke<T>(operation: string, input: unknown = {}): Promise<T> {
+  const bridge = getElectronAPI();
+  if (!bridge || typeof bridge.invoke !== 'function') {
+    throw new Error('Acesso SQLite local indisponível neste ambiente. Use a sessão Supabase válida.');
   }
-  return 'http://localhost:3002';
+  return bridge.invoke(operation, input) as Promise<T>;
 }
 
-// Limite de aviso de lentidão (ms) e truncagem do SQL em log.
-// Estado estável do servidor local é ~15ms; só avisamos acima de 1s, para não
-// poluir o console com a contenção natural do dev-mode (compilação Next.js).
-const SLOW_QUERY_THRESHOLD_MS = 1000;
-const MAX_SQL_LOG_LEN = 120;
-const briefSql = (sql: string) =>
-  sql.replace(/\s+/g, ' ').trim().slice(0, MAX_SQL_LOG_LEN) + (sql.length > MAX_SQL_LOG_LEN ? '…' : '');
-
-/**
- * fetch com 1 retry curto — absorve falhas transitórias de arranque
- * (ex.: servidor local ainda a inicializar) sem poluir o console.
- */
-async function fetchWithRetry(url: string, init: RequestInit, retries = 1, delayMs = 300): Promise<Response> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await fetch(url, init);
-    } catch (err) {
-      lastError = err;
-      if (attempt < retries) {
-        await new Promise(r => setTimeout(r, delayMs));
-      }
-    }
-  }
-  throw lastError;
+/** Execute one allowlisted local operation. */
+export async function localOperation<T = unknown>(operation: string, input: unknown = {}): Promise<T> {
+  return invoke<T>(operation, input);
 }
 
-/**
- * Executa uma consulta SQL (SELECT) que retorna linhas de dados.
- */
-export async function localQuery<T = any>(sql: string, params: any[] = []): Promise<T[]> {
-  const start = Date.now();
-  try {
-    const response = await fetchWithRetry(`${getServerUrl()}/api/db/query`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ sql, params }),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const data = await response.json();
-    const duration = Date.now() - start;
-    if (duration > SLOW_QUERY_THRESHOLD_MS) {
-      console.warn(`[HOSPITALITY/LocalDB] Consulta SQLite demorou ${duration}ms:`, briefSql(sql));
-    }
-    return data.rows || [];
-  } catch (error) {
-    console.error('[HOSPITALITY/LocalDB] Erro localQuery via REST:', error);
-    throw error;
-  }
+/** Execute a read operation from the closed registry. */
+export async function localQuery<T = any>(operation: string, input: unknown = {}): Promise<T> {
+  const result = await invoke<{ data?: T }>(operation, input);
+  return (result?.data ?? []) as T;
 }
 
-/**
- * Executa uma instrução SQL (INSERT, UPDATE, DELETE) que altera o estado.
- */
-export async function localExecute(sql: string, params: any[] = []): Promise<DBResult> {
-  const start = Date.now();
-  try {
-    const response = await fetchWithRetry(`${getServerUrl()}/api/db/execute`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ sql, params }),
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const result = await response.json();
-    const duration = Date.now() - start;
-    if (duration > SLOW_QUERY_THRESHOLD_MS) {
-      console.warn(`[HOSPITALITY/LocalDB] Execução SQLite demorou ${duration}ms:`, briefSql(sql));
-    }
-    return result;
-  } catch (error) {
-    console.error('[HOSPITALITY/LocalDB] Erro localExecute via REST:', error);
-    throw error;
-  }
+/** Execute a write operation from the closed registry. */
+export async function localExecute<T = any>(operation: string, input: unknown = {}): Promise<T> {
+  return invoke<T>(operation, input);
 }
 
-/**
- * Verifica o estado do servidor local
- */
+/** Check the local database through IPC; no HTTP health endpoint is trusted. */
 export async function checkServerHealth(): Promise<boolean> {
   try {
-    const response = await fetch(`${getServerUrl()}/api/health`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-      signal: AbortSignal.timeout(3000),
-    });
-    return response.ok;
-  } catch (error) {
+    const result = await invoke<{ status?: string }>('system.health', {});
+    return result?.status === 'ok';
+  } catch {
     return false;
   }
 }

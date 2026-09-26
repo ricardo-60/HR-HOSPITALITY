@@ -1,64 +1,66 @@
 # HR-HOSPITALITY — Migrações de Base de Dados
 
-Sistema de versionamento de esquema para os **dois ambientes**:
+As migrações canónicas estão divididas por ambiente:
 
 | Ambiente | Pasta | Aplicação |
 |---|---|---|
-| SQLite local (hospitality_local.db) | `migrations/sqlite/` | Via API HTTP do servidor local (:3002) |
-| Supabase Cloud (PostgreSQL) | `migrations/supabase/` | Via `pg` + pooler (requer `PGPASSWORD`) |
+| SQLite local | `migrations/sqlite/` | Runner privileged, acesso direto ao ficheiro SQLite |
+| Supabase/PostgreSQL | `migrations/supabase/` | `pg` + pooler; `PGPASSWORD` fornecido pelo secret manager |
 
-## Convenções
+## Regras de segurança
 
-- Ficheiros: `NNN_nome_descritivo.sql` (NNN = versão, aplicada por ordem)
-- Toda migração deve ser **idempotente** (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`, blocos `EXCEPTION`)
-- Cada versão aplicada é registada na tabela **`_schema_migrations`** (criada
-  automaticamente pelo runner em ambos os ambientes): `version`, `name`, `applied_at`
-- `003_sync_queue_setup` (supabase) é **no-op intencional** — a `sync_queue` é exclusiva do SQLite local
+- Aplicar sempre em ordem FIFO e apenas depois de snapshot/backup.
+- As migrações `001`–`004` são histórico. As policies abertas aí existentes são
+  removidas e substituídas pela migração `005`.
+- **Não executar os SQL standalone legados na raiz** (`MIGRATION_FULL.sql`,
+  `MIGRATION_NEW_PROJECT.sql`, `ROOMS_DB.sql`, `RESERVATIONS_DB.sql` e
+  `HOSPITALITY_LOCAL_SQLITE.sql`). Eles são stubs inócuos e não devem ser usados.
+- Nunca colocar `PGPASSWORD`, `SUPABASE_SERVICE_ROLE_KEY`, tokens Vercel ou
+  credenciais de QA em comandos, scripts ou ficheiros versionados.
+- A aplicação nunca deve executar as migrações através da API HTTP local.
 
 ## Comandos
 
 ```bash
 cd hr-hospitality-app
 
-# Estado atual (versão aplicada + pendentes)
+# Estado — operação somente leitura
 node scripts/run_migrations.mjs --status --target=sqlite
 node scripts/run_migrations.mjs --status --target=supabase
 
-# Aplicar migrações pendentes (com snapshot prévio recomendado)
+# Aplicar migrações pendentes
 node scripts/run_migrations.mjs --target=sqlite --snapshot
-PGPASSWORD=... node scripts/run_migrations.mjs --target=supabase --snapshot
+# Com PGPASSWORD, SUPABASE_DB_HOST, SUPABASE_DB_USER e SUPABASE_DB_NAME
+# já fornecidos pelo secret manager:
+node scripts/run_migrations.mjs --target=supabase --snapshot
+
+# Usar outra base local:
+node scripts/run_migrations.mjs --target=sqlite --db=/caminho/hospitality_local.db
 ```
 
-Snapshots gravados em `hr-hospitality-app/backups/{sqlite,supabase}/` (fora do git).
-
-## 🔙 Recuar / Restaurar
-
-### SQLite local
-
-**Opção A — restauro de ficheiro (mais seguro, requer servidor parado):**
-1. Parar a app/servidor local
-2. Substituir `hospitality_local.db` (e `-wal`/`-shm`) pelo backup ficheiro anterior
-3. Reiniciar — a tabela `_schema_migrations` restaurada reflete a versão correta
-
-**Opção B — desfazer objeto a objeto (sem backup ficheiro):**
-1. `DROP TABLE` dos objetos introduzidos pela migração a recuar (ver snapshot em `backups/sqlite/` para inventário)
-2. `DELETE FROM _schema_migrations WHERE version = 'NNN';`
-3. Re-executar o runner (migrações idempotentes são seguras)
-
-### Supabase Cloud
-
-1. Snapshots de inventário: `backups/supabase/snapshot-*.sql` (colunas, tipos, contagens)
-2. Restauro completo: **Supabase Dashboard → Database → Backups** (PITR/backup diário) ou `pg_dump`/`pg_restore`
-3. Para desfazer uma versão: `DROP` dos objetos + `DELETE FROM public._schema_migrations WHERE version = 'NNN';`
-
-> ⚠️ As migrações são de avanço (forward-only por design). O recuo manual
-> deve ser precedido de snapshot e, idealmente, validado num ambiente de teste.
+Snapshots de esquema são gravados em `hr-hospitality-app/backups/{sqlite,supabase}/`
+e não são versionados. O snapshot SQLite inclui agora `_schema_migrations`.
 
 ## Histórico
 
-| Versão | Nome | Conteúdo |
-|---|---|---|
-| 001 | initial_schema | tenants, hotel_rooms, hotel_reservations, hotel_consumptions (+ seeds, realtime no Supabase) |
-| 002 | auth_pbkdf2_security | app_users com `password_hash`/`password_salt`/`must_change_password` (sem texto simples) |
-| 003 | sync_queue_setup | sync_queue + índices (SQLite) / no-op (Supabase) |
-| 004 | hr_employees | tabela de empregados para módulos /rh/* |
+| Versão | Conteúdo |
+|---|---|
+| 001 | tenants, quartos, reservas e consumos |
+| 002 | tabela legacy `app_users` com PBKDF2 |
+| 003 | `sync_queue` local; no-op no Supabase |
+| 004 | `hr_employees` |
+| 005 SQLite | ligação de identidade, remoção de hashes locais e `updated_at` de consumos |
+| 006 SQLite | conversão de IDs de demonstração legados para UUIDs canónicos |
+| 005 Supabase | Supabase Auth profile, remoção de hashes, RBAC/tenant e RLS fechado |
+
+> **Cutover obrigatório:** uma instalação não é considerada segura enquanto a
+> migração `005` não estiver aplicada e validada em staging e produção.
+
+## Reversão
+
+As migrações são forward-only. Em caso de problema:
+
+1. parar a aplicação;
+2. restaurar o ficheiro SQLite ou usar PITR/`pg_dump` do Supabase;
+3. voltar à versão anterior do artefacto;
+4. nunca reabrir policies `USING (true)` como rollback.

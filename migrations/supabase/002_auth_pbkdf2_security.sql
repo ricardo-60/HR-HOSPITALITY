@@ -29,8 +29,7 @@ CREATE TABLE IF NOT EXISTS public.app_users (
 ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "app_users_all_tenant" ON public.app_users;
-CREATE POLICY "app_users_all_tenant" ON public.app_users
-    FOR ALL USING (true);  -- Restringir por tenant após migração para Supabase Auth
+-- RLS remains deny-by-default here. Migration 005 installs the protected profile policies.
 
 CREATE INDEX IF NOT EXISTS idx_app_users_tenant ON public.app_users(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_app_users_status ON public.app_users(status);

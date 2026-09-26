@@ -21,7 +21,7 @@
  */
 
 import { supabaseClient } from './supabaseClient';
-import { localQuery, localExecute, checkServerHealth } from './db/localDB';
+import { localOperation, checkServerHealth } from './db/localDB';
 
 export interface SyncEvent {
     id: string;
@@ -54,17 +54,15 @@ let lastError: string | null = null;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 
 const MAX_ATTEMPTS_PER_CYCLE = 50;
+const SYNC_TABLES = new Set(['hotel_rooms', 'hotel_reservations', 'hotel_consumptions']);
+const SYNC_ACTIONS = new Set(['INSERT', 'UPDATE', 'DELETE']);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // ---------------------------------------------------------------------------
 // Estatísticas de integridade
 // ---------------------------------------------------------------------------
 
 export async function getSyncStats(): Promise<SyncStats> {
-    let pending = 0;
-    let failed = 0;
-    let oldestEvent: number | null = null;
-    const byTable: Record<string, number> = {};
-
     try {
         const healthy = await checkServerHealth();
         if (!healthy) {
@@ -74,47 +72,25 @@ export async function getSyncStats(): Promise<SyncStats> {
             };
         }
 
-        const rows = await localQuery(
-            `SELECT table_name, COUNT(*) as count, MIN(timestamp) as oldest
-             FROM sync_queue GROUP BY table_name`
-        );
-        for (const row of rows || []) {
-            byTable[row.table_name] = Number(row.count);
-            pending += Number(row.count);
-            if (oldestEvent === null || row.oldest < oldestEvent) oldestEvent = row.oldest;
-        }
-
-        // Registros locais presos em 'pending' sem evento correspondente na fila
-        // (possível depois de a fila ser limpa manualmente) são contabilizados como falha latente.
-        const queueTables = Object.keys(byTable);
-        for (const table of queueTables) {
-            try {
-                const queueIds = await localQuery(`SELECT DISTINCT record_id FROM sync_queue WHERE table_name = ?`, [table]);
-                const placeholders = queueIds.map(() => '?').join(',');
-                const orphan = await localQuery(
-                    `SELECT COUNT(*) as count FROM ${table}
-                     WHERE sync_status = 'pending'
-                     ${queueIds.length ? `AND id NOT IN (${placeholders})` : ''}`,
-                    queueIds.map((q: any) => q.record_id)
-                );
-                failed += Number(orphan?.[0]?.count || 0);
-            } catch { /* tabela pode não ter coluna sync_status */ }
-        }
-    } catch (e: any) {
-        lastError = e?.message || String(e);
+        const result = await localOperation<{ data: Pick<SyncStats, 'pending' | 'failed' | 'byTable' | 'oldestEvent'> }>('sync.stats', {});
+        return {
+            pending: Number(result?.data?.pending || 0),
+            failed: Number(result?.data?.failed || 0),
+            byTable: result?.data?.byTable || {},
+            oldestEvent: result?.data?.oldestEvent ?? null,
+            lastFlushAt,
+            lastFlushResult,
+            lastFlushSynced,
+            lastFlushFailed,
+            lastError,
+        };
+    } catch (error: any) {
+        lastError = error?.message || String(error);
+        return {
+            pending: 0, failed: 0, byTable: {}, oldestEvent: null,
+            lastFlushAt, lastFlushResult: 'error', lastFlushSynced, lastFlushFailed, lastError,
+        };
     }
-
-    return {
-        pending,
-        failed,
-        byTable,
-        oldestEvent,
-        lastFlushAt,
-        lastFlushResult,
-        lastFlushSynced,
-        lastFlushFailed,
-        lastError,
-    };
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +112,14 @@ function coalesceEvents(events: SyncEvent[]): SyncEvent[] {
 
 async function applyEventToSupabase(ev: SyncEvent): Promise<{ ok: boolean; error?: string }> {
     if (!supabaseClient) return { ok: false, error: 'Supabase client não inicializado' };
+    if (!SYNC_TABLES.has(ev.table_name)) return { ok: false, error: 'Tabela de sincronização não permitida' };
+    if (!SYNC_ACTIONS.has(ev.action)) return { ok: false, error: 'Operação de sincronização não permitida' };
+    if (!UUID_PATTERN.test(ev.record_id)) return { ok: false, error: 'Identificador local não é UUID' };
+
+    const { data: authData } = await supabaseClient.auth.getSession();
+    if (!authData.session?.access_token) {
+        return { ok: false, error: 'Sessão Supabase ausente ou expirada' };
+    }
 
     try {
         if (ev.action === 'DELETE') {
@@ -143,19 +127,21 @@ async function applyEventToSupabase(ev: SyncEvent): Promise<{ ok: boolean; error
             return error ? { ok: false, error: error.message } : { ok: true };
         }
 
-        // INSERT ou UPDATE -> upsert do estado final (idempotente)
         const payload = ev.data ? JSON.parse(ev.data) : null;
-        if (!payload) return { ok: false, error: 'Evento sem payload (data)' };
-
-        // Nunca enviar metadados internos de fila para a nuvem
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            return { ok: false, error: 'Evento sem payload válido' };
+        }
+        if (payload.id !== ev.record_id || !UUID_PATTERN.test(String(payload.id))) {
+            return { ok: false, error: 'Payload contém identificador inválido' };
+        }
         delete payload.sync_status;
 
         const { error } = await supabaseClient
             .from(ev.table_name)
             .upsert(payload, { onConflict: 'id' });
         return error ? { ok: false, error: error.message } : { ok: true };
-    } catch (e: any) {
-        return { ok: false, error: e?.message || String(e) };
+    } catch (error: any) {
+        return { ok: false, error: error?.message || String(error) };
     }
 }
 
@@ -174,10 +160,20 @@ export async function flushSyncQueue(): Promise<SyncStats> {
             return await getSyncStats();
         }
 
-        const events: SyncEvent[] = await localQuery(
-            `SELECT id, table_name, action, record_id, data, timestamp
-             FROM sync_queue ORDER BY timestamp ASC`
-        );
+        if (!supabaseClient) {
+            lastFlushResult = 'offline';
+            lastError = 'Supabase Auth não configurado';
+            return await getSyncStats();
+        }
+        const { data: authData } = await supabaseClient.auth.getSession();
+        if (!authData.session?.access_token) {
+            lastFlushResult = 'offline';
+            lastError = 'Sessão Supabase ausente ou expirada';
+            return await getSyncStats();
+        }
+
+        const eventsResult = await localOperation<{ data: SyncEvent[] }>('sync.listEvents', { limit: 200 });
+        const events: SyncEvent[] = eventsResult?.data || [];
 
         if (!events || events.length === 0) {
             lastFlushResult = 'success';
@@ -193,8 +189,7 @@ export async function flushSyncQueue(): Promise<SyncStats> {
         const finalIds = new Set(coalesced.map(e => e.id));
         const superseded = events.filter(e => !finalIds.has(e.id)).map(e => e.id);
         if (superseded.length > 0) {
-            const ph = superseded.map(() => '?').join(',');
-            await localExecute(`DELETE FROM sync_queue WHERE id IN (${ph})`, superseded);
+            await localOperation('sync.discardEvents', { ids: superseded });
             console.warn(`[HOSPITALITY/Sync] ${superseded.length} eventos colapsados em ${coalesced.length} operações finais.`);
         }
 
@@ -202,16 +197,7 @@ export async function flushSyncQueue(): Promise<SyncStats> {
             const result = await applyEventToSupabase(ev);
 
             if (result.ok) {
-                // 1. Remover evento da fila
-                await localExecute(`DELETE FROM sync_queue WHERE id = ?`, [ev.id]);
-
-                // 2. Marcar linha local como sincronizada (exceto deletes — a linha já não existe)
-                if (ev.action !== 'DELETE') {
-                    await localExecute(
-                        `UPDATE ${ev.table_name} SET sync_status = 'synced' WHERE id = ?`,
-                        [ev.record_id]
-                    );
-                }
+                await localOperation('sync.completeEvent', { id: ev.id });
                 lastFlushSynced++;
             } else {
                 lastError = `${ev.table_name}/${ev.action}/${ev.record_id}: ${result.error}`;
@@ -221,8 +207,8 @@ export async function flushSyncQueue(): Promise<SyncStats> {
             }
         }
 
-        const remaining = await localQuery(`SELECT COUNT(*) as count FROM sync_queue`);
-        const remainingCount = Number(remaining?.[0]?.count || 0);
+        const remaining = await localOperation<{ data: { count: number } }>('sync.pendingCount', {});
+        const remainingCount = Number(remaining?.data?.count || 0);
         lastFlushResult = remainingCount === 0 ? 'success' : (lastFlushSynced > 0 ? 'partial' : 'error');
         lastFlushAt = Date.now();
 

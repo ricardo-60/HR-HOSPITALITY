@@ -6,8 +6,8 @@
 
 CREATE TABLE IF NOT EXISTS sync_queue (
     id TEXT PRIMARY KEY,
-    table_name TEXT NOT NULL,
-    action TEXT NOT NULL,
+    table_name TEXT NOT NULL CHECK (table_name IN ('hotel_rooms','hotel_reservations','hotel_consumptions')),
+    action TEXT NOT NULL CHECK (action IN ('INSERT','UPDATE','DELETE')),
     record_id TEXT NOT NULL,
     data TEXT,
     timestamp INTEGER NOT NULL

@@ -39,14 +39,14 @@ offline-first** (SQLite local) e sincronização automática com a nuvem
 - Emula **toda** a API do `supabase-js` (`from()`, `rpc()`, `channel()`,
   `auth.*`), permitindo trocar `supabase.from(...)` por `dataLayer.from(...)`
   sem alterar os ecrãs.
-- **Roteamento automático**: tenta o Supabase primeiro; se falhar (rede, DNS,
-  erro HTTP), faz *fallback* transparente para o SQLite local.
+- **Roteamento automático**: tenta o Supabase primeiro quando existe uma sessão
+  JWT válida; falhas de rede podem usar o SQLite apenas no Electron Servidor.
 - **Escritas offline**: gravadas no SQLite com `sync_status = 'pending'` e um
   evento correspondente na tabela `sync_queue`.
 - **Replicação online → local**: escritas bem-sucedidas na nuvem são
   replicadas silenciosamente para o SQLite, mantendo as duas bases coerentes.
 - Selects locais suportam filtros (`eq/neq/gt/lt/gte/lte/like/ilike/in`),
-  `order`, `limit`, `single()` e relações embrionárias (`tabela(colunas)`).
+  `order`, `limit` e `single()` através do registry validado.
 
 ### Motor de Sincronização (`src/lib/syncEngine.ts`)
 
@@ -65,35 +65,31 @@ Consome a fila `sync_queue` e reconcilia com o Supabase:
 ### Servidor Local (`electron/server.js`, porta 3002)
 
 - Express + `node:sqlite` (DatabaseSync, modo WAL, foreign keys ON).
-- Endpoints: `POST /api/db/query` (SELECT), `POST /api/db/execute`
-  (INSERT/UPDATE/DELETE/DDL), `GET /api/health`.
-- Na primeira execução com base nova, carrega `electron/schema.sql`.
-- Base de dados gravada no diretório de dados do utilizador do Electron
-  (`USER_DATA_PATH`); em dev, no diretório do projeto.
-- Escuta em `0.0.0.0` para permitir terminal secundário na rede local —
-  **recomendação**: manter a rede confinada/VPN, pois os endpoints aceitam
-  SQL arbitrário.
+- O renderer **nunca envia SQL**. As operações passam por IPC ou por
+  `POST /api/v1/operations`, com registry fechado em `electron/operations.js`.
+- Os antigos `/api/db/query` e `/api/db/execute` respondem `410 RAW_SQL_REMOVED`.
+- A API HTTP exige Bearer token, allowlist exata de hosts/origens e limite de
+  payload; o token interno não é entregue ao renderer.
+- A base é gravada no diretório de dados do utilizador do Electron
+  (`USER_DATA_PATH`).
+- A exposição à rede exige `HOSPITALITY_API_TOKEN` e
+  `HOSPITALITY_ALLOWED_HOSTS`; o default é loopback.
 
 ### Autenticação (`src/context/AuthContext.tsx`)
 
+- A identidade é autenticada pelo **Supabase Auth** usando JWT e sessão.
+- O perfil protegido em `app_users` fornece `tenant`, `role`, permissões e
+  estado da conta. As permissões do browser são apenas UX; a autorização real
+  é aplicada pelas policies RLS.
 - Papéis: `ADMINISTRATOR` (acesso total), `PERMISSAO` (restrições por caminho),
   `ACESSO` (apenas `allowedModules`).
-- **Palavras-passe com hash PBKDF2-SHA256** (Web Crypto, 150 000 iterações,
-  salt aleatório de 16 bytes, comparação em tempo constante). Nenhuma senha
-  é armazenada em texto simples; a sessão ativa não contém material de hash.
-- **Alteração obrigatória no 1.º login**: contas com credencial padrão
-  (`mustChangePassword = true`) são redirecionadas para `/alterar-palavra-passe`,
-  que exige a senha atual, nova senha com mínimo de 8 caracteres e confirmação.
-- Migração automática de contas legadas no arranque.
-- Contas de demonstração (1.ª execução) — credenciais **temporárias** de
-  primeiro acesso (o sistema força a substituição no login):
-
-  | Utilizador | ID | Palavra-passe temporária |
-  |---|---|---|
-  | Ricardo Ferreira (Administrador) | `EMP-2026-001` | `admin` |
-  | Ana Sousa (Permissão) | `EMP-2026-002` | `user123` |
-  | João Silva (Acesso) | `EMP-2026-003` | `staff` |
-  | Operador Snack Bar (Acesso) | `EMP-2026-004` | `snack` |
+- Não são guardados hashes, salts ou palavras-passe em `localStorage`. As chaves
+  legadas `hr_users` e `hr_active_user` são removidas no arranque.
+- Contas são criadas por convite através da Edge Function `admin-users`; o
+  cadastro público está desativado.
+- `mustChangePassword=true` bloqueia a navegação até à alteração da password.
+- O primeiro administrador é criado uma única vez pelo endpoint de bootstrap
+  documentado em `docs/PHASE1_SECURITY_CUTOVER.md`.
 
 ---
 
@@ -105,7 +101,7 @@ Consome a fila `sync_queue` e reconcilia com o Supabase:
 | Alojamento / Check-in | `/alojamento`, `/alojamento/checkin` | Mapa de quartos, check-in 360° (Supabase Realtime) |
 | POS | `/pos` | Mapa de mesas, venda rápida, facturação |
 | Snack-bar | `/snack-bar` | PDV do bar |
-| RH | `/rh/empregados`, `/rh/escalas`, `/rh/ferias`, `/rh/picagem`, `/rh/saidas`, `/rh/salarios`, `/rh/usuarios` | Gestão completa de pessoal |
+| RH | `/rh/empregados`, `/rh/escalas`, `/rh/ferias`, `/rh/picagem`, `/rh/saidas`, `/rh/salarios`, `/rh/usuarios` | Gestão de pessoal |
 | Lavandaria | `/lavandaria` | Ciclos e rastreio |
 | SPA, Parque, Transfer, Eventos, Facilities | `/spa`, `/parque`, `/transfer`, `/eventos`, `/facilities` | Serviços auxiliares |
 | Logística | `/logistica` | Economato/stock |
@@ -132,6 +128,9 @@ npm run electron:build     # ou: npm run build:client / build:server / build:all
 
 # Testes E2E
 npm run test:e2e
+
+# Testes de segurança do registry/API local
+npm run test:security
 ```
 
 ### Variáveis de ambiente
@@ -142,10 +141,12 @@ projeto Supabase. `.env.local` **nunca** é versionado (coberto pelo
 
 ### Migrações de base de dados
 
-- Nuvem (Supabase/PostgreSQL): `../MIGRATION_FULL.sql`, `../MIGRATION_NEW_PROJECT.sql`
-- Local (SQLite): `../HOSPITALITY_LOCAL_SQLITE.sql` — aplicar via
-  `POST http://localhost:3002/api/db/execute`
-- Cloud: `scripts/run_cloud_migration.mjs`
+- Nuvem (Supabase/PostgreSQL): `../migrations/supabase/001..005`
+- Local (SQLite): `../migrations/sqlite/001..005`
+- Runner: `node scripts/run_migrations.mjs --target=sqlite` ou
+  `--target=supabase` com secrets no ambiente.
+- **Não executar** os SQL standalone legados na raiz; estão bloqueados por
+  guards e podem conter policies antigas abertas.
 
 ---
 
@@ -153,10 +154,17 @@ projeto Supabase. `.env.local` **nunca** é versionado (coberto pelo
 
 | Medida | Estado |
 |---|---|
-| Hash de palavras-passe (PBKDF2-SHA256 + salt) | ✅ Implementado |
-| Sessão sem material de credenciais | ✅ Implementado |
-| `.env.local` fora do git | ✅ `.gitignore` + `.env.example` |
-| Base de dados local fora do git | ✅ `*.db`, `*.db-shm`, `*.db-wal` |
-| Autenticação centralizada no servidor (Supabase Auth) | ⚠️ Recomendado — o hash client-side protege dados em repouso, mas o modelo local-first mantém a verificação no cliente |
-| Bind do servidor local restrito a `127.0.0.1` | ✅ Implementado — exposição LAN apenas com opt-in (`HOSPITALITY_HOST=0.0.0.0`) em rede confinada/VPN |
-| RLS (Row Level Security) no Supabase | ⚠️ Verificar políticas por `tenant_id` |
+| Supabase Auth/JWT | ✅ Implementado no código; requer contas/perfiles provisionados |
+| Hashes/salts no browser | ✅ Removidos e descartados no arranque |
+| Registo público | ✅ Desativado; convites via Edge Function |
+| RLS por `auth.uid()`, tenant e role | ✅ Migração 005; aplicar em staging/produção |
+| API SQLite com SQL arbitrário | ✅ Removida; registry fechado + IPC |
+| CORS/Host do servidor local | ✅ Allowlist + token; LAN exige configuração explícita |
+| Credenciais locais fora do Git | ✅ `.gitignore`; revogação/rotação continua manual |
+| Testes de segurança locais | ✅ `npm run test:security` |
+| Dependências (`npm audit`) | ✅ 0 vulnerabilidades; Next.js atualizado para `16.3.6` |
+
+> **Importante:** aplicar as migrações 005/006 e configurar os secrets antes de
+> qualquer uso real. O modo Electron Cliente usa atualmente apenas Supabase;
+> o acesso a um servidor SQLite remoto por pairing/TLS fica para a Fase 4.
+> Até lá, o código deve ser considerado em cutover, não production-ready.

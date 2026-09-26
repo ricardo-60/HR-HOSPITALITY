@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { useAuth, User, UserInput } from '@/context/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion } from 'framer-motion';
-import { Users, UserPlus, Shield, Ban, Eye, Key, ToggleLeft, Trash2, Edit3, CheckCircle, XCircle } from 'lucide-react';
+import { Users, UserPlus, Shield, Ban, Eye, Trash2, Edit3, CheckCircle, XCircle } from 'lucide-react';
 
 const MODULES_LIST = [
     { key: 'alojamento', name: 'Alojamento' },
@@ -30,7 +30,7 @@ export default function UsuariosManagementPage() {
     // Form states
     const [id, setId] = useState('');
     const [name, setName] = useState('');
-    const [password, setPassword] = useState('');
+    const [email, setEmail] = useState('');
     const [role, setRole] = useState<'ADMINISTRATOR' | 'PERMISSAO' | 'ACESSO'>('ACESSO');
     const [commissionRate, setCommissionRate] = useState(0.02);
     const [restrictions, setRestrictions] = useState<string[]>([]);
@@ -57,7 +57,7 @@ export default function UsuariosManagementPage() {
     const resetForm = () => {
         setId('');
         setName('');
-        setPassword('');
+        setEmail('');
         setRole('ACESSO');
         setCommissionRate(0.02);
         setRestrictions([]);
@@ -68,13 +68,12 @@ export default function UsuariosManagementPage() {
         setFormError('');
     };
 
-    const handleCreate = (e: React.FormEvent) => {
+    const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
-        // A palavra-passe é convertida em hash PBKDF2 dentro do AuthContext
         const newUser: UserInput = {
-            id: id || `EMP-2026-${Math.floor(100 + Math.random() * 900)}`,
+            id,
+            email,
             name,
-            password: password || undefined,
             role,
             commissionRate,
             restrictions,
@@ -82,23 +81,22 @@ export default function UsuariosManagementPage() {
             status
         };
         try {
-            registerUser(newUser);
+            await registerUser(newUser);
             setFormError('');
             resetForm();
         } catch (err) {
-            setFormError(err instanceof Error ? err.message : 'Erro ao registar utilizador.');
+            setFormError(err instanceof Error ? err.message : 'Erro ao convidar utilizador.');
         }
     };
 
-    const handleUpdate = (e: React.FormEvent) => {
+    const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingUser) return;
 
-        // Campo em branco preserva o hash existente (tratado no AuthContext)
         const updated: UserInput = {
             id: editingUser.id,
+            email,
             name,
-            password: password || undefined,
             role,
             commissionRate,
             restrictions,
@@ -106,7 +104,7 @@ export default function UsuariosManagementPage() {
             status
         };
         try {
-            updateUser(updated);
+            await updateUser(updated);
             setFormError('');
             resetForm();
         } catch (err) {
@@ -119,7 +117,7 @@ export default function UsuariosManagementPage() {
         setIsCreating(false);
         setId(user.id);
         setName(user.name);
-        setPassword(''); // Nunca pré-preencher credenciais
+        setEmail(user.email);
         setRole(user.role);
         setCommissionRate(user.commissionRate);
         setRestrictions(user.restrictions || []);
@@ -185,6 +183,7 @@ export default function UsuariosManagementPage() {
                                     <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">ID do Funcionário</label>
                                     <input
                                         type="text"
+                                        required
                                         disabled={!!editingUser}
                                         value={id}
                                         onChange={(e) => setId(e.target.value)}
@@ -204,12 +203,14 @@ export default function UsuariosManagementPage() {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">Palavra-passe (Login)</label>
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">Email Corporativo</label>
                                     <input
-                                        type="password"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder={editingUser ? 'Deixar em branco para manter' : 'Introduzir senha'}
+                                        type="email"
+                                        required
+                                        autoComplete="email"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        placeholder="colaborador@hotellukweku.ao"
                                         className="w-full px-5 py-4 bg-black/40 border border-white/5 rounded-2xl text-sm focus:outline-none focus:border-[var(--brand-accent)] transition-all"
                                     />
                                 </div>
@@ -387,7 +388,11 @@ export default function UsuariosManagementPage() {
                                                 <Edit3 className="w-4 h-4" />
                                             </button>
                                             <button
-                                                onClick={() => deleteUser(u.id)}
+                                                onClick={() => {
+                                                    void deleteUser(u.id).catch(error => {
+                                                        setFormError(error instanceof Error ? error.message : 'Erro ao eliminar utilizador.');
+                                                    });
+                                                }}
                                                 disabled={u.id === currentUser?.id}
                                                 title={u.id === currentUser?.id ? 'Não é possível apagar a conta em sessão' : 'Apagar'}
                                                 className={`p-3 border rounded-xl transition-all ${u.id === currentUser?.id ? 'bg-white/5 border-white/5 text-white/20 cursor-not-allowed' : 'bg-white/5 hover:bg-red-500/10 border-white/5 hover:border-red-500/20 text-white/40 hover:text-red-500'}`}

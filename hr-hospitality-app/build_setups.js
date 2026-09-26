@@ -51,15 +51,35 @@ function checkFile(filePath, label) {
   log(`OK — ${label || path.basename(filePath)}`);
 }
 
-function writePublicSupabaseConfig() {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    throw new Error('NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY são obrigatórios para gerar o pacote Electron.');
+function readEnvLocal() {
+  const envPath = path.join(ROOT, '.env.local');
+  if (!fs.existsSync(envPath)) return {};
+  const values = {};
+  for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*(NEXT_PUBLIC_SUPABASE_URL|NEXT_PUBLIC_SUPABASE_ANON_KEY)\s*=\s*([^#\r\n]+)\s*$/);
+    if (match) values[match[1]] = match[2].trim().replace(/^['"]|['"]$/g, '');
   }
+  return values;
+}
+
+function writePublicSupabaseConfig() {
   const target = path.join(ROOT, 'electron', 'public-config.json');
-  const config = {
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  };
+  const envLocal = readEnvLocal();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || envLocal.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || envLocal.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const usable = Boolean(supabaseUrl && supabaseAnonKey) && !String(supabaseUrl).includes('SEU-PROJETO');
+
+  if (!usable) {
+    // Sem credenciais não se gera config: a aplicação Electron arranca em modo
+    // local/demonstração e tenta ler `.env.local` em runtime. NUNCA se grava uma
+    // URL placeholder que fingiria estar operacional.
+    if (fs.existsSync(target)) fs.rmSync(target);
+    log('Sem NEXT_PUBLIC_SUPABASE_* — pacote Electron gerado em MODO DEMONSTRAÇÃO.', 'info');
+    log('Preencha hr-hospitality-app/.env.local e volte a correr para um pacote ligado.', 'info');
+    return;
+  }
+
+  const config = { supabaseUrl: supabaseUrl.replace(/\/$/, ''), supabaseAnonKey };
   fs.writeFileSync(target, JSON.stringify(config, null, 2), { encoding: 'utf8', mode: 0o600 });
   log('Configuração pública Supabase para Electron gerada (sem service_role).', 'info');
 }

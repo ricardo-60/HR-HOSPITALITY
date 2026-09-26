@@ -45,6 +45,7 @@
     "electron-builder": "^26.15.3",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "qrcode": "^1.5.4",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wait-on": "^8.0.2"

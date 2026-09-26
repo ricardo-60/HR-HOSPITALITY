@@ -14,9 +14,9 @@
 | 1 | Servidor local 1-clique (migrações 001–008 + seeders + porta 3000 na LAN) | ✅ | `start-server.bat` / `start-server.sh` |
 | 1b | Instalador Electron **Servidor** com atalho de área de trabalho | ✅ 171,9 MB | `hr-hospitality-app/dist/HR-Hospitality-Servidor-Setup-0.1.0.exe` |
 | 1c | Instalador Electron **Cliente** com atalho de área de trabalho | ✅ 171,9 MB | `hr-hospitality-app/dist/HR-Hospitality-Cliente-Setup-0.1.0.exe` |
-| 2 | APK `hr-client-app.apk` | ✅ 68,0 MB (assinado) | `dist/android/hr-client-app.apk` |
-| 2 | APK `hr-pos-app.apk` | ✅ 56,3 MB (assinado) | `dist/android/hr-pos-app.apk` |
-| 2 | APK `hr-executive-app.apk` | ✅ 56,2 MB (assinado) | `dist/android/hr-executive-app.apk` |
+| 2 | APK `hr-client-app.apk` | ✅ 68,0 MB · ligado ao projecto B (bundle inspeccionado) | `dist/android/hr-client-app.apk` |
+| 2 | APK `hr-pos-app.apk` | ✅ 56,3 MB · ligado ao projecto B (bundle inspeccionado) | `dist/android/hr-pos-app.apk` |
+| 2 | APK `hr-executive-app.apk` | ✅ 56,2 MB · ligado ao projecto B (bundle inspeccionado) | `dist/android/hr-executive-app.apk` |
 | 3 | `.ipa` iOS | ❌ não é possível nesta máquina | ver §6 |
 | — | Página de downloads com QR na LAN | ✅ | `http://<ip>:3000/download/` |
 | — | Servidor da LAN em `0.0.0.0:3000` | ✅ a correr | firewall já permite `node.exe` (ver §4) |
@@ -28,13 +28,22 @@ Todos assinados com o keystore de demo de `dist/keys/`
 `apksigner verify` — a assinatura é constante entre rebuilds, por isso o APK
 novo é instalável **por cima** do que já estiver no telemóvel, sem desinstalar.
 
-**Modo dos binários actuais: DEMONSTRAÇÃO.** `hr-hospitality-app/.env.local`
-existe mas contém apenas os placeholders de `.env.example` (`SEU-PROJETO`),
-pelo que o portal, o Electron e as apps foram compilados **sem credenciais
-Supabase reais**. A aplicação arranca em modo demonstração (interface
-completa, cache local, sem sessão ligada) e o próprio ecrã de login apresenta
-`SUPABASE AUTH NÃO ESTÁ CONFIGURADO` — verificado no browser, §8. Isto é
-deliberado e está sinalizado no build — ver §7.
+**Modo dos binários actuais: LIGADOS AO PROJECTO B (verificado).**
+`hr-hospitality-app/.env.local` contém a URL e a anon key do projecto
+`rzelexvouysvkejfwrbf` (gitignored) e as **três** apps Android foram
+compiladas com elas. Cada APK foi depois **aberto e inspeccionado byte a
+byte** para confirmar que a URL está dentro do `index.android.bundle` —
+teste automático obrigatório, saída no §8. O aviso "Modo demonstração" deixou
+de aparecer: `isSupabaseConfigured` passou a `true` e o cartão de `index.tsx:45`
+não é renderizado.
+
+O **portal** (`out/`) e os **instaladores Electron** continuam em modo
+demonstração porque ainda não foram reconstruídos depois de o `.env.local` ter
+sido preenchido — e reconstruí-los agora trocaria os dados locais por um
+Supabase **sem schema**. Ver §7.
+
+> ⚠️ As migrações `001..008` continuam por aplicar ao projecto B, por isso as
+> apps ligam-se com sucesso mas as tabelas não existem ainda (§7).
 
 ---
 
@@ -432,14 +441,23 @@ o `start-server` publica-o automaticamente em `/download/ios/` com QR.
 
 ## 7. Modo actual dos binários — e como os tornar operacionais
 
-Os binários desta entrega foram gerados **sem credenciais**:
-
-| O que falta | Efeito | Onde se resolve |
+| Componente | Estado | Detalhe |
 | --- | --- | --- |
-| `hr-hospitality-app/.env.local` (vazio/`SEU-PROJETO`) | portal em modo demonstração, sem sessão Supabase | copiar `.env.example` → `.env.local` e preencher URL + anon key |
-| `PGPASSWORD` + `SUPABASE_DB_HOST` no ambiente | migrações/seeders Supabase `001..008` **não** correm | secret manager — nunca em ficheiros versionados |
-| Projeto Supabase vivo | apps móveis ficam em modo demonstração | criar/ativar o projeto (`zqmtxxjoocwhaodlnhxg` **não resolve** — DNS falha) |
-| Docker + Supabase CLI | não é possível correr o stack Supabase *local* nesta máquina (sem privilégios de admin) | ver nota abaixo |
+| `hr-client-app.apk`, `hr-pos-app.apk`, `hr-executive-app.apk` | ✅ ligados ao projecto B e verificados | `.env.local` preenchido → `expo export --clear` → build → **inspecção do bundle** (§8) |
+| Portal (`out/`) e instaladores Electron | ⚠️ ainda em modo demonstração | não foram reconstruídos depois de o `.env.local` ser preenchido; reconstruí-los agora trocaria os dados locais por um Supabase **sem schema** |
+| Migrações/seeders Supabase `001..008` | ❌ não aplicadas em nenhum projecto | exigem `SUPABASE_DB_HOST` + `PGPASSWORD` — secret manager, nunca em ficheiros versionados |
+| Conta master (bootstrap) | ❌ não existe | depende das migrações (`app_users`), da função `admin-users` deployada e de um `BOOTSTRAP_TOKEN` gerado fora do repo — `docs/PHASE1_SECURITY_CUTOVER.md` §6 |
+| Docker + Supabase CLI | ❌ stack Supabase *local* indisponível nesta máquina | sem privilégios de admin — ver nota abaixo |
+
+**Efeito prático das apps ligadas sem schema:** as apps ligam-se ao projecto B
+mas as tabelas não existem, por isso `queries.ts` cai no `catch` e devolve
+`cached?.value ?? []` — ecrãs vazios em vez de erros. O aviso "Modo
+demonstração" desapareceu (que era o objectivo); os dados só entram quando as
+migrações correrem.
+
+**Projecto B em uso:** `https://rzelexvouysvkejfwrbf.supabase.co` — tem apenas
+a tabela `tenants` (vazia). O projecto `zqmtxxjoocwhaodlnhxg` está vivo (DNS +
+`401` em `/rest/v1/`) mas a anon key conhecida não o autoriza.
 
 **Nota sobre o Supabase local:** esta sessão corre **sem privilégios de
 administrador** e sem Docker/WSL, por isso `supabase start` não é instalável de
@@ -453,14 +471,16 @@ quando lhe dão as credenciais.
 instruções de pagamento** — é intencional. Idem para o número de telefone e
 preçários. Substitua-os antes de operar a sério.
 
-Para um build **operacional** e não de demonstração:
+Para tornar **tudo** operacional (portal, Electron e dados reais):
 ```bash
-# 1. credenciais
+# 1. credenciais - JA FEITO para o projecto B
 $EDITOR hr-hospitality-app/.env.local      # NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY
-# 2. portal + Electron
+# 2. schema + conta master - FALTA (secret manager, nunca em ficheiros)
+PGPASSWORD=... SUPABASE_DB_HOST=... node hr-hospitality-app/scripts/run_migrations.mjs
+# 3. portal + Electron
 start-server.bat --rebuild
 node hr-hospitality-app/build_setups.js    # instalaadores ligados
-# 3. apps
+# 4. apps Android (o .env de cada app e escrito pelo proprio script)
 powershell -File .\build-android.ps1
 ```
 
@@ -498,14 +518,27 @@ powershell -File .\build-android.ps1
 | Firewall da porta 3000 | ✅ regra existente *Node.js → Allow → qualquer porta → Público/Privado* — sem elevação |
 | Página de downloads no browser | ✅ 3 APKs com tamanho, link directo e QR |
 | DNS do projeto Supabase `zqmtxxjoocwhaodlnhxg` | ✅ passou a resolver (`172.64.149.246`/`104.18.38.10`) e responde `401` em `/rest/v1/` — projecto **vivo** |
-| Credenciais Supabase reais na máquina | ❌ **nenhuma** (verificado: CLI, Docker/WSL, env vars, Git, 1 437 bundles, QA reports, `~/.supabase`) |
+| Credenciais Supabase reais na máquina (1.ª prospecção) | ❌ nenhuma (verificado: CLI, Docker/WSL, env vars, Git, 1 437 bundles, QA reports, `~/.supabase`) |
+| Recuperação da anon key do projecto B | ✅ obtida do histórico de `hotel-lukweku-repo` (`d2136ac`, 208 chars, `ref` = `rzelexvouysvkejfwrbf`) — **fora do Git principal** |
+| `.env.local` + `.env` das apps escritos com o projecto B | ✅ `https://rzelexvouysvkejfwrbf.supabase.co` + anon key, sem `SEU-PROJETO` (gitignored) |
+| `npx expo export --platform android --clear` (cliente) | ✅ 1 677 módulos, `.hbc` 4,5 MB, **URL já no offset 440831** |
+| **Teste de verificação automático do APK** (`verify-apk-supabase.ps1`) | ✅ **PASS** (exit 0) — URL no `index.android.bundle` **@ 440831**, anon key **@ 392993** |
+| Placeholders residuais no bundle do cliente | ✅ ausentes `SEU-PROJETO` e `SUPABASE_AUTH_NAO_ESTA_CONFIGURADO`; o literal `EXPO_PUBLIC_SUPABASE_URL` só sobrevive dentro do texto da mensagem (`supabase.ts:23`) — ramo morto |
+| Aviso "Modo demonstração" desligado no cliente | ✅ `isSupabaseConfigured = true` → `index.tsx:45` deixa de renderizar o cartão |
+| Gate de entrega: link em 404 até PASS | ✅ `hr-client-app.apk` removido do staging, `HEAD → 404`, só publicado **depois** do PASS |
+| 1.º teste dos APKs `pos`/`executive` | ❌ **FAIL** (exit 1) — tinham sido construídos com `SEU-PROJETO`; **retirados do staging de imediato** (link → `404`) e a página de downloads regenerada para só anunciar o APK verificado |
+| Causa dos FAIL e correcção | ✅ `build-android.ps1:161-170` só escreve o `.env` quando `$hasCreds`; no build anterior o `.env.local` ainda tinha `SEU-PROJETO`, por isso as duas apps nem tinham `.env` |
+| Procedimento de QA reaplicado a `pos` e `executive` | ✅ `.env` escrito · `.expo` + `android/app/build` + caches Metro removidas · `expo export --clear` → PASS (URL no `.hbc` @ 614245 e 607139) |
+| **Re-teste automático dos 3 APKs após rebuild** | ✅ **PASS nos 3** (exit 0) — URL no bundle @ **614245** (pos) · **607139** (executive) · **440831** (cliente) |
+| `apksigner verify` + placeholders nos 3 APKs | ✅ exit 0 nos 3 · `SEU-PROJETO` e `SUPABASE_AUTH_NAO_ESTA_CONFIGURADO` ausentes nos 3 bundles |
+| Publicação final (`stage_downloads.mjs` + `HEAD`) | ✅ 3 APKs com `200`, `Content-Length` 71347382 / 58982772 / 58945908, `Cache-Control: no-store`; página `/download/` → `200` |
 
 ---
 
 ## 9. Commits desta entrega
 
 Repositório principal (`ricardo-60/HR-HOSPITALITY`, branch `main`), Conventional
-Commits — **8 criados, todos por fazer push**:
+Commits — **9 criados e 9 já pushados** (`f744be6..423d6e4`, `git status` limpo):
 
 | Hash | Âmbito |
 | --- | --- |
@@ -517,12 +550,25 @@ Commits — **8 criados, todos por fazer push**:
 | `890b8ba` | `fix(server):` corrigir parsing do `start-server.bat` e concluir o teste de arranque |
 | `a94ddaf` | `fix(android):` resolver o `MAX_PATH` do CMake mudando o staging para fora do repo |
 | `f6fe998` | `feat(server):` apontar o servidor da LAN pelo `.env.local` e servir APKs com tamanho |
+| `423d6e4` | `docs(release):` relatório da demonstração com resultados medidos da entrega |
 
 E este, que é apenas o próprio relatório (ainda não existia no Git):
 
 | Ficheiro | Porquê |
 | --- | --- |
 | `docs/RELEASE_DEMO.md` | relatório da entrega — estado real dos artefactos, arranque 1-clique, links/QR da LAN e bloqueios |
+
+### APKs desta build (ligados ao projecto B, verificados por inspecção)
+
+| Ficheiro | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `dist/android/hr-client-app.apk` | 71 347 382 | `8874bc24642a0644f4c79ef6987cc7e0242a1c206fff6244330f3aac1fb7b03d` |
+| `dist/android/hr-pos-app.apk` | 58 982 772 | `c5d1b3665b900c0274045745c966d134246d0e440d195b55dc377fc3b7d60956` |
+| `dist/android/hr-executive-app.apk` | 58 945 908 | `0516d1ef72d245c9a046bcf60743ddf1990a8c37e02f38ce72718533328249b0` |
+
+> A assinatura (`CN=HRHospitalityDemo, OU=Demo, O=HRHospitality`) é constante
+> entre builds, por isso qualquer um destes APKs é instalável **por cima** do
+> que já estiver no telemóvel, sem desinstalar.
 
 > `gradle-init.gradle`, `build-android.ps1`, `start-server.*` e os dois scripts
 > de `hr-hospitality-app/scripts/` já entraram nos commits `a94ddaf` e

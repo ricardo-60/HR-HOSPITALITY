@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
     BarChart3, Home, Store, Package, ShieldCheck,
-    Users, Building2, Heart, Lock, LogOut, UserCheck, X, BookOpen
+    Users, Building2, Heart, Lock, LogOut, UserCheck, X, BookOpen,
+    Banknote, Receipt, IdCard
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -27,7 +28,12 @@ const menuItems: MenuItem[] = [
     { name: 'LAVANDARIA', icon: Package, path: '/lavandaria', category: 'OPERATIONS' },
     { name: 'TRANSFER', icon: ShieldCheck, path: '/transfer', category: 'OPERATIONS' },
     { name: 'PARQUE PRIVADO', icon: Users, path: '/parque', category: 'OPERATIONS' },
+    { name: 'POS SNACK/BAR', icon: Store, path: '/pos', category: 'OPERATIONS' },
     { name: 'RECURSOS HUMANOS', icon: Users, path: '/rh', category: 'MANAGEMENT' },
+    { name: 'FINANCEIRO E IBAN', icon: Banknote, path: '/financeiro', category: 'MANAGEMENT', adminOnly: true },
+    { name: 'COMPROVATIVOS', icon: Receipt, path: '/comprovativos', category: 'MANAGEMENT', adminOnly: true },
+    { name: 'KYC HÓSPEDES', icon: IdCard, path: '/kyc', category: 'MANAGEMENT', adminOnly: true },
+    { name: 'ECONOMATO', icon: Package, path: '/economato', category: 'OPERATIONS', adminOnly: true },
     { name: 'CONTROLO ACESSOS', icon: ShieldCheck, path: '/rh/usuarios', category: 'MANAGEMENT', adminOnly: true },
     { name: 'CENTRAL DE AJUDA', icon: BookOpen, path: '/ajuda', category: 'CORE' },
 ];

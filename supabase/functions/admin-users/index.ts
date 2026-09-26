@@ -17,15 +17,21 @@ const authClient = createClient(supabaseUrl, anonKey, {
   auth: { persistSession: false, autoRefreshToken: false }
 });
 
-const roles = new Set(['ADMINISTRATOR', 'PERMISSAO', 'ACESSO']);
+// Perfis de staff. `EXECUTIVO` é gerido pelo mesmo caminho, mas a RLS
+// (migração 007) nega-lhe qualquer escrita: o dono vê tudo e não mexe em nada.
+const roles = new Set(['ADMINISTRATOR', 'PERMISSAO', 'ACESSO', 'POS', 'EXECUTIVO']);
 const statuses = new Set(['ATIVO', 'BLOQUEADO']);
+
+// Módulos comerciais introduzidos na migração 007.
 const allowedModules = new Set([
-  'alojamento', 'eventos', 'facilities', 'lavandaria', 'logistica',
-  'parque', 'pos', 'rh', 'snack-bar', 'spa', 'transfer', 'ajuda', 'configuracoes'
+  'alojamento', 'economato', 'eventos', 'facilities', 'financeiro', 'lavandaria',
+  'logistica', 'parque', 'pos', 'rh', 'snack-bar', 'spa', 'transfer',
+  'ajuda', 'configuracoes', 'comprovativos', 'kyc'
 ]);
 const restrictions = new Set([
-  '/alojamento', '/eventos', '/facilities', '/lavandaria', '/logistica',
-  '/parque', '/pos', '/rh', '/snack-bar', '/spa', '/transfer', '/ajuda', '/configuracoes'
+  '/alojamento', '/economato', '/eventos', '/facilities', '/financeiro',
+  '/lavandaria', '/logistica', '/parque', '/pos', '/rh', '/snack-bar',
+  '/spa', '/transfer', '/ajuda', '/configuracoes', '/comprovativos', '/kyc'
 ]);
 
 function corsHeaders(origin: string | null): Record<string, string> {

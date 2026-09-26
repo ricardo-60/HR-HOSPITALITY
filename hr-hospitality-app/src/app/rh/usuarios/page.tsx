@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useAuth, User, UserInput } from '@/context/AuthContext';
+import { useAuth, User, UserInput, UserRole } from '@/context/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion } from 'framer-motion';
 import { Users, UserPlus, Shield, Ban, Eye, Trash2, Edit3, CheckCircle, XCircle } from 'lucide-react';
@@ -31,7 +31,7 @@ export default function UsuariosManagementPage() {
     const [id, setId] = useState('');
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
-    const [role, setRole] = useState<'ADMINISTRATOR' | 'PERMISSAO' | 'ACESSO'>('ACESSO');
+    const [role, setRole] = useState<UserRole>('ACESSO');
     const [commissionRate, setCommissionRate] = useState(0.02);
     const [restrictions, setRestrictions] = useState<string[]>([]);
     const [allowedModules, setAllowedModules] = useState<string[]>(['pos']);
@@ -221,12 +221,14 @@ export default function UsuariosManagementPage() {
                                     <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">Função / Nível de Acesso</label>
                                     <select
                                         value={role}
-                                        onChange={(e) => setRole(e.target.value as any)}
+                                        onChange={(e) => setRole(e.target.value as UserRole)}
                                         className="w-full px-5 py-4 bg-black/40 border border-white/5 rounded-2xl text-sm focus:outline-none focus:border-[var(--brand-accent)] text-white/80"
                                     >
                                         <option value="ADMINISTRATOR">ADMINISTRATOR (Acesso Total)</option>
                                         <option value="PERMISSAO">PERMISSAO (Authorized User com restrições)</option>
                                         <option value="ACESSO">ACESSO (Acesso limitado a módulos específicos)</option>
+                                        <option value="POS">POS (Operador de vendas)</option>
+                                        <option value="EXECUTIVO">EXECUTIVO (Só leitura: dono/gerência)</option>
                                     </select>
                                 </div>
                                 <div className="space-y-2">

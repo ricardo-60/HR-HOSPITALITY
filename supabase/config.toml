@@ -4,3 +4,8 @@
 # code before using the service-role client.
 [functions.admin-users]
 verify_jwt = false
+
+# `create-reservation` aceita pedidos sem sessão (hóspedes não autenticados) e
+# valida a entrada em código antes de usar o service-role client.
+[functions.create-reservation]
+verify_jwt = false

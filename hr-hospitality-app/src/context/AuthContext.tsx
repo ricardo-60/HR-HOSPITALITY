@@ -4,8 +4,19 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { isSupabaseConfigured, supabaseClient } from '@/lib/supabaseClient';
 
-export type UserRole = 'ADMINISTRATOR' | 'PERMISSAO' | 'ACESSO';
+/**
+ * Perfis de staff.
+ *
+ * `POS`      opera o ponto de venda e as comandas.
+ * `EXECUTIVO` é o dono/gerência: leitura integral, e a RLS nega-lhe escrita
+ *             por construção (a migração 007 não cria policies de escrita
+ *             para este perfil). O bloqueio é do lado do servidor, não da UI.
+ */
+export type UserRole = 'ADMINISTRATOR' | 'PERMISSAO' | 'ACESSO' | 'POS' | 'EXECUTIVO';
 export type UserStatus = 'ATIVO' | 'BLOQUEADO';
+
+/** Rotas que exigem perfil de administrador, para além da RLS. */
+const ADMIN_ONLY_PATHS = ['/rh/usuarios'];
 
 export interface User {
   /** Employee code used by the UI. It is not the Supabase Auth UUID. */
@@ -309,20 +320,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  /**
+   * Módulos que cada perfil pode abrir, espelhando `hr_can_module` e
+   * `hr_can_write_module` da migração 007. Este mapa serve a interface; a
+   * autorização real continua a ser a RLS.
+   */
+  const MODULES_BY_ROLE: Record<UserRole, string[] | '*'> = {
+    ADMINISTRATOR: '*',
+    PERMISSAO: '*',
+    ACESSO: user?.allowedModules ?? [],
+    POS: ['pos', 'snack-bar', 'spa', 'alojamento'],
+    // O executivo vê tudo e não escreve em nada. As rotas de escrita são
+    // recusadas aqui e na RLS.
+    EXECUTIVO: '*',
+  };
+
+  const WRITE_ROLES: UserRole[] = ['ADMINISTRATOR', 'PERMISSAO', 'ACESSO', 'POS'];
+
   const checkAccess = (path: string): boolean => {
     if (!user) return false;
-    if (user.role === 'ADMINISTRATOR') return true;
 
     const cleanPath = path.split('?')[0].replace(/\/$/, '') || '/';
     if (cleanPath === '/') return true;
+
+    if (ADMIN_ONLY_PATHS.some(blocked => cleanPath === blocked || cleanPath.startsWith(`${blocked}/`))) {
+      return user.role === 'ADMINISTRATOR';
+    }
+
+    // A gerência é só de leitura: nenhuma rota de mutação lhe é aberta.
+    if (!WRITE_ROLES.includes(user.role)) return false;
+
     if (user.restrictions.some(restriction => {
       const blocked = restriction.replace(/\/$/, '');
       return cleanPath === blocked || cleanPath.startsWith(`${blocked}/`);
     })) return false;
 
+    const allowed = MODULES_BY_ROLE[user.role];
+    if (allowed === '*') return true;
     if (user.role === 'ACESSO') {
       const moduleName = cleanPath.split('/').filter(Boolean)[0];
-      if (!moduleName || !user.allowedModules.includes(moduleName)) return false;
+      if (!moduleName) return true;
+      return allowed.includes(moduleName);
     }
     return true;
   };

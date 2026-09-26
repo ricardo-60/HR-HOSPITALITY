@@ -29,8 +29,13 @@ export default function EmpregadosPage() {
     const [fichaId, setFichaId] = useState<string | null>(null);
 
     useEffect(() => {
-        try { setOcorrencias(JSON.parse(localStorage.getItem('rh_ocorrencias') || '[]')); } catch { /* ignore */ }
-        try { setEstados(JSON.parse(localStorage.getItem('rh_empregados_estado') || '{}')); } catch { /* ignore */ }
+        // Hidratação diferida: a marcação do servidor e a primeira pintura do
+        // cliente usam sempre o seed, evitando divergência de hidratação.
+        const t = window.setTimeout(() => {
+            try { setOcorrencias(JSON.parse(localStorage.getItem('rh_ocorrencias') || '[]')); } catch { /* ignore */ }
+            try { setEstados(JSON.parse(localStorage.getItem('rh_empregados_estado') || '{}')); } catch { /* ignore */ }
+        }, 0);
+        return () => window.clearTimeout(t);
     }, []);
 
     // Escape fecha a ficha
@@ -108,10 +113,10 @@ export default function EmpregadosPage() {
                             />
                         </div>
                         <Link
-                            href="/cadastro"
+                            href="/rh/usuarios"
                             className="flex items-center gap-2 bg-[#00F2FF] text-black px-6 py-4 rounded-full font-black text-xs uppercase tracking-widest hover:scale-105 transition-all shadow-[0_0_20px_rgba(0,242,255,0.3)]"
                         >
-                            <Plus className="w-4 h-4" /> Novo
+                            <Plus className="w-4 h-4" /> Convidar
                         </Link>
                     </div>
                 </motion.div>

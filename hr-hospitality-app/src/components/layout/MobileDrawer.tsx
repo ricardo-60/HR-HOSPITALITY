@@ -4,12 +4,20 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-    BarChart3, Home, Store, Settings, Package, ShieldCheck,
+    BarChart3, Home, Store, Package, ShieldCheck,
     Users, Building2, Heart, Lock, LogOut, UserCheck, X, BookOpen
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
-const menuItems = [
+interface MenuItem {
+    name: string;
+    icon: typeof BarChart3;
+    path: string;
+    category: string;
+    adminOnly?: boolean;
+}
+
+const menuItems: MenuItem[] = [
     { name: 'DASHBOARD', icon: BarChart3, path: '/', category: 'CORE' },
     { name: 'ALOJAMENTO', icon: Home, path: '/alojamento', category: 'HOSPITALITY' },
     { name: 'RESTAURAÇÃO', icon: Store, path: '/pos', category: 'HOSPITALITY' },
@@ -42,10 +50,9 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
 
     if (!user) return null;
 
-    const visibleMenuItems = menuItems.filter(item => {
-        if ((item as any).adminOnly && user.role !== 'ADMINISTRATOR') return false;
-        return true;
-    });
+    const visibleMenuItems = menuItems.filter(
+        item => !item.adminOnly || user.role === 'ADMINISTRATOR'
+    );
 
     const categories = ['CORE', 'HOSPITALITY', 'WELLNESS', 'OPERATIONS', 'MANAGEMENT'];
     const catLabels: Record<string, string> = {

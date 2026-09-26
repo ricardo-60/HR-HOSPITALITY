@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- script CommonJS executado por `node build_setups.js`, fora do bundle Next. */
 /**
  * HR HOSPITALITY — Script de Build de Instaladores
  * =================================================
@@ -48,6 +49,19 @@ function checkFile(filePath, label) {
     throw new Error(`Ficheiro em falta: ${label || filePath}`);
   }
   log(`OK — ${label || path.basename(filePath)}`);
+}
+
+function writePublicSupabaseConfig() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY são obrigatórios para gerar o pacote Electron.');
+  }
+  const target = path.join(ROOT, 'electron', 'public-config.json');
+  const config = {
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  };
+  fs.writeFileSync(target, JSON.stringify(config, null, 2), { encoding: 'utf8', mode: 0o600 });
+  log('Configuração pública Supabase para Electron gerada (sem service_role).', 'info');
 }
 
 // ─── Verificação de Pré-requisitos ────────────────────────────────────────────
@@ -120,6 +134,7 @@ async function main() {
 
   try {
     verifyAssets();
+    writePublicSupabaseConfig();
     buildNextJs();
 
     if (!only || only === 'server') {

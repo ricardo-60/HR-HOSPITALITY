@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion } from 'framer-motion';
-import { HeartPulse, Search, Plus, Calendar, Check, X, ArrowLeft } from 'lucide-react';
+import { HeartPulse, Search, Calendar, Check, X, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
 type Pedido = { id: string; nome: string; tipo: string; datas: string; status: string };
@@ -36,12 +36,15 @@ export default function FeriasPage() {
 
     // Hydratação a partir do localStorage (seed com o array atual se vazio)
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem('rh_ferias');
-            const parsed = raw ? JSON.parse(raw) : null;
-            if (Array.isArray(parsed) && parsed.length > 0) setPedidos(parsed);
-            else localStorage.setItem('rh_ferias', JSON.stringify(SEED_PEDIDOS));
-        } catch { /* ignore */ }
+        const t = window.setTimeout(() => {
+            try {
+                const raw = localStorage.getItem('rh_ferias');
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (Array.isArray(parsed) && parsed.length > 0) setPedidos(parsed);
+                else localStorage.setItem('rh_ferias', JSON.stringify(SEED_PEDIDOS));
+            } catch { /* ignore */ }
+        }, 0);
+        return () => window.clearTimeout(t);
     }, []);
 
     // O aviso de feedback desaparece sozinho

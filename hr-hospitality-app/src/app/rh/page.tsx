@@ -47,14 +47,17 @@ export default function ModoRHPage() {
     );
 
     useEffect(() => {
-        try {
-            const estados = JSON.parse(localStorage.getItem('rh_empregados_estado') || '{}');
-            const picagens = JSON.parse(localStorage.getItem('rh_picagens') || 'null') || SEED_PICAGENS;
-            const vencimentos = JSON.parse(localStorage.getItem('rh_salarios') || 'null') || SEED_VENCIMENTOS;
-            const turnos = JSON.parse(localStorage.getItem('rh_escalas') || 'null') || SEED_TURNOS;
-            const desligamentos = JSON.parse(localStorage.getItem('rh_saidas') || 'null') || SEED_DESLIGAMENTOS;
-            setRhStats(computarStats(estados, picagens, EMPREGADOS_BASE, vencimentos, turnos, desligamentos));
-        } catch { /* mantém os valores seed */ }
+        const t = window.setTimeout(() => {
+            try {
+                const estados = JSON.parse(localStorage.getItem('rh_empregados_estado') || '{}');
+                const picagens = JSON.parse(localStorage.getItem('rh_picagens') || 'null') || SEED_PICAGENS;
+                const vencimentos = JSON.parse(localStorage.getItem('rh_salarios') || 'null') || SEED_VENCIMENTOS;
+                const turnos = JSON.parse(localStorage.getItem('rh_escalas') || 'null') || SEED_TURNOS;
+                const desligamentos = JSON.parse(localStorage.getItem('rh_saidas') || 'null') || SEED_DESLIGAMENTOS;
+                setRhStats(computarStats(estados, picagens, EMPREGADOS_BASE, vencimentos, turnos, desligamentos));
+            } catch { /* mantém os valores seed */ }
+        }, 0);
+        return () => window.clearTimeout(t);
     }, []);
 
     const modules = [

@@ -49,7 +49,7 @@ export function BottomBar({ onMenuOpen }: BottomBarProps) {
                     <div className="w-px h-10 bg-white/5" />
 
                     {/* Nav items */}
-                    {items.map((item, idx) => {
+                    {items.map((item) => {
                         const isActive = pathname === item.path;
                         const hasAccess = checkAccess(item.path);
 

@@ -6,9 +6,16 @@ import { BillModal } from '@/components/pos/BillModal';
 import { Zap, Search, Filter } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
-import Image from 'next/image';
+import type { Table } from '@/types';
 
-const initialSnackTables = [
+interface SnackTable {
+    id: string;
+    number: number;
+    status: 'FREE' | 'OCCUPIED';
+    bill?: number;
+}
+
+const initialSnackTables: SnackTable[] = [
     { id: 'S1', number: 1, status: 'FREE' },
     { id: 'S2', number: 2, status: 'OCCUPIED', bill: 12.50 },
     { id: 'S3', number: 3, status: 'FREE' },
@@ -20,8 +27,8 @@ const initialSnackTables = [
 const snackAreas = ['Interior Deck', 'Pool Area'];
 
 export default function SnackBarPage() {
-    const [tableList, setTableList] = useState(initialSnackTables);
-    const [selectedTable, setSelectedTable] = useState<any | null>(null);
+    const [tableList, setTableList] = useState<SnackTable[]>(initialSnackTables);
+    const [selectedTable, setSelectedTable] = useState<Table | null>(null);
     const [activeArea, setActiveArea] = useState(snackAreas[0]);
 
     const handleBillClosed = (tableId: string) => {

@@ -48,7 +48,10 @@ export default function SpaPage() {
     const [hora, setHora] = useState('');
 
     useEffect(() => {
-        try { setReservas(JSON.parse(localStorage.getItem('spa_reservas') || '[]')); } catch { /* ignorar dados inválidos */ }
+        const t = window.setTimeout(() => {
+            try { setReservas(JSON.parse(localStorage.getItem('spa_reservas') || '[]')); } catch { /* ignorar dados inválidos */ }
+        }, 0);
+        return () => window.clearTimeout(t);
     }, []);
 
     const guardarReservas = (lista: SpaReserva[]) => {
@@ -203,7 +206,7 @@ export default function SpaPage() {
                     {reservas.length === 0 ? (
                         <div className="glass-panel rounded-[32px] border border-white/10 p-10 text-center">
                             <CalendarCheck className="w-8 h-8 text-white/20 mx-auto mb-4" />
-                            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.4em]">Sem reservas agendadas — clique em "Nova Reserva"</p>
+                            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.4em]">Sem reservas agendadas — clique em &quot;Nova Reserva&quot;</p>
                         </div>
                     ) : (
                         <div className="space-y-4">

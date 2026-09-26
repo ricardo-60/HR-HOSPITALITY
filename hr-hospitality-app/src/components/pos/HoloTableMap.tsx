@@ -3,9 +3,10 @@
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useState, useRef } from 'react';
+import type { Table } from '@/types';
 import { BillModal } from './BillModal';
 
-interface Table {
+interface RestaurantTable {
   id: number;
   number: number;
   status: 'FREE' | 'OCCUPIED' | 'RESERVED';
@@ -13,7 +14,7 @@ interface Table {
   total: number;
 }
 
-const initialTables: Table[] = [
+const initialTables: RestaurantTable[] = [
   { id: 1, number: 1, status: 'OCCUPIED', orders: 3, total: 45.50 },
   { id: 2, number: 2, status: 'OCCUPIED', orders: 2, total: 35.00 },
   { id: 3, number: 3, status: 'RESERVED', orders: 0, total: 0 },
@@ -30,8 +31,8 @@ export function HoloTableMap() {
   const [scrollLeft, setScrollLeft] = useState(0);
 
   // Estado das mesas e mesa selecionada
-  const [tableList, setTableList] = useState<Table[]>(initialTables);
-  const [selectedTable, setSelectedTable] = useState<any | null>(null);
+  const [tableList, setTableList] = useState<RestaurantTable[]>(initialTables);
+  const [selectedTable, setSelectedTable] = useState<Table | null>(null);
 
   const startDragging = (e: React.MouseEvent | React.TouchEvent) => {
     setIsDragging(true);

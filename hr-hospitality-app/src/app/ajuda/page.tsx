@@ -100,8 +100,8 @@ export default function AjudaPage() {
                                 <p className="text-white/60"># Como configurar a máquina Cliente:</p>
                                 <p>1. No computador Servidor, abra o terminal do Windows (cmd) e digite: <span className="text-white">ipconfig</span></p>
                                 <p>2. Localize o IP da rede (Ex: 192.168.1.150)</p>
-                                <p>3. Na máquina Cliente, abra o HR Hospitality e clique em "Configurações de Rede Local" no ecrã de login.</p>
-                                <p>4. Mude o modo para "Cliente" e insira o IP do Servidor (Ex: 192.168.1.150).</p>
+                                <p>3. Na máquina Cliente, abra o HR Hospitality e clique em &quot;Configurações de Rede Local&quot; no ecrã de login.</p>
+                                <p>4. Mude o modo para &quot;Cliente&quot; e insira o IP do Servidor (Ex: 192.168.1.150).</p>
                                 <p>5. Clique em Gravar e reinicie o aplicativo.</p>
                             </div>
                         </motion.div>

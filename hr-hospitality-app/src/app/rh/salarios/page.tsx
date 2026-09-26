@@ -52,12 +52,15 @@ export default function SalariosPage() {
 
     // Hydratação a partir do localStorage (seed com o array atual se vazio)
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem('rh_salarios');
-            const parsed = raw ? JSON.parse(raw) : null;
-            if (Array.isArray(parsed) && parsed.length > 0) setVencimentos(parsed);
-            else localStorage.setItem('rh_salarios', JSON.stringify(SEED_VENCIMENTOS));
-        } catch { /* ignore */ }
+        const t = window.setTimeout(() => {
+            try {
+                const raw = localStorage.getItem('rh_salarios');
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (Array.isArray(parsed) && parsed.length > 0) setVencimentos(parsed);
+                else localStorage.setItem('rh_salarios', JSON.stringify(SEED_VENCIMENTOS));
+            } catch { /* ignore */ }
+        }, 0);
+        return () => window.clearTimeout(t);
     }, []);
 
     // O feedback de sucesso desaparece sozinho

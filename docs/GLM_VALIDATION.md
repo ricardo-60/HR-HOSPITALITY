@@ -1,5 +1,9 @@
 # GLM — Relatório de Validação de Leitura/Escrita
 
+> **HISTÓRICO:** este relatório valida a arquitectura anterior. A Fase 1
+> substituiu a autenticação local por Supabase Auth e o SQL arbitrário por
+> um registry seguro. Consulte `docs/PHASE1_SECURITY_CUTOVER.md`.
+
 Teste autónomo de manipulação e persistência de ficheiros no projeto
 HR-HOSPITALITY, seguido de commit e push para o GitHub.
 

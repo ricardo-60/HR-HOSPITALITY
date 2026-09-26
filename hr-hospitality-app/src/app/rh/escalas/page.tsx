@@ -46,12 +46,15 @@ export default function EscalasPage() {
 
     // Hydratação a partir do localStorage (seed com o array atual se vazio)
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem('rh_escalas');
-            const parsed = raw ? JSON.parse(raw) : null;
-            if (Array.isArray(parsed) && parsed.length > 0) setTurnos(parsed);
-            else localStorage.setItem('rh_escalas', JSON.stringify(SEED_TURNOS));
-        } catch { /* ignore */ }
+        const t = window.setTimeout(() => {
+            try {
+                const raw = localStorage.getItem('rh_escalas');
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (Array.isArray(parsed) && parsed.length > 0) setTurnos(parsed);
+                else localStorage.setItem('rh_escalas', JSON.stringify(SEED_TURNOS));
+            } catch { /* ignore */ }
+        }, 0);
+        return () => window.clearTimeout(t);
     }, []);
 
     // Escape fecha o modal

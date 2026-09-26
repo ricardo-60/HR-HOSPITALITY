@@ -7,12 +7,12 @@ import { useAuth } from '@/context/AuthContext';
 import { DEFAULT_TENANT } from '@/config/tenants';
 import {
     Settings, Building2, Wifi, Users, Database, Shield,
-    CheckCircle, AlertTriangle, Server, Globe, Key,
-    Monitor, RefreshCw
+    CheckCircle, AlertTriangle, Server, Globe,
+    Monitor
 } from 'lucide-react';
 
 export default function ConfiguracoesPage() {
-    const { user, users } = useAuth();
+    const { users } = useAuth();
     const [activeTab, setActiveTab] = useState<'hotel' | 'rede' | 'sistema' | 'modulos'>('hotel');
 
     const tabs = [

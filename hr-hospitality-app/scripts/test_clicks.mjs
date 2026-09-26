@@ -11,14 +11,11 @@ const tryClick = async (route, selectorOrText, label) => {
   const btn = page.locator(selectorOrText).first();
   try {
     await btn.waitFor({ state: 'visible', timeout: 5000 });
-    const disabled = await btn.getAttribute('disabled');
-    const cls = (await btn.getAttribute('class')) || '';
     await btn.click({ timeout: 5000, force: false });
     console.log(`OK   ${route} :: ${label}`);
   } catch (e) {
     let info = '';
     try {
-      const disabled = await btn.getAttribute('disabled');
       const style = await btn.evaluate(el => {
         const cs = getComputedStyle(el);
         const r = el.getBoundingClientRect();

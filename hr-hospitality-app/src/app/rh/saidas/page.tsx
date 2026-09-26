@@ -24,12 +24,15 @@ export default function SaidasPage() {
 
     // Hydratação a partir do localStorage (seed com o array atual se vazio)
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem('rh_saidas');
-            const parsed = raw ? JSON.parse(raw) : null;
-            if (Array.isArray(parsed) && parsed.length > 0) setDesligamentos(parsed);
-            else localStorage.setItem('rh_saidas', JSON.stringify(SEED_DESLIGAMENTOS));
-        } catch { /* ignore */ }
+        const t = window.setTimeout(() => {
+            try {
+                const raw = localStorage.getItem('rh_saidas');
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (Array.isArray(parsed) && parsed.length > 0) setDesligamentos(parsed);
+                else localStorage.setItem('rh_saidas', JSON.stringify(SEED_DESLIGAMENTOS));
+            } catch { /* ignore */ }
+        }, 0);
+        return () => window.clearTimeout(t);
     }, []);
 
     // Escape fecha o modal

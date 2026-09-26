@@ -27,10 +27,9 @@ export function ParkingRadar() {
     const [now, setNow] = useState<number | null>(null);
 
     useEffect(() => {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setNow(Date.now());
+        const t = window.setTimeout(() => setNow(Date.now()), 0);
         const interval = setInterval(() => setNow(Date.now()), 60000);
-        return () => clearInterval(interval);
+        return () => { window.clearTimeout(t); clearInterval(interval); };
     }, []);
 
     const calculateDuration = (entryTime?: string) => {

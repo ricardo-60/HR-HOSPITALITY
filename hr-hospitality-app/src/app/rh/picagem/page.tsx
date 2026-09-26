@@ -26,12 +26,15 @@ export default function PicagemPage() {
 
     // Hydratação a partir do localStorage (seed com o array atual se vazio)
     useEffect(() => {
-        try {
-            const raw = localStorage.getItem('rh_picagens');
-            const parsed = raw ? JSON.parse(raw) : null;
-            if (Array.isArray(parsed) && parsed.length > 0) setPicagens(parsed);
-            else localStorage.setItem('rh_picagens', JSON.stringify(SEED_PICAGENS));
-        } catch { /* ignore */ }
+        const t = window.setTimeout(() => {
+            try {
+                const raw = localStorage.getItem('rh_picagens');
+                const parsed = raw ? JSON.parse(raw) : null;
+                if (Array.isArray(parsed) && parsed.length > 0) setPicagens(parsed);
+                else localStorage.setItem('rh_picagens', JSON.stringify(SEED_PICAGENS));
+            } catch { /* ignore */ }
+        }, 0);
+        return () => window.clearTimeout(t);
     }, []);
 
     // Escape fecha o modal

@@ -4,6 +4,7 @@ import { RefreshControl, ScrollView, Text, View } from 'react-native';
 
 import { TableTile } from '@/components/pos/tiles';
 import { Banner, Button, Card, EmptyState, Field, Header, Loading } from '@/components/ui';
+import { useSiteReservations } from '@/hooks/useSiteReservations';
 import { formatKz, formatTime } from '@/lib/format';
 import { listOpenOrders, listTables, openOrder, type Result } from '@/lib/posApi';
 import { usePOS } from '@/providers/POSProvider';
@@ -26,6 +27,12 @@ export default function HomeScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [customerName, setCustomerName] = useState('');
+
+  // Reservas acabadas de criar no site vitrine, recebidas em tempo real.
+  const { limpar: limparAvisoReserva, live: tempoReal, notice: reservaSite } = useSiteReservations(
+    profile?.tenantId ?? null,
+    session === 'ready' && canOperate,
+  );
 
   useEffect(() => {
     if (session !== 'ready') return;
@@ -99,6 +106,15 @@ export default function HomeScreen() {
     return groups;
   }, {});
 
+  const avisoReserva = reservaSite
+    ? [
+        'Nova reserva pelo site',
+        reservaSite.reference ?? 'sem referência',
+        reservaSite.roomNumber ? `quarto ${reservaSite.roomNumber}` : reservaSite.serviceType || 'serviço',
+        formatKz(reservaSite.totalAmount),
+      ].join(' · ')
+    : null;
+
   return (
     <ScrollView
       className="flex-1 bg-ocean-dark"
@@ -112,6 +128,16 @@ export default function HomeScreen() {
       />
 
       {error ? <Banner tone="error" message={error} onClose={() => setError(null)} /> : null}
+
+      {tempoReal ? (
+        <Text className="text-[11px] font-bold uppercase tracking-wider text-emerald-300/80">
+          Tempo real activo · reservas do site
+        </Text>
+      ) : null}
+
+      {avisoReserva ? (
+        <Banner tone="success" message={avisoReserva} onClose={limparAvisoReserva} />
+      ) : null}
 
       <Card className="gap-3">
         <Text className="text-xs font-black uppercase tracking-wider text-white/45">

@@ -568,8 +568,33 @@ powershell -File .\build-android.ps1
 | `next build` (`output: export`) | ✅ **exit 0** · `✓ Compiled successfully` · ~32 rotas |
 | Área de download regenerada após o build | ✅ `stage_downloads.mjs` → 3 APKs + 2 instaladores + 1 iOS + QR |
 | Servidor LAN reiniciado | ✅ `0.0.0.0:3000` (`pid` node) — `/` **200** · `/download/` **200** · 3 APKs **200** |
+| Navegação do portal (navegador real) | ✅ login → `/` (dashboard `HOTELLUKWEKU`) → `/alojamento` (mapa 101–304) com dados reais de `hotel_rooms` |
+| **Erros 404 de *prefetch* RSC no portal** | ✅ **6 → 0** (correcção abaixo) |
+| Balanço da sessão no portal | ✅ **51 pedidos** · `50×200` + `1×101` (WebSocket) · **0 erros ≥ 400** · **0 erros na consola** · 14/14 `.txt` RSC `200` · 7/7 REST `200` · **0 `PGRST205`** |
 | **Teste de verificação automático dos APKs** | ✅ **3/3 PASS** (exit 0) — `verify-apk-supabase.ps1` nos 3 APKs contra `https://rzelexvouysvkejfwrbf.supabase.co` |
 | Bundle único regenerado (`build_sql_bundle.mjs`) | ✅ exit 0 · 132 336 bytes · 5/5 verificações (compat. legado, `EXECUTE format`, 8 migrações, master, `COMMIT` final) |
+
+**Correcção em `scripts/serve_static.mjs` (dois defeitos próprios, não do Next):**
+
+1. **Nome do ficheiro.** O `next build` com `output: 'export'` grava a payload
+   RSC de uma rota em `<rota>/__next.<rota>/__PAGE__.txt` (directório +
+   ficheiro), mas o router pede o nome plano
+   `<rota>/__next.<rota>.__PAGE__.txt`. `existingFile()` só tentava `target`,
+   `target.html` e `target/index.html`, por isso **cada *prefetch* do App
+   Router dava 404** (6 por carregamento de página). Passa a tentar também
+   `<rota>/__next.<rota>/__PAGE__.txt` quando o nome termina em `.__PAGE__.txt`.
+2. **`Content-Type`.** O router só aceita uma payload RSC se o
+   `content-type` começar por `text/x-component`
+   (`fetch-server-response.js` e `segment-cache/cache.js` testam o prefixo
+   `RSC_CONTENT_TYPE_HEADER`); com `application/octet-stream` a navegação
+   deixa de ser uma transição RSC. Os `.txt` identificados como payload RSC
+   (query `_rsc` acrescentada pelo router, ou nome `__next.*`) passam a ser
+   servidos com `text/x-component; charset=utf-8`; os restantes `.txt`
+   (`robots.txt`, etc.) mantêm o `text/plain`.
+
+**Resultado medido depois da correcção:** 51 pedidos, `50×200` + `1×101`,
+**0 pedidos com erro**, **0 mensagens de erro na consola** (antes: 6),
+14/14 payloads RSC `200` e 7/7 chamadas REST `200`.
 
 ---
 

@@ -4,7 +4,7 @@
  *
  * Concatena, por ordem de aplicacao:
  *   1. cabecalho transaccional + tabela _schema_migrations
- *   2. migrations/supabase/001..009  (+ INSERT da versao aplicada)
+ *   2. migrations/supabase/001..010  (+ INSERT da versao aplicada)
  *   3. migrations/seeders/supabase_demo.sql
  *   4. perfil do utilizador master (ADMINISTRATOR)
  *   5. verificacao final + COMMIT
@@ -12,7 +12,7 @@
  * Uso:
  *   node scripts/build_sql_bundle.mjs [destino]
  *
- * Sem destino escreve em ~/Desktop/HR-SUPABASE_001-009_SEED_MASTER.sql.
+ * Sem destino escreve em ~/Desktop/HR-SUPABASE_001-010_SEED_MASTER.sql.
  * O ficheiro nao contem credenciais: apenas objectos e dados de demonstracao.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -24,7 +24,7 @@ const ROOT = resolve(HERE, '..', '..');
 
 const OUT =
   process.argv[2] ||
-  join(process.env.USERPROFILE || process.env.HOME || '.', 'Desktop', 'HR-SUPABASE_001-009_SEED_MASTER.sql');
+  join(process.env.USERPROFILE || process.env.HOME || '.', 'Desktop', 'HR-SUPABASE_001-010_SEED_MASTER.sql');
 
 const MIGRATIONS = [
   ['migrations/supabase/001_initial_schema.sql', '001'],
@@ -36,6 +36,7 @@ const MIGRATIONS = [
   ['migrations/supabase/007_commercial_core.sql', '007'],
   ['migrations/supabase/008_pos_inventory_cash.sql', '008'],
   ['migrations/supabase/009_public_site_access.sql', '009'],
+  ['migrations/supabase/010_master_global_licensing.sql', '010'],
 ];
 
 const SEEDER = 'migrations/seeders/supabase_demo.sql';
@@ -47,7 +48,7 @@ const MASTER = `
 INSERT INTO public.app_users (
     id, tenant_id, auth_user_id, email, employee_code, name, role,
     commission_rate, restrictions, allowed_modules, status,
-    must_change_password, created_at, updated_at
+    must_change_password, is_master_global, permissions, created_at, updated_at
 ) VALUES (
     '9e42e6aa-5155-4440-b368-5972fe391669',
     '11111111-1111-1111-1111-111111111111',
@@ -60,7 +61,12 @@ INSERT INTO public.app_users (
     '[]'::jsonb,
     '["*"]'::jsonb,
     'ATIVO',
-    false, NOW(), NOW()
+    false,
+    -- O Master Global tem de ser marcado AQUI: nas migrações novas, o seed
+    -- de `is_master_global` corre antes deste perfil existir.
+    true,
+    '[]'::jsonb,
+    NOW(), NOW()
 )
 ON CONFLICT (id) DO UPDATE SET
     tenant_id = EXCLUDED.tenant_id,
@@ -71,6 +77,8 @@ ON CONFLICT (id) DO UPDATE SET
     role = 'ADMINISTRATOR',
     allowed_modules = '["*"]'::jsonb,
     status = 'ATIVO',
+    is_master_global = TRUE,
+    permissions = '[]'::jsonb,
     updated_at = NOW();
 
 -- =====================================================================
@@ -94,7 +102,7 @@ function read(rel) {
 
 const banner = [
   '-- ============================================================',
-  '--   HR-HOSPITALITY — BUNDLE UNICO (migracoes 001..009 + seed + master)',
+  '--   HR-HOSPITALITY - BUNDLE UNICO (migracoes 001..010 + seed + master)',
   '--   Gerado por hr-hospitality-app/scripts/build_sql_bundle.mjs',
   '--   Idempotente: seguro para re-execucao sobre uma base vazia',
   '--   ou sobre um projecto legado (a migracao 001 tolera um tenants',
@@ -143,7 +151,7 @@ writeFileSync(OUT, sql, 'utf8');
 const checks = [
   ['tenants legado compativel', sql.includes('tenants_slug_key')],
   ['CHECK via EXECUTE', sql.includes('EXECUTE format(')],
-  ['8 migracoes', MIGRATIONS.every(([, v]) => sql.includes(`'${v}', '00${v.slice(-1)}`))],
+  ['migracoes enumeradas', MIGRATIONS.every(([, v]) => sql.includes(`'${v}', '${v}_`))],
   ['perfil master', sql.includes('9e42e6aa-5155-4440-b368-5972fe391669')],
   ['COMMIT final', /\nCOMMIT;\n$/.test(sql)],
 ];

@@ -229,6 +229,12 @@ export default function AdminDownloadsPage() {
                             • Os ficheiros são servidos por <code className="text-white/60">serve_static.mjs</code> com
                             o Content-Type <code className="text-white/60">application/vnd.android.package-archive</code>.
                         </li>
+                        <li>
+                            • Os APK não são versionados no Git — a instância publicada na Vercel não os serve. Use o
+                            portal local (<code className="text-white/60">npm run start</code>), que publica a área{' '}
+                            <code className="text-white/60">/download/</code> a partir de{' '}
+                            <code className="text-white/60">dist/android</code>.
+                        </li>
                     </ul>
                 </div>
             </div>

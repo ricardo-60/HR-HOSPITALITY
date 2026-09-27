@@ -95,9 +95,13 @@ BEGIN
             DROP CONSTRAINT hotel_reservations_service_type_check;
     END IF;
 
-    ALTER TABLE public.hotel_reservations
-        ADD CONSTRAINT hotel_reservations_service_type_check
-        CHECK (service_type = ANY (allowed));
+    -- PL/pgSQL nao substitui variaveis dentro de expressoes CHECK em DDL:
+    -- a analise do ALTER TABLE so ocorre depois da substituicao, pelo que
+    -- 'allowed' seria resolvido como coluna (42703). Construimos via EXECUTE.
+    EXECUTE format(
+        'ALTER TABLE public.hotel_reservations ADD CONSTRAINT hotel_reservations_service_type_check CHECK (service_type = ANY (%L::text[]))',
+        allowed
+    );
 END $$;
 
 DO $$
@@ -117,9 +121,11 @@ BEGIN
             DROP CONSTRAINT hotel_consumptions_category_check;
     END IF;
 
-    ALTER TABLE public.hotel_consumptions
-        ADD CONSTRAINT hotel_consumptions_category_check
-        CHECK (category = ANY (allowed));
+    -- Ver nota no bloco anterior: variavel em CHECK de DDL exige EXECUTE.
+    EXECUTE format(
+        'ALTER TABLE public.hotel_consumptions ADD CONSTRAINT hotel_consumptions_category_check CHECK (category = ANY (%L::text[]))',
+        allowed
+    );
 END $$;
 
 -- ── 3. Catálogo público: piscinas ────────────────────────────────────────

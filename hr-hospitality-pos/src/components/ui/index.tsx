@@ -1,6 +1,8 @@
 import { type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
+import { PROPERTY_LABEL, SERVICE_LABEL, type TenantIdentity as TenantIdentityData } from '@/types/pos';
+
 /**
  * Componentes base do POS.
  *
@@ -45,6 +47,32 @@ export function Header({ title, subtitle, right }: { title: string; subtitle?: s
         {subtitle ? <Text className="text-xs text-white/45 mt-0.5">{subtitle}</Text> : null}
       </View>
       {right}
+    </View>
+  );
+}
+
+/**
+ * Cabeçalho dinâmico do tenant: tipologia e serviços ativos.
+ *
+ * Sem migração 010 (ou sem dados) `propertyType` e `activeServices` vêm
+ * vazios e o componente desaparece — o nome continua no título, sem crash.
+ */
+export function TenantIdentity({ identity }: { identity: TenantIdentityData | null }) {
+  const tipology = identity?.propertyType ? PROPERTY_LABEL[identity.propertyType] : null;
+  if (!identity || (!tipology && identity.activeServices.length === 0)) return null;
+
+  return (
+    <View className="flex-row flex-wrap items-center gap-1.5 pt-3">
+      {tipology ? (
+        <View className="rounded-full border border-gold/40 bg-gold/10 px-2.5 py-1">
+          <Text className="text-[10px] font-black uppercase tracking-wider text-gold">{tipology}</Text>
+        </View>
+      ) : null}
+      {identity.activeServices.map(service => (
+        <View key={service} className="rounded-full border border-aqua/30 bg-aqua/10 px-2.5 py-1">
+          <Text className="text-[10px] font-black uppercase tracking-wider text-aqua">{SERVICE_LABEL[service]}</Text>
+        </View>
+      ))}
     </View>
   );
 }

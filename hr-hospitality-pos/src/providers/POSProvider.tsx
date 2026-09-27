@@ -10,6 +10,12 @@ import {
 
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { UserRole } from '@/providers/types';
+import {
+  SERVICE_ORDER,
+  type TenantIdentity,
+  type TenantService,
+  type PropertyType,
+} from '@/types/pos';
 
 interface StaffProfile {
   authUserId: string;
@@ -33,9 +39,55 @@ interface POSContextValue {
   /** `EXECUTIVO` e `ADMINISTRATOR` não operam o POS. */
   canOperate: boolean;
   tenantName: string | null;
+  tenantIdentity: TenantIdentity | null;
 }
 
 const PROFILE_COLUMNS = 'auth_user_id,tenant_id,name,role,status';
+const TENANT_COLUMNS = 'name,company_name,property_type,active_services';
+
+const PROPERTY_TYPES: PropertyType[] = ['HOTEL', 'HOSPEDARIA', 'RESORT', 'COMPLEXO'];
+
+function isPropertyType(value: unknown): value is PropertyType {
+  return typeof value === 'string' && (PROPERTY_TYPES as string[]).includes(value);
+}
+
+/** Filtra o JSONB `active_services` aos serviços conhecidos, na ordem fixa. */
+function parseActiveServices(value: unknown): TenantService[] {
+  if (!Array.isArray(value)) return [];
+  return SERVICE_ORDER.filter(service => value.includes(service));
+}
+
+/**
+ * Lê a identidade comercial do tenant (migração 010).
+ *
+ * Se as colunas novas ainda não existem — migração por aplicar — ou a linha não
+ * é encontrada, cai para a forma legada (`select('name')`): o cabeçalho
+ * continua a mostrar o nome do hotel e a app nunca parte por causa disto.
+ */
+async function loadTenantIdentity(client: ReturnType<typeof getSupabase>, tenantId: string) {
+  const { data, error } = await client
+    .from('tenants')
+    .select(TENANT_COLUMNS)
+    .eq('id', tenantId)
+    .maybeSingle();
+
+  if (!error && data) {
+    return {
+      name: data.name ?? null,
+      companyName: data.company_name ?? null,
+      propertyType: isPropertyType(data.property_type) ? data.property_type : null,
+      activeServices: parseActiveServices(data.active_services),
+    } satisfies TenantIdentity;
+  }
+
+  const { data: legacy } = await client.from('tenants').select('name').eq('id', tenantId).maybeSingle();
+  return {
+    name: legacy?.name ?? null,
+    companyName: null,
+    propertyType: null,
+    activeServices: [],
+  } satisfies TenantIdentity;
+}
 
 const POSContext = createContext<POSContextValue>({
   session: 'anon',
@@ -50,6 +102,7 @@ const POSContext = createContext<POSContextValue>({
   signOut: async () => {},
   canOperate: false,
   tenantName: null,
+  tenantIdentity: null,
 });
 
 /**
@@ -63,6 +116,7 @@ export function POSProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<POSContextValue['session']>('loading');
   const [profile, setProfile] = useState<StaffProfile | null>(null);
   const [tenantName, setTenantName] = useState<string | null>(null);
+  const [tenantIdentity, setTenantIdentity] = useState<TenantIdentity | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -78,12 +132,9 @@ export function POSProvider({ children }: { children: ReactNode }) {
     if (profileError) throw new Error(profileError.message);
     if (!data) return null;
 
-    const { data: tenant } = await client
-      .from('tenants')
-      .select('name')
-      .eq('id', data.tenant_id)
-      .maybeSingle();
-    setTenantName(tenant?.name ?? null);
+    const identity = await loadTenantIdentity(client, data.tenant_id);
+    setTenantIdentity(identity);
+    setTenantName(identity.name);
 
     return {
       authUserId: data.auth_user_id,
@@ -176,6 +227,7 @@ export function POSProvider({ children }: { children: ReactNode }) {
     if (isSupabaseConfigured) await getSupabase().auth.signOut();
     setProfile(null);
     setTenantName(null);
+    setTenantIdentity(null);
     setSession('anon');
   }, []);
 
@@ -184,6 +236,7 @@ export function POSProvider({ children }: { children: ReactNode }) {
       session,
       profile,
       tenantName,
+      tenantIdentity,
       email,
       password,
       setEmail,
@@ -194,7 +247,7 @@ export function POSProvider({ children }: { children: ReactNode }) {
       signOut,
       canOperate: profile !== null && ['ADMINISTRATOR', 'PERMISSAO', 'ACESSO', 'POS'].includes(profile.role),
     }),
-    [session, profile, tenantName, email, password, error, signingIn, signIn, signOut],
+    [session, profile, tenantName, tenantIdentity, email, password, error, signingIn, signIn, signOut],
   );
 
   return <POSContext.Provider value={value}>{children}</POSContext.Provider>;

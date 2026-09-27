@@ -30,3 +30,21 @@ export function isoDaysAgo(days: number): string {
   date.setDate(date.getDate() - days);
   return date.toISOString().slice(0, 10);
 }
+
+/**
+ * Os últimos `count` dias em ISO local (`YYYY-MM-DD`), do mais antigo ao dia
+ * corrente. A série do gráfico de relatórios é construída com esta lista, para
+ * que dias sem movimento apareçam no ecrã com valor zero.
+ */
+export function localIsoDays(count: number): string[] {
+  const days: string[] = [];
+  const now = new Date();
+  for (let offset = count - 1; offset >= 0; offset--) {
+    const date = new Date(now);
+    date.setDate(now.getDate() - offset);
+    days.push(
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    );
+  }
+  return days;
+}

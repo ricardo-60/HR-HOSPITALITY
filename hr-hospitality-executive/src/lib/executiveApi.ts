@@ -1,10 +1,14 @@
-import { isoDaysAgo } from '@/lib/format';
+import { isoDaysAgo, localIsoDays } from '@/lib/format';
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import type {
+  DailyFlow,
+  FlowBreakdown,
   MovementType,
   OccupancySummary,
   PaymentMethod,
   PeriodSummary,
+  ReportPeriod,
+  ReportsSummary,
   SalesBreakdown,
   StockAlert,
   StockMovementRow,
@@ -332,5 +336,112 @@ export async function loadStockMovements(limit = 30): Promise<Result<StockMoveme
     };
   } catch (error) {
     return { ok: false, data: null, error: error instanceof Error ? error.message : 'Falha ao carregar os movimentos.' };
+  }
+}
+
+/* ── 5. Relatórios ──────────────────────────────────────────────────────── */
+
+const REVENUE_SOURCE_LABEL: Record<string, string> = {
+  POS: 'POS · comandas',
+  DIARIA: 'Diárias',
+  MANUAL: 'Lançamentos manuais',
+  DESPESA: 'Despesas',
+};
+
+const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
+  FORNECEDOR: 'Fornecedores',
+  MANUTENCAO: 'Manutenção',
+  COMPRA: 'Compras',
+  SANGRIA: 'Sangrias',
+  SERVICOS: 'Serviços',
+  SALARIOS: 'Salários',
+  IMPOSTOS: 'Impostos',
+  TRANSPORTE: 'Transportes',
+  ENERGIA: 'Energia',
+  OUTRO: 'Outros',
+};
+
+interface LedgerRow {
+  direction: 'ENTRADA' | 'SAIDA';
+  source: string;
+  category: string;
+  amount: number | string;
+  transaction_date: string;
+}
+
+/**
+ * Resumo dos relatórios: receitas, despesas, lucro e ocupação num período.
+ *
+ * Antes de ler o razão chama `hr_sync_financial_entries` — a função
+ * idempotente da migração 010 que reconstrui o razão a partir das comandas,
+ * reservas e despesas — para que os números venham completos. A falha da
+ * sincronização não impede a leitura: o razão pode já estar em dia.
+ */
+export async function loadReportsSummary(
+  period: ReportPeriod,
+  tenantId: string | null,
+): Promise<Result<ReportsSummary>> {
+  if (!isSupabaseConfigured) return notConfigured();
+  try {
+    const client = getSupabase();
+
+    if (tenantId) {
+      await client.rpc('hr_sync_financial_entries', { p_tenant_id: tenantId });
+    }
+
+    const [ledger, occupancy] = await Promise.all([
+      client
+        .from('financial_transactions')
+        .select('direction,source,category,amount,transaction_date')
+        .gte('transaction_date', isoDaysAgo(period - 1))
+        .limit(5000),
+      loadOccupancy(),
+    ]);
+    if (ledger.error) return { ok: false, data: null, error: ledger.error.message };
+
+    const rows = (ledger.data ?? []) as LedgerRow[];
+
+    const days = localIsoDays(period);
+    const series = new Map<string, DailyFlow>(days.map(day => [day, { date: day, receita: 0, despesa: 0 }]));
+
+    let receitas = 0;
+    let despesas = 0;
+    const bySource = new Map<string, number>();
+    const byCategory = new Map<string, number>();
+
+    for (const row of rows) {
+      const amount = num(row.amount);
+      const bucket = series.get(row.transaction_date);
+      if (row.direction === 'ENTRADA') {
+        receitas += amount;
+        if (bucket) bucket.receita += amount;
+        bySource.set(row.source, (bySource.get(row.source) ?? 0) + amount);
+      } else {
+        despesas += amount;
+        if (bucket) bucket.despesa += amount;
+        byCategory.set(row.category, (byCategory.get(row.category) ?? 0) + amount);
+      }
+    }
+
+    const toBreakdown = (totals: Map<string, number>, labels: Record<string, string>): FlowBreakdown[] =>
+      [...totals.entries()]
+        .map(([key, total]) => ({ key, label: labels[key] ?? key, total }))
+        .sort((a, b) => b.total - a.total);
+
+    return {
+      ok: true,
+      data: {
+        days: period,
+        receitas,
+        despesas,
+        lucro: receitas - despesas,
+        occupancyRate: occupancy.ok ? occupancy.data.rate : 0,
+        series: days.map(day => series.get(day)!),
+        receitasPorOrigem: toBreakdown(bySource, REVENUE_SOURCE_LABEL),
+        despesasPorCategoria: toBreakdown(byCategory, EXPENSE_CATEGORY_LABEL),
+      },
+    };
+  } catch (error) {
+    return { ok: false, data: null, error: error instanceof Error ? error.message : 'Falha ao carregar os relatórios.' };
   }
 }

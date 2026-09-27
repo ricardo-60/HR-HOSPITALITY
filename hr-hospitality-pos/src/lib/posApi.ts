@@ -1,6 +1,7 @@
 import { currentActorId, getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import type {
   CashSession,
+  DailyExpense,
   MovementType,
   OrderStatus,
   PaymentMethod,
@@ -455,6 +456,56 @@ export async function recordMovement(input: {
     // Sem stock suficiente, o trigger recusa. O operador vê a mensagem real.
     if (error) return fail(error, 'Movimento de stock recusado.');
     return { ok: true, data: null };
+  } catch (error) {
+    return { ok: false, data: null, error: error instanceof Error ? error.message : 'Supabase não configurado.' };
+  }
+}
+
+/* ── Despesas do dia (leitura) ──────────────────────────────────────────── */
+
+/**
+ * Despesas registadas hoje, para o operador ver no início do turno.
+ *
+ * Só leitura: o POS não lança despesas (a migração 010 reserva a escrita a
+ * quem tem o módulo financeiro). A RLS limita as linhas ao tenant do
+ * operador.
+ */
+export async function listTodayExpenses(): Promise<Result<DailyExpense[]>> {
+  if (!isSupabaseConfigured) return notConfigured();
+  try {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const { data, error } = await getSupabase()
+      .from('daily_expenses')
+      .select('id,category,description,amount,expense_date,payment_method,supplier')
+      .eq('expense_date', today)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) return fail(error, 'Falha ao carregar as despesas de hoje.');
+
+    const rows = (data ?? []) as {
+      id: string;
+      category: string;
+      description: string;
+      amount: number | string;
+      expense_date: string;
+      payment_method: string | null;
+      supplier: string | null;
+    }[];
+
+    return {
+      ok: true,
+      data: rows.map(row => ({
+        id: row.id,
+        category: row.category,
+        description: row.description,
+        amount: num(row.amount),
+        expense_date: row.expense_date,
+        payment_method: row.payment_method,
+        supplier: row.supplier,
+      })),
+    };
   } catch (error) {
     return { ok: false, data: null, error: error instanceof Error ? error.message : 'Supabase não configurado.' };
   }

@@ -3,12 +3,12 @@ import { useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, Text, View } from 'react-native';
 
 import { TableTile } from '@/components/pos/tiles';
-import { Banner, Button, Card, EmptyState, Field, Header, Loading } from '@/components/ui';
+import { Banner, Button, Card, EmptyState, Field, Header, Loading, TenantIdentity } from '@/components/ui';
 import { useSiteReservations } from '@/hooks/useSiteReservations';
 import { formatKz, formatTime } from '@/lib/format';
-import { listOpenOrders, listTables, openOrder, type Result } from '@/lib/posApi';
+import { listOpenOrders, listTables, listTodayExpenses, openOrder, type Result } from '@/lib/posApi';
 import { usePOS } from '@/providers/POSProvider';
-import type { PosOrder, PosTable } from '@/types/pos';
+import { EXPENSE_CATEGORY_LABEL, type DailyExpense, type PosOrder, type PosTable } from '@/types/pos';
 
 /**
  * Ecrã principal do POS: mapa de mesas e comandas abertas.
@@ -19,10 +19,11 @@ import type { PosOrder, PosTable } from '@/types/pos';
  */
 export default function HomeScreen() {
   const router = useRouter();
-  const { session, profile, canOperate, signOut } = usePOS();
+  const { session, profile, canOperate, signOut, tenantIdentity } = usePOS();
 
   const [tables, setTables] = useState<PosTable[]>([]);
   const [orders, setOrders] = useState<PosOrder[]>([]);
+  const [expenses, setExpenses] = useState<DailyExpense[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,11 +42,16 @@ export default function HomeScreen() {
     // servidor e no cliente, e evita `setState` síncrono dentro do efeito.
     const timer = setTimeout(() => {
       void (async () => {
-        const [tableResult, orderResult] = await Promise.all([listTables(), listOpenOrders()]);
+        const [tableResult, orderResult, expenseResult] = await Promise.all([
+          listTables(),
+          listOpenOrders(),
+          listTodayExpenses(),
+        ]);
         if (cancelled) return;
         if (!tableResult.ok) setError(tableResult.error);
         else setTables(tableResult.data);
         if (orderResult.ok) setOrders(orderResult.data);
+        if (expenseResult.ok) setExpenses(expenseResult.data);
         setLoading(false);
       })();
     }, 0);
@@ -57,10 +63,15 @@ export default function HomeScreen() {
 
   const refresh = async () => {
     setLoading(true);
-    const [tableResult, orderResult] = await Promise.all([listTables(), listOpenOrders()]);
+    const [tableResult, orderResult, expenseResult] = await Promise.all([
+      listTables(),
+      listOpenOrders(),
+      listTodayExpenses(),
+    ]);
     if (!tableResult.ok) setError(tableResult.error);
     else setTables(tableResult.data);
     if (orderResult.ok) setOrders(orderResult.data);
+    if (expenseResult.ok) setExpenses(expenseResult.data);
     setLoading(false);
   };
 
@@ -122,10 +133,11 @@ export default function HomeScreen() {
       refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} tintColor="#FBBF24" />}
     >
       <Header
-        title="Ponto de venda"
-        subtitle={`${profile.name} · operador`}
+        title={tenantIdentity?.companyName ?? tenantIdentity?.name ?? 'Hotel'}
+        subtitle={`Ponto de venda · ${profile.name}`}
         right={<Button label="Sair" variant="secondary" compact onPress={() => void signOut()} />}
       />
+      <TenantIdentity identity={tenantIdentity} />
 
       {error ? <Banner tone="error" message={error} onClose={() => setError(null)} /> : null}
 
@@ -201,6 +213,41 @@ export default function HomeScreen() {
               />
             ))}
           </View>
+        )}
+      </View>
+
+      {/* Despesas do dia: leitura apenas — o POS nunca lança despesas. */}
+      <View className="gap-3">
+        <Text className="text-xs font-black uppercase tracking-wider text-white/45">
+          Despesas de hoje · {expenses.length}
+        </Text>
+        {expenses.length === 0 ? (
+          <Card>
+            <Text className="text-sm text-emerald-300">Sem despesas registadas hoje.</Text>
+          </Card>
+        ) : (
+          <Card className="divide-y divide-white/5">
+            {expenses.slice(0, 5).map(expense => (
+              <View key={expense.id} className="flex-row items-center justify-between gap-3 py-2.5">
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-white/80" numberOfLines={1}>
+                    {expense.description}
+                  </Text>
+                  <Text className="text-[10px] font-black uppercase text-white/35">
+                    {EXPENSE_CATEGORY_LABEL[expense.category] ?? expense.category}
+                    {expense.supplier ? ` · ${expense.supplier}` : ''}
+                  </Text>
+                </View>
+                <Text className="text-sm font-black text-outflow">−{formatKz(expense.amount)}</Text>
+              </View>
+            ))}
+            <View className="flex-row items-center justify-between pt-3">
+              <Text className="text-sm font-black text-white">Total de hoje</Text>
+              <Text className="text-base font-black text-outflow">
+                −{formatKz(expenses.reduce((sum, expense) => sum + expense.amount, 0))}
+              </Text>
+            </View>
+          </Card>
         )}
       </View>
     </ScrollView>

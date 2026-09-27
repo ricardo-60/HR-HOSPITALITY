@@ -32,6 +32,7 @@ export default function RootLayout() {
         >
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="economato" options={{ title: 'Economato e stock' }} />
+          <Stack.Screen name="relatorios" options={{ title: 'Relatórios' }} />
           <Stack.Screen name="vendas" options={{ title: 'Bar e snack-bar' }} />
         </Stack>
       </ExecutiveProvider>

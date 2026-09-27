@@ -6,6 +6,36 @@ export type OrderStatus = 'ABERTA' | 'FECHADA' | 'PAGA' | 'CANCELADA';
 export type PaymentMethod = 'MULTICAIXA_EXPRESS' | 'TRANSFERENCIA' | 'TPA' | 'DINHEIRO' | 'CONTA_DO_QUARTO';
 export type MovementType = 'ENTRADA' | 'SAIDA' | 'QUEBRA' | 'INVENTARIO' | 'AJUSTE';
 
+/** Tipologia da propriedade, migrada em 010 para `tenants.property_type`. */
+export type PropertyType = 'HOTEL' | 'HOSPEDARIA' | 'RESORT' | 'COMPLEXO';
+
+/** Serviços ativos da propriedade, migrados em 010 para `tenants.active_services`. */
+export type TenantService = 'ROOMS' | 'BAR' | 'RESTAURANT' | 'POOL' | 'GYM' | 'LAUNDRY' | 'EVENTS';
+
+/**
+ * Identidade comercial do tenant para o cabeçalho dinâmico.
+ *
+ * `propertyType` e `activeServices` são `null`/vazios quando a migração 010
+ * ainda não foi aplicada: o cabeçalho degrada para o nome, sem partir.
+ */
+export interface TenantIdentity {
+  name: string | null;
+  companyName: string | null;
+  propertyType: PropertyType | null;
+  activeServices: TenantService[];
+}
+
+/** Linha de `daily_expenses` para a vista de despesas do dia. */
+export interface DailyExpense {
+  id: string;
+  category: string;
+  description: string;
+  amount: number;
+  expense_date: string;
+  payment_method: string | null;
+  supplier: string | null;
+}
+
 export interface PosTable {
   id: string;
   code: string;
@@ -112,6 +142,40 @@ export const MOVEMENT_LABEL: Record<MovementType, string> = {
   QUEBRA: 'Quebra',
   INVENTARIO: 'Inventário',
   AJUSTE: 'Ajuste',
+};
+
+export const PROPERTY_LABEL: Record<PropertyType, string> = {
+  HOTEL: 'Hotel',
+  HOSPEDARIA: 'Hospedaria',
+  RESORT: 'Resort',
+  COMPLEXO: 'Complexo',
+};
+
+export const SERVICE_LABEL: Record<TenantService, string> = {
+  ROOMS: 'Quartos',
+  BAR: 'Bar',
+  RESTAURANT: 'Restaurante',
+  POOL: 'Piscina',
+  GYM: 'Ginásio',
+  LAUNDRY: 'Lavandaria',
+  EVENTS: 'Eventos',
+};
+
+/** Ordem fixa dos chips de serviços no cabeçalho. */
+export const SERVICE_ORDER: TenantService[] = ['ROOMS', 'BAR', 'RESTAURANT', 'POOL', 'GYM', 'LAUNDRY', 'EVENTS'];
+
+/** Rótulos das categorias de `daily_expenses` (migração 010). */
+export const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
+  FORNECEDOR: 'Fornecedores',
+  MANUTENCAO: 'Manutenção',
+  COMPRA: 'Compras',
+  SANGRIA: 'Sangrias',
+  SERVICOS: 'Serviços',
+  SALARIOS: 'Salários',
+  IMPOSTOS: 'Impostos',
+  TRANSPORTE: 'Transportes',
+  ENERGIA: 'Energia',
+  OUTRO: 'Outros',
 };
 
 /** Meios válidos para liquidar uma comanda, por contexto. */

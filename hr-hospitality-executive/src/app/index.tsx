@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 
-import { Bar, Banner, Button, Card, EmptyState, Field, Header, Loading, Metric, Refresh, Screen } from '@/components/ui';
+import { Bar, Banner, Button, Card, EmptyState, Field, Header, Loading, Metric, Refresh, Screen, TenantIdentity } from '@/components/ui';
 import { formatKz, formatKzCompact, formatPercent } from '@/lib/format';
 import {
   loadOccupancy,
@@ -22,7 +22,7 @@ import { METHOD_LABEL, type OccupancySummary, type PeriodSummary, type StockAler
  */
 export default function DashboardScreen() {
   const router = useRouter();
-  const { session, profile, tenantName, signOut } = useExecutive();
+  const { session, profile, tenantIdentity, signOut } = useExecutive();
 
   const [revenue, setRevenue] = useState<PeriodSummary | null>(null);
   const [occupancy, setOccupancy] = useState<OccupancySummary | null>(null);
@@ -91,10 +91,11 @@ export default function DashboardScreen() {
   return (
     <Screen refreshControl={<Refresh refreshing={loading} onRefresh={() => void load()} />}>
       <Header
-        title={tenantName ?? 'Hotel'}
+        title={tenantIdentity?.companyName ?? tenantIdentity?.name ?? 'Hotel'}
         subtitle={`${profile.name} · gestão`}
         right={<Button label="Sair" onPress={() => void signOut()} />}
       />
+      <TenantIdentity identity={tenantIdentity} />
 
       {error ? <Banner tone="info" message={error} /> : null}
 
@@ -230,6 +231,12 @@ export default function DashboardScreen() {
               </View>
             )}
             <Button label="Ver stock e histórico" onPress={() => router.push('/economato')} />
+          </View>
+
+          {/* 5. Relatórios */}
+          <View className="gap-3">
+            <Text className="text-xs font-black uppercase tracking-wider text-white/45">Relatórios</Text>
+            <Button label="Ver relatórios" onPress={() => router.push('/relatorios')} />
           </View>
         </>
       )}

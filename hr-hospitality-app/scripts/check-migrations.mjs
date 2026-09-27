@@ -22,7 +22,7 @@ const ROOT = join(__dirname, '..', '..');
 
 const EXPECTED = {
     sqlite: ['001_initial_schema.sql', '002_auth_pbkdf2_security.sql', '003_sync_queue_setup.sql', '004_hr_employees.sql', '005_secure_local_identity.sql', '006_canonical_legacy_ids.sql', '007_profile_roles.sql'],
-    supabase: ['001_initial_schema.sql', '002_auth_pbkdf2_security.sql', '003_sync_queue_setup.sql', '004_hr_employees.sql', '005_secure_auth_and_rls.sql', '006_mobile_public_catalog.sql', '007_commercial_core.sql', '008_pos_inventory_cash.sql'],
+    supabase: ['001_initial_schema.sql', '002_auth_pbkdf2_security.sql', '003_sync_queue_setup.sql', '004_hr_employees.sql', '005_secure_auth_and_rls.sql', '006_mobile_public_catalog.sql', '007_commercial_core.sql', '008_pos_inventory_cash.sql', '009_public_site_access.sql'],
 };
 
 const SEEDERS = ['sqlite_demo.sql', 'supabase_demo.sql'];

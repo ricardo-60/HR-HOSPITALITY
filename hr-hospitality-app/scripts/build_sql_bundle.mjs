@@ -4,7 +4,7 @@
  *
  * Concatena, por ordem de aplicacao:
  *   1. cabecalho transaccional + tabela _schema_migrations
- *   2. migrations/supabase/001..008  (+ INSERT da versao aplicada)
+ *   2. migrations/supabase/001..009  (+ INSERT da versao aplicada)
  *   3. migrations/seeders/supabase_demo.sql
  *   4. perfil do utilizador master (ADMINISTRATOR)
  *   5. verificacao final + COMMIT
@@ -12,7 +12,7 @@
  * Uso:
  *   node scripts/build_sql_bundle.mjs [destino]
  *
- * Sem destino escreve em ~/Desktop/HR-SUPABASE_001-008_SEED_MASTER.sql.
+ * Sem destino escreve em ~/Desktop/HR-SUPABASE_001-009_SEED_MASTER.sql.
  * O ficheiro nao contem credenciais: apenas objectos e dados de demonstracao.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -24,7 +24,7 @@ const ROOT = resolve(HERE, '..', '..');
 
 const OUT =
   process.argv[2] ||
-  join(process.env.USERPROFILE || process.env.HOME || '.', 'Desktop', 'HR-SUPABASE_001-008_SEED_MASTER.sql');
+  join(process.env.USERPROFILE || process.env.HOME || '.', 'Desktop', 'HR-SUPABASE_001-009_SEED_MASTER.sql');
 
 const MIGRATIONS = [
   ['migrations/supabase/001_initial_schema.sql', '001'],
@@ -35,6 +35,7 @@ const MIGRATIONS = [
   ['migrations/supabase/006_mobile_public_catalog.sql', '006'],
   ['migrations/supabase/007_commercial_core.sql', '007'],
   ['migrations/supabase/008_pos_inventory_cash.sql', '008'],
+  ['migrations/supabase/009_public_site_access.sql', '009'],
 ];
 
 const SEEDER = 'migrations/seeders/supabase_demo.sql';
@@ -93,7 +94,7 @@ function read(rel) {
 
 const banner = [
   '-- ============================================================',
-  '--   HR-HOSPITALITY — BUNDLE UNICO (migracoes 001..008 + seed + master)',
+  '--   HR-HOSPITALITY — BUNDLE UNICO (migracoes 001..009 + seed + master)',
   '--   Gerado por hr-hospitality-app/scripts/build_sql_bundle.mjs',
   '--   Idempotente: seguro para re-execucao sobre uma base vazia',
   '--   ou sobre um projecto legado (a migracao 001 tolera um tenants',

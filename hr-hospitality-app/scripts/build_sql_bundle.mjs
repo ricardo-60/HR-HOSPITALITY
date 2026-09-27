@@ -149,7 +149,7 @@ const checks = [
 
 let ok = true;
 console.log(`Bundle: ${OUT}`);
-console.log(`  tamanho: ${sql.length} bytes`);
+console.log(`  tamanho: ${Buffer.byteLength(sql, 'utf8')} bytes (${sql.length} caracteres)`);
 for (const [name, pass] of checks) {
   console.log(`  [${pass ? 'OK  ' : 'FAIL'}] ${name}`);
   if (!pass) ok = false;

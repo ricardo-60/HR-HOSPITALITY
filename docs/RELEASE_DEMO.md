@@ -572,7 +572,7 @@ powershell -File .\build-android.ps1
 | **Erros 404 de *prefetch* RSC no portal** | ✅ **6 → 0** (correcção abaixo) |
 | Balanço da sessão no portal | ✅ **51 pedidos** · `50×200` + `1×101` (WebSocket) · **0 erros ≥ 400** · **0 erros na consola** · 14/14 `.txt` RSC `200` · 7/7 REST `200` · **0 `PGRST205`** |
 | **Teste de verificação automático dos APKs** | ✅ **3/3 PASS** (exit 0) — `verify-apk-supabase.ps1` nos 3 APKs contra `https://rzelexvouysvkejfwrbf.supabase.co` |
-| Bundle único regenerado (`build_sql_bundle.mjs`) | ✅ exit 0 · 132 336 bytes · 5/5 verificações (compat. legado, `EXECUTE format`, 8 migrações, master, `COMMIT` final) |
+| Bundle único regenerado (`build_sql_bundle.mjs`) | ✅ exit 0 · 137 327 bytes (132 336 caracteres) · 5/5 verificações (compat. legado, `EXECUTE format`, 8 migrações, master, `COMMIT` final) |
 
 **Correcção em `scripts/serve_static.mjs` (dois defeitos próprios, não do Next):**
 

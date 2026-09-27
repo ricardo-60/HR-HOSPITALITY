@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useAuth, User, UserInput, UserRole } from '@/context/AuthContext';
+import { useAuth, User, UserInput, UserRole, PERMISSION_MODULES } from '@/context/AuthContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion } from 'framer-motion';
 import { Users, UserPlus, Shield, Ban, Eye, Trash2, Edit3, CheckCircle, XCircle } from 'lucide-react';
@@ -35,6 +35,7 @@ export default function UsuariosManagementPage() {
     const [commissionRate, setCommissionRate] = useState(0.02);
     const [restrictions, setRestrictions] = useState<string[]>([]);
     const [allowedModules, setAllowedModules] = useState<string[]>(['pos']);
+    const [permissions, setPermissions] = useState<string[]>([]);
     const [status, setStatus] = useState<'ATIVO' | 'BLOQUEADO'>('ATIVO');
 
     // Only administrators can edit permissions
@@ -62,6 +63,7 @@ export default function UsuariosManagementPage() {
         setCommissionRate(0.02);
         setRestrictions([]);
         setAllowedModules(['pos']);
+        setPermissions([]);
         setStatus('ATIVO');
         setEditingUser(null);
         setIsCreating(false);
@@ -78,6 +80,7 @@ export default function UsuariosManagementPage() {
             commissionRate,
             restrictions,
             allowedModules: role === 'ACESSO' ? allowedModules : ['*'],
+            permissions,
             status
         };
         try {
@@ -101,6 +104,7 @@ export default function UsuariosManagementPage() {
             commissionRate,
             restrictions,
             allowedModules: role === 'ACESSO' ? allowedModules : ['*'],
+            permissions,
             status
         };
         try {
@@ -122,6 +126,7 @@ export default function UsuariosManagementPage() {
         setCommissionRate(user.commissionRate);
         setRestrictions(user.restrictions || []);
         setAllowedModules(user.allowedModules || []);
+        setPermissions(user.permissions || []);
         setStatus(user.status);
     };
 
@@ -135,6 +140,12 @@ export default function UsuariosManagementPage() {
     const toggleAllowedModule = (moduleKey: string) => {
         setAllowedModules(prev =>
             prev.includes(moduleKey) ? prev.filter(m => m !== moduleKey) : [...prev, moduleKey]
+        );
+    };
+
+    const togglePermission = (key: string) => {
+        setPermissions(prev =>
+            prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]
         );
     };
 
@@ -311,6 +322,36 @@ export default function UsuariosManagementPage() {
                                 </div>
                             )}
 
+                            {/* RBAC granular multi-funções: o mesmo colaborador pode
+                                acumular Caixa + Bar + Lançador de Despesas. */}
+                            <div className="p-6 bg-white/5 rounded-3xl border border-white/10 space-y-4">
+                                <h4 className="text-xs font-black uppercase tracking-widest text-[var(--brand-accent)]">Permissões por Múltiplas Funções (RBAC)</h4>
+                                <p className="text-[10px] text-white/40 uppercase tracking-wider">
+                                    Marque as funções que este colaborador acumula. Deixe tudo por marcar para acesso sem âmbito granular.
+                                </p>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                    {PERMISSION_MODULES.map((m) => {
+                                        const granted = permissions.includes(m.key);
+                                        return (
+                                            <button
+                                                key={m.key}
+                                                type="button"
+                                                title={m.description}
+                                                onClick={() => togglePermission(m.key)}
+                                                className={`p-3 rounded-xl border text-[10px] font-black uppercase tracking-wider text-left transition-all flex items-center justify-between ${
+                                                    granted
+                                                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                                                        : 'border-white/5 bg-black/20 text-white/60 hover:border-white/20'
+                                                }`}
+                                            >
+                                                {m.name}
+                                                {granted ? <CheckCircle className="w-4 h-4 text-emerald-500" /> : <XCircle className="w-4 h-4 text-white/20" />}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
                             {formError && (
                                 <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
                                     {formError}
@@ -377,9 +418,28 @@ export default function UsuariosManagementPage() {
                                             </span>
                                         </td>
                                         <td className="p-6 text-xs text-white/40 max-w-xs truncate" data-label="Regras">
-                                            {u.role === 'ADMINISTRATOR' && 'Controlo Total (Sem Restrições)'}
-                                            {u.role === 'PERMISSAO' && (u.restrictions.length > 0 ? `Proibido: ${u.restrictions.join(', ')}` : 'Permissão Completa')}
-                                            {u.role === 'ACESSO' && `Permitido apenas: ${u.allowedModules.join(', ')}`}
+                                            {u.isMasterGlobal && (
+                                                <span className="block text-amber-400 font-black">MASTER GLOBAL · Acesso Vitalício</span>
+                                            )}
+                                            {u.role === 'PERMISSAO' && (
+                                                <span>{u.restrictions.length > 0 ? `Proibido: ${u.restrictions.join(', ')}` : 'Permissão Completa'}</span>
+                                            )}
+                                            {u.role === 'ACESSO' && (
+                                                <span>Permitido apenas: {u.allowedModules.join(', ')}</span>
+                                            )}
+                                            {u.role === 'ADMINISTRATOR' && !u.isMasterGlobal && u.permissions.length === 0 && (
+                                                <span>Controlo Total (Sem Restrições)</span>
+                                            )}
+                                            {!['ADMINISTRATOR', 'PERMISSAO', 'ACESSO'].includes(u.role) && u.permissions.length === 0 && (
+                                                <span>Sem funções atribuídas</span>
+                                            )}
+                                            {u.permissions.length > 0 && (
+                                                <span className={u.isMasterGlobal ? 'block text-white/50' : 'block'}>
+                                                    Funções: {u.permissions.map((key) => (
+                                                        PERMISSION_MODULES.find((m) => m.key === key)?.name || key
+                                                    )).join(', ')}
+                                                </span>
+                                            )}
                                         </td>
                                         <td className="p-6 text-right space-x-3 whitespace-nowrap" data-label="Ações">
                                             <button

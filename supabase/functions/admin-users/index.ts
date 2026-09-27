@@ -28,6 +28,13 @@ const allowedModules = new Set([
   'logistica', 'parque', 'pos', 'rh', 'snack-bar', 'spa', 'transfer',
   'ajuda', 'configuracoes', 'comprovativos', 'kyc'
 ]);
+
+// Permissões granulares multi-funções (migração 0010). Um colaborador pode
+// acumular várias: Caixa + Bar + Lançador de Despesas, por exemplo.
+const permissionModules = new Set([
+  'pos_cashier', 'bar_snack', 'reception', 'financial',
+  'housekeeping', 'reports', 'company_admin'
+]);
 const restrictions = new Set([
   '/alojamento', '/economato', '/eventos', '/facilities', '/financeiro',
   '/lavandaria', '/logistica', '/parque', '/pos', '/rh', '/snack-bar',
@@ -73,6 +80,12 @@ function stringList(value: unknown, allowed: Set<string>, withSlash = false): st
   return result;
 }
 
+/** Permissões granulares. `[]` = sem âmbito granular (comportamento legado). */
+function permissionList(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  return stringList(value, permissionModules);
+}
+
 function safeProfile(row: Record<string, unknown>) {
   return {
     id: row.id,
@@ -85,6 +98,7 @@ function safeProfile(row: Record<string, unknown>) {
     commissionRate: Number(row.commission_rate || 0),
     restrictions: row.restrictions || [],
     allowedModules: row.allowed_modules || [],
+    permissions: row.permissions || [],
     status: row.status,
     mustChangePassword: Boolean(row.must_change_password)
   };
@@ -113,7 +127,8 @@ function validateProfileInput(input: Record<string, unknown>) {
     status,
     commissionRate,
     restrictions: blocked,
-    allowedModules: modules
+    allowedModules: modules,
+    permissions: permissionList(input.permissions)
   };
 }
 
@@ -176,6 +191,7 @@ async function inviteUser(input: Record<string, unknown>, tenantId: string) {
       commission_rate: profile.commissionRate,
       restrictions: profile.restrictions,
       allowed_modules: profile.allowedModules,
+      permissions: profile.permissions,
       must_change_password: true
     })
     .select('*')
@@ -220,6 +236,7 @@ async function updateUser(caller: Record<string, unknown>, input: Record<string,
       commission_rate: profile.commissionRate,
       restrictions: profile.restrictions,
       allowed_modules: profile.allowedModules,
+      permissions: profile.permissions,
       must_change_password: profile.status === 'ATIVO' ? target.must_change_password : true
     })
     .eq('id', target.id)

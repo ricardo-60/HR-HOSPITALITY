@@ -62,8 +62,8 @@ INSERT INTO public.app_users (
     '["*"]'::jsonb,
     'ATIVO',
     false,
-    -- O Master Global tem de ser marcado AQUI: nas migrações novas, o seed
-    -- de `is_master_global` corre antes deste perfil existir.
+    -- O Master Global tem de ser marcado AQUI: nas migracoes novas, o seed
+    -- de is_master_global corre antes deste perfil existir.
     true,
     '[]'::jsonb,
     NOW(), NOW()

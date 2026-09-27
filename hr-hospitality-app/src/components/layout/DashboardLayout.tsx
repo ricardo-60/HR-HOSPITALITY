@@ -9,13 +9,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { DEFAULT_TENANT } from '@/config/tenants';
-import { Ban, Menu } from 'lucide-react';
+import { Ban, Clock, Menu, KeyRound } from 'lucide-react';
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
     const [viewport, setViewport] = useState<'MOBILE' | 'TABLET' | 'DESKTOP'>('DESKTOP');
     const [mounted, setMounted] = useState(false);
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const { user, checkAccess } = useAuth();
+    const { user, checkAccess, license, logout } = useAuth();
     const pathname = usePathname();
     const router = useRouter();
 
@@ -71,6 +71,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     // Redirect or block if user is logged in but doesn't have access to this route
     const hasAccess = checkAccess(pathname);
 
+    /**
+     * Bloqueio de licença (migração 010). O Master Global nunca é bloqueado:
+     * é ele quem tem de conseguir entrar para renovar. `license === null`
+     * significa "a indagar" ou "010 ainda não aplicada" — nesses casos não se
+     * bloqueia ninguém, para que um deploy na ordem errada não trance o painel.
+     */
+    const licenseBlocked = license?.is_expired === true && user?.isMasterGlobal !== true;
+
     return (
         <div className="min-h-screen bg-[#111827] text-white overflow-hidden relative font-sans">
             {/* Background Ambience */}
@@ -115,7 +123,43 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             }`}>
                 <div className="p-4 md:p-10 lg:p-16 max-w-[1920px] mx-auto min-h-full flex flex-col">
                     <div className="flex-1">
-                        {hasAccess ? (
+                        {licenseBlocked ? (
+                            /* Licença caducada: o operador local fica de fora até o Master Global renovar */
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="flex flex-col items-center justify-center min-h-[60vh] text-center p-6 md:p-8 glass-panel rounded-[32px] md:rounded-[50px] border border-amber-500/20 shadow-2xl relative overflow-hidden"
+                            >
+                                <div className="absolute inset-0 bg-amber-500/5 pointer-events-none" />
+                                <div className="p-5 md:p-6 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-full mb-5">
+                                    <Clock className="w-10 h-10 md:w-12 md:h-12" />
+                                </div>
+                                <h2 className="text-3xl md:text-4xl font-black text-white uppercase tracking-tighter mb-3">Licença Expirada</h2>
+                                <p className="text-white/40 max-w-lg uppercase tracking-widest text-[10px] font-black leading-relaxed px-4">
+                                    A licença desta instância caducou em {license?.expires_at
+                                        ? new Date(license.expires_at).toLocaleDateString('pt-PT')
+                                        : '—'}. Contacte o Utilizador Master Global para a renovação.
+                                </p>
+                                <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-[10px] font-black uppercase tracking-widest">
+                                    <span className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/50">
+                                        Tipo: {license?.license_type || '—'}
+                                    </span>
+                                    <span className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-amber-400">
+                                        Estado: {license?.effective_status || 'EXPIRED'}
+                                    </span>
+                                </div>
+                                <p className="mt-6 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/30">
+                                    <KeyRound className="w-3.5 h-3.5" />
+                                    {license?.license_key ? `Chave: ${license.license_key}` : 'Sem chave activa'}
+                                </p>
+                                <button
+                                    onClick={() => { void logout(); router.push('/login'); }}
+                                    className="mt-8 px-6 md:px-8 py-3 md:py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                                >
+                                    Terminar Sessão
+                                </button>
+                            </motion.div>
+                        ) : hasAccess ? (
                             children
                         ) : (
                             /* High-fidelity futuristic security blocking page */

@@ -16,6 +16,8 @@ import {
     LogOut,
     UserCheck,
     Download,
+    Crown,
+    TrendingUp,
     LucideIcon
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -29,6 +31,8 @@ interface MenuItem {
     isReady?: boolean;
     brandColor?: string;
     adminOnly?: boolean;
+    /** Só o Utilizador Master Global vê e entra nesta rota. */
+    masterOnly?: boolean;
 }
 
 const menuItems: MenuItem[] = [
@@ -44,6 +48,8 @@ const menuItems: MenuItem[] = [
     { name: 'RECURSOS HUMANOS', icon: Users, path: '/rh', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-primary)' },
     { name: 'CONTROLO ACESSOS', icon: ShieldCheck, path: '/rh/usuarios', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-accent)', adminOnly: true },
     { name: 'CENTRAL DE DESCARGAS', icon: Download, path: '/admin/downloads', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-primary)', adminOnly: true },
+    { name: 'RELATÓRIOS', icon: TrendingUp, path: '/relatorios', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-secondary)' },
+    { name: 'MASTER GLOBAL', icon: Crown, path: '/master/licensing', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-accent)', masterOnly: true },
     { name: 'CONFIGURAÇÕES', icon: Settings, path: '/configuracoes', category: 'CORE' },
     { name: 'CENTRAL DE AJUDA', icon: ShieldCheck, path: '/ajuda', category: 'CORE', isReady: true, brandColor: 'var(--brand-accent)' },
 ];
@@ -67,6 +73,9 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
     // Filter items to hide AdminOnly menus for non-admins
     const visibleMenuItems = menuItems.filter(item => {
         if (item.adminOnly && user.role !== 'ADMINISTRATOR') {
+            return false;
+        }
+        if (item.masterOnly && !user.isMasterGlobal) {
             return false;
         }
         return true;

@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
     BarChart3, Home, Store, Package, ShieldCheck,
     Users, Building2, Heart, Lock, LogOut, UserCheck, X, BookOpen,
-    Banknote, Receipt, IdCard, Download
+    Banknote, Receipt, IdCard, Download, Crown, TrendingUp
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -16,6 +16,8 @@ interface MenuItem {
     path: string;
     category: string;
     adminOnly?: boolean;
+    /** Só o Utilizador Master Global vê e entra nesta rota. */
+    masterOnly?: boolean;
 }
 
 const menuItems: MenuItem[] = [
@@ -30,12 +32,14 @@ const menuItems: MenuItem[] = [
     { name: 'PARQUE PRIVADO', icon: Users, path: '/parque', category: 'OPERATIONS' },
     { name: 'POS SNACK/BAR', icon: Store, path: '/pos', category: 'OPERATIONS' },
     { name: 'RECURSOS HUMANOS', icon: Users, path: '/rh', category: 'MANAGEMENT' },
-    { name: 'FINANCEIRO E IBAN', icon: Banknote, path: '/financeiro', category: 'MANAGEMENT', adminOnly: true },
-    { name: 'COMPROVATIVOS', icon: Receipt, path: '/comprovativos', category: 'MANAGEMENT', adminOnly: true },
-    { name: 'KYC HÓSPEDES', icon: IdCard, path: '/kyc', category: 'MANAGEMENT', adminOnly: true },
-    { name: 'ECONOMATO', icon: Package, path: '/economato', category: 'OPERATIONS', adminOnly: true },
+    { name: 'FINANCEIRO E IBAN', icon: Banknote, path: '/financeiro', category: 'MANAGEMENT' },
+    { name: 'COMPROVATIVOS', icon: Receipt, path: '/comprovativos', category: 'MANAGEMENT' },
+    { name: 'KYC HÓSPEDES', icon: IdCard, path: '/kyc', category: 'MANAGEMENT' },
+    { name: 'ECONOMATO', icon: Package, path: '/economato', category: 'OPERATIONS' },
     { name: 'CONTROLO ACESSOS', icon: ShieldCheck, path: '/rh/usuarios', category: 'MANAGEMENT', adminOnly: true },
     { name: 'CENTRAL DE DESCARGAS', icon: Download, path: '/admin/downloads', category: 'MANAGEMENT', adminOnly: true },
+    { name: 'RELATÓRIOS', icon: TrendingUp, path: '/relatorios', category: 'MANAGEMENT' },
+    { name: 'MASTER GLOBAL', icon: Crown, path: '/master/licensing', category: 'MANAGEMENT', masterOnly: true },
     { name: 'CENTRAL DE AJUDA', icon: BookOpen, path: '/ajuda', category: 'CORE' },
 ];
 
@@ -58,7 +62,8 @@ export function MobileDrawer({ isOpen, onClose }: MobileDrawerProps) {
     if (!user) return null;
 
     const visibleMenuItems = menuItems.filter(
-        item => !item.adminOnly || user.role === 'ADMINISTRATOR'
+        item => (!item.adminOnly || user.role === 'ADMINISTRATOR')
+            && (!item.masterOnly || user.isMasterGlobal)
     );
 
     const categories = ['CORE', 'HOSPITALITY', 'WELLNESS', 'OPERATIONS', 'MANAGEMENT'];

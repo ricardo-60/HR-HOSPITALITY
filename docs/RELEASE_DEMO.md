@@ -444,20 +444,32 @@ o `start-server` publica-o automaticamente em `/download/ios/` com QR.
 | Componente | Estado | Detalhe |
 | --- | --- | --- |
 | `hr-client-app.apk`, `hr-pos-app.apk`, `hr-executive-app.apk` | ✅ ligados ao projecto B e verificados | `.env.local` preenchido → `expo export --clear` → build → **inspecção do bundle** (§8) |
-| Portal (`out/`) e instaladores Electron | ⚠️ ainda em modo demonstração | não foram reconstruídos depois de o `.env.local` ser preenchido; reconstruí-los agora trocaria os dados locais por um Supabase **sem schema** |
-| Migrações/seeders Supabase `001..008` | ❌ não aplicadas em nenhum projecto | exigem `SUPABASE_DB_HOST` + `PGPASSWORD` — secret manager, nunca em ficheiros versionados |
-| Conta master (bootstrap) | ❌ não existe | depende das migrações (`app_users`), da função `admin-users` deployada e de um `BOOTSTRAP_TOKEN` gerado fora do repo — `docs/PHASE1_SECURITY_CUTOVER.md` §6 |
+| Portal (`out/`) e área de download | ✅ operacionais | `next build` (`output: export`) regenera `out/`; `stage_downloads.mjs` volta a publicar APKs + QR |
+| Migrações/seeders Supabase `001..008` | ✅ aplicadas no projecto B | via SQL Editor do Dashboard — sem `PGPASSWORD`, sem segredos em ficheiros. **8/8** registadas em `_schema_migrations` |
+| Conta master (bootstrap) | ✅ existe e autentica | `hermenegildo.ricardo@gmail.com` → `app_users` com `role='ADMINISTRATOR'`, `status='ATIVO'`, `allowed_modules='["*"]'` |
 | Docker + Supabase CLI | ❌ stack Supabase *local* indisponível nesta máquina | sem privilégios de admin — ver nota abaixo |
 
-**Efeito prático das apps ligadas sem schema:** as apps ligam-se ao projecto B
-mas as tabelas não existem, por isso `queries.ts` cai no `catch` e devolve
-`cached?.value ?? []` — ecrãs vazios em vez de erros. O aviso "Modo
-demonstração" desapareceu (que era o objectivo); os dados só entram quando as
-migrações correrem.
+**Efeito prático das apps ligadas ao projecto B:** o `404 PGRST205` desapareceu.
+As tabelas `hotel_rooms`, `hotel_reservations`, `app_users` e `tenants` são
+servidas pela PostgREST e as leituras/escritas funcionam com a sessão de login
+(§8). As páginas públicas (`public_pools`, `public_pool_prices`,
+`public_laundry_services`, `public_event_spaces`, `gym_plans`) devolvem `200`
+em `anon`, como as migrações 006/007 mandam.
 
-**Projecto B em uso:** `https://rzelexvouysvkejfwrbf.supabase.co` — tem apenas
-a tabela `tenants` (vazia). O projecto `zqmtxxjoocwhaodlnhxg` está vivo (DNS +
-`401` em `/rest/v1/`) mas a anon key conhecida não o autoriza.
+**Modelo de acesso (intencional, documentado nas migrações):** `anon` só tem
+`SELECT` nas tabelas de **catálogo público**; `hotel_rooms`,
+`hotel_reservations`, `app_users` e `tenants` são **`authenticated`** com RLS.
+Não é uma falha — o `DashboardLayout` redireciona qualquer página sem sessão
+para `/login` (`router.replace('/login')`), portanto as apps nunca leem essas
+tabelas em `anon`.
+
+**Projecto B em uso:** `https://rzelexvouysvkejfwrbf.supabase.co` ("HR-GESTPRO-2.0")
+— esquema legado **complementado** pelas migrações 001..008: 32 relações
+legadas preservadas + `_schema_migrations`, `app_users`, `hotel_rooms`,
+`hotel_reservations`, `hotel_consumptions`, `hr_employees`. A migração 001 foi
+adaptada para tolerar o `tenants` legado (18 colunas, `company_name`/`tax_id`
+`NOT NULL` sem default). O projecto `zqmtxxjoocwhaodlnhxg` ("HR-HOSPITALITY")
+não foi tocado nesta entrega (apenas revertidos os artefactos de diagnóstico).
 
 **Nota sobre o Supabase local:** esta sessão corre **sem privilégios de
 administrador** e sem Docker/WSL, por isso `supabase start` não é instalável de
@@ -475,8 +487,9 @@ Para tornar **tudo** operacional (portal, Electron e dados reais):
 ```bash
 # 1. credenciais - JA FEITO para o projecto B
 $EDITOR hr-hospitality-app/.env.local      # NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY
-# 2. schema + conta master - FALTA (secret manager, nunca em ficheiros)
-PGPASSWORD=... SUPABASE_DB_HOST=... node hr-hospitality-app/scripts/run_migrations.mjs
+# 2. schema + conta master - JA FEITO no projecto B (bundle unico regeneravel)
+node hr-hospitality-app/scripts/build_sql_bundle.mjs   # -> ~/Desktop/HR-SUPABASE_001-008_SEED_MASTER.sql
+#    colar no SQL Editor do Dashboard (projecto rzelexvouysvkejfwrbf) e Run
 # 3. portal + Electron
 start-server.bat --rebuild
 node hr-hospitality-app/build_setups.js    # instalaadores ligados
@@ -533,12 +546,37 @@ powershell -File .\build-android.ps1
 | `apksigner verify` + placeholders nos 3 APKs | ✅ exit 0 nos 3 · `SEU-PROJETO` e `SUPABASE_AUTH_NAO_ESTA_CONFIGURADO` ausentes nos 3 bundles |
 | Publicação final (`stage_downloads.mjs` + `HEAD`) | ✅ 3 APKs com `200`, `Content-Length` 71347382 / 58982772 / 58945908, `Cache-Control: no-store`; página `/download/` → `200` |
 
+### 8.1 Provisionamento do projecto B e fim do `404 PGRST205`
+
+| Verificação | Resultado |
+| --- | --- |
+| Diagnóstico: SQL Editor ligado ao projecto errado | ✅ detectado (`location.href` = `/project/zqmtxxjoocwhaodlnhxg/…`); todos os artefactos de diagnóstico **revertidos** no projecto A (`zz_probe_reload` removida, linha-prova de `tenants` removida, `GRANT SELECT … TO anon` revogado) |
+| Esquema real do projecto B (antes) | ✅ 32 relações legadas HR-GESTPRO; **sem** `_schema_migrations`, `app_users`, `hotel_rooms`, `hotel_reservations` |
+| Migração 001 vs `tenants` legado | ✅ corrigida (`c84d6b7`) — `ADD COLUMN IF NOT EXISTS` para `name`/`slug`/`currency`, defaults condicionais para `company_name`/`tax_id`, índice único em `slug` para o `ON CONFLICT` |
+| Migração 006 vs `CHECK` com variável PL/pgSQL | ✅ corrigida (`f348da5`) — `column "allowed" does not exist` resolvido com `EXECUTE format('… ANY (%L::text[]))', allowed)` |
+| Bundle `001..008` + seed + master executado no SQL Editor | ✅ **exit 0** — verificação final `9 rows` |
+| Migrações registadas em `_schema_migrations` | ✅ **8/8** |
+| Contagens finais | ✅ `tenants` 6 · `quartos` 16 · `reservas` 4 · `app_users` 1 · `master ADMINISTRATOR` 1 · `pos_products` 6 · `public_pool_prices` 7 · `gym_plans` 3 |
+| Perfil master | ✅ `9e42e6aa-…` = `auth_user_id`, `hermenegildo.ricardo@gmail.com`, `ADMINISTRATOR`, `ATIVO` |
+| Recarga do *schema cache* da PostgREST | ✅ alvo de `404 PGRST205` → `401 42501 permission denied` (tabelas já conhecidas) |
+| Leitura pública (`anon`) do catálogo | ✅ `public_pools`, `public_pool_prices`, `public_laundry_services`, `public_event_spaces`, `gym_plans` → **200** com linhas |
+| Leitura/escrita autenticada | ✅ `app_users`, `hotel_rooms`, `hotel_reservations`, `tenants` → **200** com a sessão do login |
+| **Bateria E2E** (`e2e-tests.ps1`, T1–T4) | ✅ **6/6 PASS** — T1a login · T1b perfil · T2 quartos (`0-11`) · T2 reservas · T3 criar reserva `201` · T4 actualizar quarto `200` |
+| Autenticação da bateria | ✅ corrigida — T1a guarda o `access_token` e T1b–T4 usam-no (antes usavam `anon` e falhavam com `42501`); registo de teste removido no fim (`HTTP 204`) |
+| `tsc --noEmit` | ✅ **exit 0, 0 erros** nos 4 pacotes (app, mobile, pos, executive) |
+| `npm run lint` | ✅ **exit 0** nos 4 pacotes |
+| `next build` (`output: export`) | ✅ **exit 0** · `✓ Compiled successfully` · ~32 rotas |
+| Área de download regenerada após o build | ✅ `stage_downloads.mjs` → 3 APKs + 2 instaladores + 1 iOS + QR |
+| Servidor LAN reiniciado | ✅ `0.0.0.0:3000` (`pid` node) — `/` **200** · `/download/` **200** · 3 APKs **200** |
+| **Teste de verificação automático dos APKs** | ✅ **3/3 PASS** (exit 0) — `verify-apk-supabase.ps1` nos 3 APKs contra `https://rzelexvouysvkejfwrbf.supabase.co` |
+| Bundle único regenerado (`build_sql_bundle.mjs`) | ✅ exit 0 · 132 336 bytes · 5/5 verificações (compat. legado, `EXECUTE format`, 8 migrações, master, `COMMIT` final) |
+
 ---
 
 ## 9. Commits desta entrega
 
 Repositório principal (`ricardo-60/HR-HOSPITALITY`, branch `main`), Conventional
-Commits — **9 criados e 9 já pushados** (`f744be6..423d6e4`, `git status` limpo):
+Commits — **13 criados e 13 pushados** (`f744be6..f348da5`, `git status` limpo):
 
 | Hash | Âmbito |
 | --- | --- |
@@ -551,6 +589,9 @@ Commits — **9 criados e 9 já pushados** (`f744be6..423d6e4`, `git status` lim
 | `a94ddaf` | `fix(android):` resolver o `MAX_PATH` do CMake mudando o staging para fora do repo |
 | `f6fe998` | `feat(server):` apontar o servidor da LAN pelo `.env.local` e servir APKs com tamanho |
 | `423d6e4` | `docs(release):` relatório da demonstração com resultados medidos da entrega |
+| `aeb88d9` | `docs(release):` registar a injecção de credenciais e o teste de inspecção dos APKs |
+| `c84d6b7` | `fix(migrations):` tornar a migração 001 compatível com um `tenants` legado |
+| `f348da5` | `fix(migrations):` resolver o `42703` nas expressões `CHECK` da migração 006 |
 
 E este, que é apenas o próprio relatório (ainda não existia no Git):
 

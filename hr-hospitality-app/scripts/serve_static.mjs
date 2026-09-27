@@ -1,6 +1,6 @@
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { basename, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('../out', import.meta.url)));
@@ -41,6 +41,13 @@ function existingFile(pathname) {
   const target = resolve(ROOT, relative);
   if (target !== ROOT && !target.startsWith(`${ROOT}/`) && !target.startsWith(`${ROOT}\\`)) return null;
   const candidates = [target, `${target}.html`, join(target, 'index.html')];
+  // O `next build` com `output: 'export'` grava a payload RSC de uma rota em
+  //   <rota>/__next.<rota>/__PAGE__.txt   (directorio + ficheiro)
+  // mas o router pede o nome plano
+  //   <rota>/__next.<rota>.__PAGE__.txt
+  // Sem esta correspondencia cada prefetch do App Router dava 404 na consola.
+  const rscPage = target.match(/^(.*)\.__PAGE__\.txt$/);
+  if (rscPage) candidates.push(`${rscPage[1]}/__PAGE__.txt`);
   for (const candidate of candidates) {
     try {
       if (statSync(candidate).isFile()) return candidate;
@@ -57,13 +64,23 @@ createServer((request, response) => {
   }
   let pathname;
   try {
-    pathname = new URL(request.url || '/', 'http://localhost').pathname;
+    const url = new URL(request.url || '/', 'http://localhost');
+    pathname = url.pathname;
     const file = existingFile(pathname);
     if (!file) {
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       response.end('Not found');
       return;
     }
+    // As payloads RSC do App Router saem como `.txt` no `output: 'export'`, mas
+    // o router so as aceita com `content-type: text/x-component`
+    // (fetch-server-response.js e segment-cache/cache.js testam o prefixo);
+    // com outro content-type o link deixa de ser uma transicao RSC. Identifica-
+    // -se pelo `_rsc` que o router acrescenta ou pelo prefixo `__next.`, para
+    // nao alterar o content-type de um robots.txt ou de um txt do dominio.
+    const isRscPayload =
+      extname(file).toLowerCase() === '.txt' &&
+      (url.searchParams.has('_rsc') || basename(file).startsWith('__next.'));
     // HTML e a área de download nunca ficam em cache: um APK/instalador
     // regenerado tem o mesmo URL e tem de ser servido de novo, senão o
     // telemóvel ficaria com a versão antiga durante um ano.
@@ -72,7 +89,9 @@ createServer((request, response) => {
     // de downloads do Android nao consegue mostrar o tamanho nem o progresso
     // de um APK de 68 MB.
     response.writeHead(200, {
-      'Content-Type': MIME[extname(file).toLowerCase()] || 'application/octet-stream',
+      'Content-Type': isRscPayload
+        ? 'text/x-component; charset=utf-8'
+        : MIME[extname(file).toLowerCase()] || 'application/octet-stream',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
       'Cache-Control': noStore ? 'no-store' : 'public, max-age=31536000, immutable',

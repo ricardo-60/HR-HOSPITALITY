@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
     BarChart3, Home, Store, Package, ShieldCheck,
     Users, Building2, Heart, Lock, LogOut, UserCheck, X, BookOpen,
-    Banknote, Receipt, IdCard
+    Banknote, Receipt, IdCard, Download
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -35,6 +35,7 @@ const menuItems: MenuItem[] = [
     { name: 'KYC HÓSPEDES', icon: IdCard, path: '/kyc', category: 'MANAGEMENT', adminOnly: true },
     { name: 'ECONOMATO', icon: Package, path: '/economato', category: 'OPERATIONS', adminOnly: true },
     { name: 'CONTROLO ACESSOS', icon: ShieldCheck, path: '/rh/usuarios', category: 'MANAGEMENT', adminOnly: true },
+    { name: 'CENTRAL DE DESCARGAS', icon: Download, path: '/admin/downloads', category: 'MANAGEMENT', adminOnly: true },
     { name: 'CENTRAL DE AJUDA', icon: BookOpen, path: '/ajuda', category: 'CORE' },
 ];
 

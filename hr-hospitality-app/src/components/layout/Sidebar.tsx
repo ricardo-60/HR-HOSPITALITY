@@ -15,6 +15,7 @@ import {
     Lock,
     LogOut,
     UserCheck,
+    Download,
     LucideIcon
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -42,6 +43,7 @@ const menuItems: MenuItem[] = [
     { name: 'PARQUE PRIVADO', icon: Users, path: '/parque', category: 'OPERATIONS', isReady: true, brandColor: 'var(--brand-accent)' },
     { name: 'RECURSOS HUMANOS', icon: Users, path: '/rh', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-primary)' },
     { name: 'CONTROLO ACESSOS', icon: ShieldCheck, path: '/rh/usuarios', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-accent)', adminOnly: true },
+    { name: 'CENTRAL DE DESCARGAS', icon: Download, path: '/admin/downloads', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-primary)', adminOnly: true },
     { name: 'CONFIGURAÇÕES', icon: Settings, path: '/configuracoes', category: 'CORE' },
     { name: 'CENTRAL DE AJUDA', icon: ShieldCheck, path: '/ajuda', category: 'CORE', isReady: true, brandColor: 'var(--brand-accent)' },
 ];

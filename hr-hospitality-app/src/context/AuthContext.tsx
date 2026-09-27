@@ -16,7 +16,7 @@ export type UserRole = 'ADMINISTRATOR' | 'PERMISSAO' | 'ACESSO' | 'POS' | 'EXECU
 export type UserStatus = 'ATIVO' | 'BLOQUEADO';
 
 /** Rotas que exigem perfil de administrador, para além da RLS. */
-const ADMIN_ONLY_PATHS = ['/rh/usuarios'];
+const ADMIN_ONLY_PATHS = ['/rh/usuarios', '/admin'];
 
 export interface User {
   /** Employee code used by the UI. It is not the Supabase Auth UUID. */

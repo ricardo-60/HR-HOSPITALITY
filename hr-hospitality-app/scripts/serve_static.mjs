@@ -22,6 +22,7 @@ function argValue(names) {
 const HOST = argValue(['-H', '--host']) || process.env.HOST || '127.0.0.1';
 const PORT = Number(argValue(['-p', '--port']) || process.env.PORT || 3000);
 const MIME = {
+  '.apk': 'application/vnd.android.package-archive',
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
   '.ico': 'image/x-icon',

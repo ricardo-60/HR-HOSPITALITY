@@ -602,7 +602,7 @@ interface AuditRow {
 
 /* ── Relatório A — Financeiro Executivo ──────────────────────────────────── */
 
-function FinanceiroReport({ from, to }: { from: string; to: string }) {
+function FinanceiroReport({ from, to, tenantId }: { from: string; to: string; tenantId?: string }) {
     const [rows, setRows] = useState<FinancialTransactionRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -619,7 +619,9 @@ function FinanceiroReport({ from, to }: { from: string; to: string }) {
         try {
             // O razão é reconstruído (idempotente) antes da leitura: sem isto o
             // relatório podia reflectir um razão incompleto ou divergente.
-            const sync = await supabaseClient.rpc('hr_sync_financial_entries');
+            const sync = await supabaseClient.rpc('hr_sync_financial_entries', {
+                p_tenant_id: tenantId,
+            });
             if (sync.error) throw new Error(sync.error.message);
 
             const { data, error: queryError } = await supabaseClient
@@ -639,7 +641,7 @@ function FinanceiroReport({ from, to }: { from: string; to: string }) {
         } finally {
             setLoading(false);
         }
-    }, [from, to]);
+    }, [from, to, tenantId]);
 
     useEffect(() => {
         const timer = window.setTimeout(() => { void refresh(); }, 0);
@@ -1492,7 +1494,7 @@ export default function RelatoriosPage() {
                         </span>
                     </div>
 
-                    {activeReport === 'financeiro' && <FinanceiroReport from={range.from} to={range.to} />}
+                    {activeReport === 'financeiro' && <FinanceiroReport from={range.from} to={range.to} tenantId={user?.tenantId} />}
                     {activeReport === 'ocupacao' && <OcupacaoReport from={range.from} to={range.to} />}
                     {activeReport === 'pos' && <PosReport from={range.from} to={range.to} />}
                     {activeReport === 'auditoria' && <AuditoriaReport from={range.from} to={range.to} />}

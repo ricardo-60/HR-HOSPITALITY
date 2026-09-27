@@ -62,7 +62,7 @@ rem --- 3. Migracoes Supabase (apenas com credenciais de BD no ambiente) ------
 if "%HR_HAS_CREDS%"=="0" goto :skip_supabase
 if "%PGPASSWORD%"=="" goto :skip_supabase
 if "%SUPABASE_DB_HOST%"=="" goto :skip_supabase
-echo   [3/5] Migracoes Supabase 001..008 + seeders...
+echo   [3/5] Migracoes Supabase 001..010 + seeders...
 call node "hr-hospitality-app\scripts\run_migrations.mjs" --target=supabase
 call node "hr-hospitality-app\scripts\seed.mjs" --target=supabase
 goto :migrations_done

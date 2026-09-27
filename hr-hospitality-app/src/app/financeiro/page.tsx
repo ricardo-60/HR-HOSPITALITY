@@ -282,7 +282,9 @@ export default function FinanceiroPage() {
         setEditingExpenseId(null);
         await refreshExpenses();
         // Opcional: reconstrói o razão para refletir a despesa de imediato.
-        const { error: syncError } = await supabaseClient.rpc('hr_sync_financial_entries');
+        const { error: syncError } = await supabaseClient.rpc('hr_sync_financial_entries', {
+            p_tenant_id: user?.tenantId,
+        });
         if (syncError) {
             // Não bloqueante: o razão é reconstruído noutro ciclo de sincronização.
         }

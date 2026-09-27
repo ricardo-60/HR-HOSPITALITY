@@ -251,7 +251,9 @@ export default function MasterLicensingPage() {
                 .select('*')
                 .single();
             if (insertError) throw new Error(insertError.message);
-            await run(async () => undefined, `Instância "${(data as TenantRow).name}" registada.`);
+            const created = data as TenantRow;
+            setTargetTenant(created.id);
+            await run(async () => undefined, `Instância "${created.name}" registada.`);
             setShowNewTenant(false);
             setNewName('');
             setNewSlug('');

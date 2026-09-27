@@ -411,6 +411,28 @@ async function main() {
             [TENANT_TESTE])).rows[0].n;
         check('múltiplos IBANs por instância', ibans === 2, `${ibans} contas`);
 
+        // A 007 concedeu SELECT coluna a coluna e esqueceu `is_active`: a gestão
+        // de IBANs morria com 42501. A 010 concede a tabela inteira.
+        await setRlsJwt(OPERADOR);
+        const bankRows = (await rls.query(
+            'SELECT count(*)::int AS n FROM public.tenant_bank_accounts WHERE is_active = true'
+        )).rows[0].n;
+        check('leitura de tenant_bank_accounts com a coluna is_active', bankRows === 2, `${bankRows} linhas`);
+
+        // A política de leitura voltou a mostrar IBANs inactivos (dava para
+        // desactivar, nunca reactivar).
+        await db.query(`
+            UPDATE public.tenant_bank_accounts SET is_active = false
+            WHERE tenant_id = $1 AND is_primary = false`, [TENANT_TESTE]);
+        const visibleAfterDeactivate = (await rls.query(
+            'SELECT count(*)::int AS n FROM public.tenant_bank_accounts'
+        )).rows[0].n;
+        check('IBAN inactivo continua visível para poder ser reactivado',
+            visibleAfterDeactivate === 2, `${visibleAfterDeactivate} visíveis`);
+        await db.query(`
+            UPDATE public.tenant_bank_accounts SET is_active = true
+            WHERE tenant_id = $1 AND is_primary = false`, [TENANT_TESTE]);
+
         // ── Master lê todas as instâncias ───────────────────────────────
         await setRlsJwt(MASTER_ID);
         const instances = (await rls.query(

@@ -715,6 +715,24 @@ CREATE POLICY tenants_update_company
 -- 005 revogou a tabela toda e voltou a conceder coluna a coluna.
 GRANT SELECT (is_master_global, permissions) ON TABLE public.app_users TO authenticated;
 
+-- A 007 concedeu SELECT em `tenant_bank_accounts` coluna a coluna e esqueceu
+-- `is_active` (e `tenant_id`/`created_at`/`updated_at`): qualquer query com
+-- essas colunas morria com 42501 e a gestão de IBANs estava partida em
+-- produção. Concedemos a tabela inteira; a política RLS continua a limitar
+-- as linhas ao tenant.
+GRANT SELECT ON TABLE public.tenant_bank_accounts TO authenticated;
+
+-- ...e a política de leitura tinha o mesmo defeito: filtrava `is_active`, por
+-- isso um IBAN desactivado desaparecia da lista — dava para desactivar, nunca
+-- reactivar. A política de escrita nunca teve esse filtro, logo a assimetria
+-- era um bug. Passa a ler todo o tenant.
+DROP POLICY IF EXISTS bank_accounts_read_tenant ON public.tenant_bank_accounts;
+CREATE POLICY bank_accounts_read_tenant
+    ON public.tenant_bank_accounts
+    FOR SELECT
+    TO authenticated
+    USING (tenant_id = (SELECT public.hr_tenant_id()));
+
 REVOKE ALL ON FUNCTION public.hr_is_master_global() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.hr_has_permission(TEXT) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.hr_license_state() FROM PUBLIC, anon;

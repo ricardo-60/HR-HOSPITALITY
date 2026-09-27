@@ -13,9 +13,47 @@ CREATE TABLE IF NOT EXISTS public.tenants (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-INSERT INTO public.tenants (id, name, slug, currency)
-VALUES ('11111111-1111-1111-1111-111111111111', 'Hotel Lukweku', 'hotel-lukweku', 'Kz')
-ON CONFLICT (slug) DO NOTHING;
+-- Colunas obrigatorias do schema novo (no-ops quando ja existem).
+-- Em projectos ja provisionados (ex.: schema legado HR-GESTPRO) a tabela
+-- tenants existe com outro conjunto de colunas, por isso sao IF NOT EXISTS.
+ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS slug TEXT;
+ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'Kz';
+
+-- ── Tenant de demonstracao: Hotel Lukweku ───────────────────
+-- O bloco tolera dois cenarios: um tenants recem-criado (schema novo) e um
+-- tenants legado onde colunas NOT NULL sem default (company_name, tax_id)
+-- impediriam o INSERT directo.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public' AND table_name = 'tenants'
+                 AND column_name = 'company_name') THEN
+        EXECUTE 'ALTER TABLE public.tenants ALTER COLUMN company_name SET DEFAULT ' || quote_literal('Hotel Lukweku');
+        UPDATE public.tenants SET name = company_name WHERE name IS NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public' AND table_name = 'tenants'
+                 AND column_name = 'tax_id') THEN
+        EXECUTE 'ALTER TABLE public.tenants ALTER COLUMN tax_id SET DEFAULT ' || quote_literal('N/A');
+    END IF;
+
+    UPDATE public.tenants SET currency = 'Kz' WHERE currency IS NULL;
+
+    -- ON CONFLICT (slug) exige um indice unico sobre slug.
+    EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS tenants_slug_key ON public.tenants (slug)';
+
+    BEGIN
+        INSERT INTO public.tenants (id, name, slug, currency)
+        VALUES ('11111111-1111-1111-1111-111111111111', 'Hotel Lukweku', 'hotel-lukweku', 'Kz')
+        ON CONFLICT (slug) DO NOTHING;
+    EXCEPTION
+        WHEN unique_violation THEN NULL;
+    END;
+
+    ALTER TABLE public.tenants ALTER COLUMN name SET NOT NULL;
+END $$;
 
 -- ── Enum de status do quarto ────────────────────────────────
 DO $$ BEGIN

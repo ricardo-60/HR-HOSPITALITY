@@ -86,7 +86,57 @@ export interface PosOrderItem {
   quantity: number;
   line_total: number;
   notes: string | null;
+  /**
+   * Preenchido pela migração 011 quando a pré-conta é emitida. `null` também
+   * quando a migração ainda não foi aplicada — o item trata-se como livre.
+   */
+  locked_at: string | null;
 }
+
+/* ── Pré-conta (migração 011) ─────────────────────────────────────────────── */
+
+export type PreBillPrinter = 'ESCPOS_58' | 'ESCPOS_80' | 'PDF';
+export type PreBillContext = 'MESA' | 'QUARTO' | 'CONTA';
+
+/** Linha congelada do documento, emitida pela RPC `hr_issue_pre_bill`. */
+export interface PreBillLine {
+  id: string;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+}
+
+/**
+ * Fotografia congelada da pré-conta. Vive no `pre_bill_logs.payload` e não
+ * muda mais, por isso a pré-visualização mostra exatamente o que foi emitido.
+ */
+export interface PreBillDoc {
+  pre_bill_id: string;
+  doc_number: string;
+  doc_type: 'PRE_CONTA' | 'EXTRATO';
+  context: PreBillContext;
+  label: string | null;
+  guest_name: string | null;
+  room_number: string | null;
+  currency: string;
+  line_count: number;
+  subtotal: number;
+  discount: number;
+  total: number;
+  printer: PreBillPrinter;
+  locked_items: number;
+  issued_by: string | null;
+  issued_by_name: string | null;
+  issued_at: string;
+  lines: PreBillLine[];
+}
+
+export const PRINTER_LABEL: Record<PreBillPrinter, string> = {
+  ESCPOS_58: 'ESC/POS 58 mm',
+  ESCPOS_80: 'ESC/POS 80 mm',
+  PDF: 'PDF',
+};
 
 export interface CashSession {
   id: string;

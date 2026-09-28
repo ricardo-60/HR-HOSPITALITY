@@ -9,6 +9,8 @@ import type {
   PosOrderItem,
   PosProduct,
   PosTable,
+  PreBillDoc,
+  PreBillPrinter,
   StayCharge,
   TableZone,
 } from '@/types/pos';
@@ -28,11 +30,45 @@ import type {
  * estreitado, porque passa a devolver (A | B)[] em vez de uma tupla.
  */
 export type Ok<T> = { ok: true; data: T };
-export type Err = { ok: false; data: null; error: string };
+export type Err = { ok: false; data: null; error: string; code?: string | null };
 export type Result<T> = Ok<T> | Err;
 
-function fail(error: { message: string } | null, fallback: string): Err {
-  return { ok: false, data: null, error: error?.message ? error.message : fallback };
+function fail(error: { message: string; code?: string | null } | null, fallback: string): Err {
+  return {
+    ok: false,
+    data: null,
+    error: error?.message ? error.message : fallback,
+    code: error?.code ?? null,
+  };
+}
+
+/**
+ * A feature (RPC ou coluna da migração 011) ainda não existe nesta instalação.
+ *
+ * A produção corre sem a migração aplicada: qualquer chamada nova pode
+ * rebentar com "function does not exist" / "column does not exist". Quem
+ * deteta isto degrada para o comportamento antigo em vez de mostrar um erro.
+ */
+export function isMissingFeature(result: Err): boolean {
+  const code = result.code ?? '';
+  if (code === '42883' || code === 'PGRST202' || code === '42703' || code === '42P01') return true;
+  const message = result.error.toLowerCase();
+  return (
+    message.includes('does not exist') ||
+    message.includes('could not find the function') ||
+    message.includes('could not find the column') ||
+    message.includes('schema cache')
+  );
+}
+
+/** Mensagem amigável para o bloqueio anti-fraude da migração 011 (42501). */
+function lockedItemMessage(error: { message: string; code?: string | null }): string {
+  if (error.code !== '42501') return error.message;
+  const message = error.message.toLowerCase();
+  if (message.includes('imutavel') || message.includes('imutável')) {
+    return 'Item de pré-conta bloqueado: o valor já emitido é imutável.';
+  }
+  return 'Item de pré-conta bloqueado: a remoção exige justificação auditada de 8 caracteres ou mais.';
 }
 
 function notConfigured(): Err {
@@ -94,6 +130,91 @@ export async function listProducts(): Promise<Result<PosProduct[]>> {
     if (error) return fail(error, 'Falha ao carregar a carta.');
     const rows = (data ?? []) as PosProduct[];
     return { ok: true, data: rows.map(p => ({ ...p, price: num(p.price) })) };
+  } catch (error) {
+    return { ok: false, data: null, error: error instanceof Error ? error.message : 'Supabase não configurado.' };
+  }
+}
+
+/**
+ * Regra de stock zero (migração 011): `hr_pos_stock` devolve a disponibilidade
+ * de todo o tenant numa só chamada.
+ *
+ * Sem a migração aplicada a RPC não existe e a chamada falha — o ecrã trata o
+ * erro como "sem informação de stock" e mantém a carta completa visível, que é
+ * o comportamento antigo.
+ */
+export async function listStock(): Promise<Result<Record<string, boolean>>> {
+  if (!isSupabaseConfigured) return notConfigured();
+  try {
+    const { data, error } = await getSupabase().rpc('hr_pos_stock', { p_product_ids: null });
+    if (error) return fail(error, 'Falha ao consultar o stock.');
+    const rows = (data ?? []) as { product_id: string; is_available: boolean | null }[];
+    const availability: Record<string, boolean> = {};
+    for (const row of rows) {
+      if (row?.product_id) availability[row.product_id] = row.is_available !== false;
+    }
+    return { ok: true, data: availability };
+  } catch (error) {
+    return { ok: false, data: null, error: error instanceof Error ? error.message : 'Supabase não configurado.' };
+  }
+}
+
+/**
+ * Emissão de pré-conta (migração 011): congela a comanda, atribui número e
+ * devolve o documento fotográfico pronto a imprimir.
+ */
+export async function issuePreBill(input: {
+  orderId: string;
+  label: string | null;
+  guestName?: string | null;
+  printer: PreBillPrinter;
+}): Promise<Result<PreBillDoc>> {
+  if (!isSupabaseConfigured) return notConfigured();
+  try {
+    const { data, error } = await getSupabase().rpc('hr_issue_pre_bill', {
+      p_order_id: input.orderId,
+      p_account_id: null,
+      p_context: 'MESA',
+      p_label: input.label,
+      p_guest_name: input.guestName ?? null,
+      p_printer: input.printer,
+    });
+    if (error) return fail(error, 'Falha ao emitir a pré-conta.');
+    if (!data || typeof data !== 'object') {
+      return { ok: false, data: null, error: 'A pré-conta devolveu uma resposta vazia.', code: 'P0002' };
+    }
+    const doc = data as Record<string, unknown>;
+    return {
+      ok: true,
+      data: {
+        pre_bill_id: String(doc.pre_bill_id ?? ''),
+        doc_number: String(doc.doc_number ?? ''),
+        doc_type: doc.doc_type === 'EXTRATO' ? 'EXTRATO' : 'PRE_CONTA',
+        context: (doc.context === 'QUARTO' || doc.context === 'CONTA' ? doc.context : 'MESA') as PreBillDoc['context'],
+        label: (doc.label as string | null) ?? null,
+        guest_name: (doc.guest_name as string | null) ?? null,
+        room_number: (doc.room_number as string | null) ?? null,
+        currency: String(doc.currency ?? 'AOA'),
+        line_count: num(doc.line_count),
+        subtotal: num(doc.subtotal),
+        discount: num(doc.discount),
+        total: num(doc.total),
+        printer: input.printer,
+        locked_items: num(doc.locked_items),
+        issued_by: (doc.issued_by as string | null) ?? null,
+        issued_by_name: (doc.issued_by_name as string | null) ?? null,
+        issued_at: String(doc.issued_at ?? new Date().toISOString()),
+        lines: Array.isArray(doc.lines)
+          ? (doc.lines as Record<string, unknown>[]).map(line => ({
+              id: String(line.id ?? ''),
+              description: String(line.description ?? ''),
+              quantity: num(line.quantity),
+              unit_price: num(line.unit_price),
+              line_total: num(line.line_total),
+            }))
+          : [],
+      },
+    };
   } catch (error) {
     return { ok: false, data: null, error: error instanceof Error ? error.message : 'Supabase não configurado.' };
   }
@@ -205,14 +326,26 @@ export async function getOrder(id: string): Promise<Result<PosOrder>> {
     if (!data) return { ok: false, data: null, error: 'Comanda não encontrada.' };
 
     const order = mapOrder(data as unknown as OrderJoinRow);
-    const { data: items } = await getSupabase()
-      .from('pos_order_items')
-      .select('id,order_id,product_id,product_name,unit_price,quantity,line_total,notes')
-      .eq('order_id', id);
+
+    // `locked_at` só existe com a migração 011. Sem ela o PostgREST devolve
+    // "column does not exist"; repete-se a consulta sem a coluna e os itens
+    // tratam-se como livres, em vez de partir a comanda inteira.
+    const ITEM_WITH_LOCK =
+      'id,order_id,product_id,product_name,unit_price,quantity,line_total,notes,locked_at';
+    const ITEM_WITHOUT_LOCK = 'id,order_id,product_id,product_name,unit_price,quantity,line_total,notes';
+    const withLock = await getSupabase().from('pos_order_items').select(ITEM_WITH_LOCK).eq('order_id', id);
+    // Sem a coluna, volta-se à consulta antiga — a comanda nunca parte por
+    // uma migração que ainda não chegou.
+    const legacy = withLock.error
+      ? await getSupabase().from('pos_order_items').select(ITEM_WITHOUT_LOCK).eq('order_id', id)
+      : null;
+    const itemsError = withLock.error ? (legacy ? legacy.error : withLock.error) : null;
+    if (itemsError) return fail(itemsError, 'Falha ao carregar os artigos da comanda.');
+    const itemsData: unknown = withLock.error ? (legacy?.data ?? []) : withLock.data;
 
     // `line_total` é lido como possivelmente nulo porque o PostgREST devolve
     // `NUMERIC` como string e o mapeamento normaliza para número.
-    const lines = ((items ?? []) as unknown as (Omit<PosOrderItem, 'unit_price' | 'line_total'> & Partial<PosOrderItem>)[]).map(item => ({
+    const lines = ((itemsData ?? []) as (Omit<PosOrderItem, 'unit_price' | 'line_total'> & Partial<PosOrderItem>)[]).map(item => ({
       id: item.id,
       order_id: item.order_id,
       product_id: item.product_id,
@@ -221,6 +354,7 @@ export async function getOrder(id: string): Promise<Result<PosOrder>> {
       quantity: item.quantity,
       unit_price: num(item.unit_price),
       line_total: num(item.line_total),
+      locked_at: item.locked_at ?? null,
     }));
 
     return { ok: true, data: { ...order, items: lines } };
@@ -268,11 +402,32 @@ export async function addOrderItem(input: {
   }
 }
 
-export async function removeOrderItem(itemId: string): Promise<Result<null>> {
+/**
+ * Remove uma linha da comanda.
+ *
+ * Com `justification` (item bloqueado por pré-conta emitida) escreve-se primeiro
+ * a justificação auditada e o instante da remoção num UPDATE — é exatamente o
+ * que o trigger `protect_locked_order_items` exige antes de deixar o DELETE
+ * passar. Sem justificação, o caminho é o antigo, inalterado.
+ */
+export async function removeOrderItem(itemId: string, justification?: string): Promise<Result<null>> {
   if (!isSupabaseConfigured) return notConfigured();
   try {
+    const why = justification?.trim() ?? '';
+    if (why) {
+      const { error: updateError } = await getSupabase()
+        .from('pos_order_items')
+        .update({ removal_justification: why, removed_at: new Date().toISOString() })
+        .eq('id', itemId);
+      // Coluna inexistente = migração 011 fora: continua-se com a remoção
+      // simples, que era o comportamento único até agora.
+      const missingColumn = updateError?.code === '42703' || updateError?.code === '42P01';
+      if (updateError && !missingColumn) {
+        return { ok: false, data: null, error: lockedItemMessage(updateError), code: updateError.code ?? null };
+      }
+    }
     const { error } = await getSupabase().from('pos_order_items').delete().eq('id', itemId);
-    if (error) return fail(error, 'Falha ao remover o artigo.');
+    if (error) return { ok: false, data: null, error: lockedItemMessage(error), code: error.code ?? null };
     return { ok: true, data: null };
   } catch (error) {
     return { ok: false, data: null, error: error instanceof Error ? error.message : 'Supabase não configurado.' };

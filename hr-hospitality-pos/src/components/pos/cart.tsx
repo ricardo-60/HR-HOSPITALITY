@@ -8,22 +8,36 @@ export function CartRow({
   onIncrement,
   onDecrement,
   onRemove,
+  locked = false,
 }: {
   item: PosOrderItem;
   onIncrement?: () => void;
   onDecrement?: () => void;
   onRemove?: () => void;
+  /** Item congelado por pré-conta emitida: sem quantidades editáveis. */
+  locked?: boolean;
 }) {
+  const editable = !locked;
   return (
     <View className="flex-row items-center gap-3 rounded-2xl border border-white/10 bg-ink-soft px-4 py-3">
       <View className="flex-1">
-        <Text className="text-sm font-bold text-white" numberOfLines={1}>{item.product_name}</Text>
+        <View className="flex-row items-center gap-2">
+          <Text className="text-sm font-bold text-white" numberOfLines={1}>{item.product_name}</Text>
+          {locked ? (
+            <View
+              accessibilityLabel="Item bloqueado por pré-conta"
+              className="rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5"
+            >
+              <Text className="text-[9px] font-black uppercase tracking-wider text-amber-300">Pré-conta</Text>
+            </View>
+          ) : null}
+        </View>
         <Text className="text-[11px] text-white/40 mt-0.5">
           {formatKz(item.unit_price)} × {item.quantity}
         </Text>
       </View>
 
-      {onIncrement || onDecrement ? (
+      {editable && (onIncrement || onDecrement) ? (
         <View className="flex-row items-center gap-1">
           {onDecrement ? (
             <Pressable

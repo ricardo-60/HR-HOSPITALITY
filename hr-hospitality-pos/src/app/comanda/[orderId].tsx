@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { CartRow, TotalBar } from '@/components/pos/cart';
+import { RemoveLockedModal } from '@/components/pos/locked';
+import { PreBillModal } from '@/components/pos/prebill';
 import { ProductTile } from '@/components/pos/tiles';
 import { Banner, Button, Card, EmptyState, Loading } from '@/components/ui';
 import { formatKz } from '@/lib/format';
@@ -12,19 +14,28 @@ import {
   cancelOrder,
   closeOrder,
   getOrder,
+  isMissingFeature,
+  issuePreBill,
   listProducts,
+  listStock,
   removeOrderItem,
   type Result,
 } from '@/lib/posApi';
 import {
   METHOD_LABEL,
+  PRINTER_LABEL,
   WALK_IN_METHODS,
   type PaymentMethod,
   type PosOrder,
+  type PosOrderItem,
   type PosProduct,
+  type PreBillDoc,
+  type PreBillPrinter,
 } from '@/types/pos';
 
 const CATEGORIES = ['BEBIDA', 'COMIDA', 'CAFETERIA', 'SNACK', 'PISCINA', 'GINASIO', 'LAVANDARIA', 'outro'] as const;
+
+const PRINTERS: PreBillPrinter[] = ['ESCPOS_58', 'ESCPOS_80', 'PDF'];
 
 function tap() {
   // Feedback táctil: numa app de venda, o operador confirma pelo toque e pelo
@@ -51,6 +62,17 @@ export default function OrderScreen() {
   const [category, setCategory] = useState<string>('TODOS');
   const [busy, setBusy] = useState(false);
 
+  // Regra de stock zero (migração 011). Vazio = sem informação = carta toda.
+  const [unavailableIds, setUnavailableIds] = useState<ReadonlySet<string>>(new Set<string>());
+  // Pré-conta emitida, pendente de pré-visualização/impressão.
+  const [preBillDoc, setPreBillDoc] = useState<PreBillDoc | null>(null);
+  const [preBillPrinter, setPreBillPrinter] = useState<PreBillPrinter>('ESCPOS_80');
+  const [preBillBusy, setPreBillBusy] = useState(false);
+  const [preBillUnavailable, setPreBillUnavailable] = useState<string | null>(null);
+  // Remoção auditada de um item bloqueado.
+  const [removalTarget, setRemovalTarget] = useState<PosOrderItem | null>(null);
+  const [removalBusy, setRemovalBusy] = useState(false);
+
   useEffect(() => {
     if (!orderId) return;
     let cancelled = false;
@@ -60,8 +82,23 @@ export default function OrderScreen() {
         if (cancelled) return;
         if (!orderResult.ok) setError(orderResult.error);
         else setOrder(orderResult.data);
-        if (productResult.ok) setProducts(productResult.data);
-        setLoading(false);
+
+        if (productResult.ok) {
+          setProducts(productResult.data);
+          // A disponibilidade só faz sentido depois da carta estar na mão.
+          // Sem migração 011 a RPC não existe, falha em silêncio e a carta
+          // mantém-se completa — comportamento antigo, sem alertas.
+          const stockResult = await listStock();
+          if (cancelled) return;
+          if (stockResult.ok) {
+            const blocked = new Set<string>();
+            for (const [productId, available] of Object.entries(stockResult.data)) {
+              if (!available) blocked.add(productId);
+            }
+            setUnavailableIds(blocked);
+          }
+        }
+        if (!cancelled) setLoading(false);
       })();
     }, 0);
     return () => {
@@ -79,6 +116,12 @@ export default function OrderScreen() {
 
   const add = async (product: PosProduct) => {
     if (!orderId) return;
+    // Rede de segurança: a grelha já esconde, mas a cartinha no carrinho
+    // continua a servir para o que já foi vendido.
+    if (unavailableIds.has(product.id)) {
+      setError('Artigo esgotado: sem stock para vender.');
+      return;
+    }
     tap();
     setBusy(true);
     setError(null);
@@ -92,6 +135,12 @@ export default function OrderScreen() {
     if (!order?.items) return;
     const item = order.items.find(line => line.id === itemId);
     if (!item) return;
+
+    // Item já emitido em pré-conta: imutável (a base de dados recusaria).
+    if (item.locked_at) {
+      setError('Item de pré-conta bloqueado: o valor já emitido é imutável.');
+      return;
+    }
 
     tap();
     setError(null);
@@ -113,10 +162,56 @@ export default function OrderScreen() {
     await reload();
   };
 
-  const remove = async (itemId: string) => {
-    tap();
+  const removeFree = async (itemId: string) => {
     const result = await removeOrderItem(itemId);
     if (!result.ok) { setError(result.error); return; }
+    await reload();
+  };
+
+  /** Item livre apaga-se de imediato; item bloqueado pede justificação. */
+  const remove = (item: PosOrderItem) => {
+    tap();
+    if (item.locked_at) {
+      setRemovalTarget(item);
+      return;
+    }
+    void removeFree(item.id);
+  };
+
+  const confirmRemoval = async (justification: string) => {
+    const target = removalTarget;
+    if (!target) return;
+    setRemovalBusy(true);
+    setError(null);
+    // UPDATE primeiro (justificação + hora) e só depois o DELETE, como o
+    // trigger da migração 011 exige.
+    const result = await removeOrderItem(target.id, justification);
+    setRemovalBusy(false);
+    setRemovalTarget(null);
+    if (!result.ok) { setError(result.error); return; }
+    setNotice(`"${target.product_name}" removido com justificação auditada.`);
+    await reload();
+  };
+
+  const emitPreBill = async () => {
+    if (!orderId || !order) return;
+    tap();
+    setPreBillBusy(true);
+    setError(null);
+    const label = order.table_name ? `Mesa ${order.table_name}` : order.order_number;
+    const result = await issuePreBill({ orderId, label, printer: preBillPrinter });
+    setPreBillBusy(false);
+    if (!result.ok) {
+      if (isMissingFeature(result)) {
+        // Migração 011 ainda não aplicada nesta instalação: degrada para o
+        // estado desactivado com explicação, em vez de assustar o operador.
+        setPreBillUnavailable('Pré-conta indisponível: a migração desta instalação ainda não foi aplicada.');
+        return;
+      }
+      setError(result.error);
+      return;
+    }
+    setPreBillDoc(result.data);
     await reload();
   };
 
@@ -141,9 +236,15 @@ export default function OrderScreen() {
     router.replace('/');
   };
 
+  const outOfStock = useMemo(() => {
+    const base = category === 'TODOS' ? products : products.filter(p => p.category === category);
+    return base.filter(p => unavailableIds.has(p.id));
+  }, [products, category, unavailableIds]);
+
   const visibleProducts = useMemo(
-    () => (category === 'TODOS' ? products : products.filter(p => p.category === category)),
-    [products, category],
+    () => (category === 'TODOS' ? products : products.filter(p => p.category === category))
+      .filter(p => !unavailableIds.has(p.id)),
+    [products, category, unavailableIds],
   );
 
   if (loading) {
@@ -165,6 +266,15 @@ export default function OrderScreen() {
 
   const isRoomCharge = order.reservation_id !== null;
   const lines = order.items ?? [];
+  const hasItems = lines.length > 0;
+  const orderIsIssuable = order.status === 'ABERTA' || order.status === 'FECHADA';
+
+  // Motivo de bloqueio da emissão, ou null quando se pode emitir.
+  const issueHint = !hasItems
+    ? 'A comanda não tem itens para emitir pré-conta.'
+    : !orderIsIssuable
+      ? 'Só se emite pré-conta em comandas abertas ou fechadas.'
+      : preBillUnavailable;
 
   return (
     <ScrollView className="flex-1 bg-ocean-dark" contentContainerClassName="gap-4 p-4 pb-24">
@@ -197,9 +307,10 @@ export default function OrderScreen() {
             <CartRow
               key={line.id}
               item={line}
-              onIncrement={() => void changeQuantity(line.id, 1)}
-              onDecrement={() => void changeQuantity(line.id, -1)}
-              onRemove={() => void remove(line.id)}
+              locked={Boolean(line.locked_at)}
+              onIncrement={line.locked_at ? undefined : () => void changeQuantity(line.id, 1)}
+              onDecrement={line.locked_at ? undefined : () => void changeQuantity(line.id, -1)}
+              onRemove={() => remove(line)}
             />
           ))
         )}
@@ -211,6 +322,38 @@ export default function OrderScreen() {
         total={order.total}
         serviceLabel={isRoomCharge ? 'Lançado na conta do quarto' : 'Venda avulsa'}
       />
+
+      <Card className="gap-3">
+        <Text className="text-xs font-black uppercase tracking-wider text-white/45">Pré-conta</Text>
+        <Text className="text-[11px] leading-relaxed text-white/40">
+          Congela a comanda, numera o documento e imprime o recibo escolhido. Depois de emitida, cada
+          linha fica bloqueada: só sai com justificação auditada.
+        </Text>
+        <View className="flex-row flex-wrap gap-2">
+          {PRINTERS.map(option => (
+            <Pressable
+              key={option}
+              onPress={() => setPreBillPrinter(option)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: preBillPrinter === option }}
+              className={`rounded-full border px-4 py-2 ${
+                preBillPrinter === option
+                  ? 'border-gold bg-gold/15 text-gold'
+                  : 'border-white/15 bg-white/5 text-white/50'
+              }`}
+            >
+              <Text className="text-[11px] font-black uppercase tracking-wider">{PRINTER_LABEL[option]}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Button
+          label="Emitir Pré-Conta"
+          loading={preBillBusy}
+          disabled={issueHint !== null || busy}
+          onPress={() => void emitPreBill()}
+        />
+        {issueHint ? <Text className="text-[11px] text-white/40">{issueHint}</Text> : null}
+      </Card>
 
       <View className="gap-2">
         <Text className="text-xs font-black uppercase tracking-wider text-white/45">Adicionar artigo</Text>
@@ -248,6 +391,12 @@ export default function OrderScreen() {
             ))
           )}
         </View>
+
+        {outOfStock.length > 0 ? (
+          <Text className="text-[11px] leading-relaxed text-white/35">
+            Esgotados ({outOfStock.length}): {outOfStock.map(product => product.name).join(' · ')}
+          </Text>
+        ) : null}
       </View>
 
       <Card className="gap-3">
@@ -271,6 +420,19 @@ export default function OrderScreen() {
             : 'O valor é registado no turno de caixa aberto, por meio de pagamento.'}
         </Text>
       </Card>
+
+      <PreBillModal
+        key={preBillDoc?.doc_number ?? 'pre-bill-closed'}
+        doc={preBillDoc}
+        onClose={() => setPreBillDoc(null)}
+      />
+      <RemoveLockedModal
+        key={removalTarget?.id ?? 'removal-closed'}
+        item={removalTarget}
+        busy={removalBusy}
+        onCancel={() => setRemovalTarget(null)}
+        onConfirm={justification => void confirmRemoval(justification)}
+      />
     </ScrollView>
   );
 }

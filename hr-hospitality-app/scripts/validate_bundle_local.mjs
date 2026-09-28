@@ -1,6 +1,14 @@
-// Verifica o caminho de producao: bundle unico 001..011 + seed + master
+// Verifica o caminho de producao: bundle unico 001..013 + seed + master
 // aplicado numa UNICA transacao a uma base de dados vazia.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+// Numero de migracoes lido do disco: o gate nunca mais fica obsoleto
+// quando se acrescenta uma migracao nova ao projecto.
+const EXPECTED_VERSIONS = readdirSync(join(ROOT, 'migrations', 'supabase'))
+  .filter((file) => file.endsWith('.sql')).length;
 
 const PORT = process.env.HR_LOCAL_PG_PORT || '55432';
 const BUNDLE = process.argv[2];
@@ -56,10 +64,10 @@ try {
   await db.query(SHIM);
   const sql = readFileSync(BUNDLE, 'utf8');
   await db.query(sql);
-  check('bundle 001..011 aplicado numa unica transacao', true, `${Buffer.byteLength(sql)} bytes`);
+  check('bundle aplicado numa unica transacao', true, `${Buffer.byteLength(sql)} bytes`);
 
   const versions = await db.query('SELECT version FROM public._schema_migrations ORDER BY version');
-  check('_schema_migrations com 11 versoes', versions.rowCount === 11,
+  check(`_schema_migrations com ${EXPECTED_VERSIONS} versoes`, versions.rowCount === EXPECTED_VERSIONS,
     versions.rows.map((r) => r.version).join(','));
 
   const catalog = await db.query('SELECT count(*)::int AS n FROM public.master_products_catalog');

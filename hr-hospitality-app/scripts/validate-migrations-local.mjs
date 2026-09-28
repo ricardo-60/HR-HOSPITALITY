@@ -165,7 +165,7 @@ async function main() {
         check('migrações 001..011 aplicadas sem erro', applied.length === files.length, applied.join(','));
 
         const tracked = await db.query('SELECT version FROM public._schema_migrations ORDER BY version');
-        check('_schema_migrations com 11 versões', tracked.rowCount === 11, `${tracked.rowCount} registos`);
+        check(`_schema_migrations com ${files.length} versões`, tracked.rowCount === files.length, `${tracked.rowCount} registos`);
 
         for (const table of ['system_licenses', 'daily_expenses', 'financial_transactions']) {
             const r = await db.query(`SELECT to_regclass('public.${table}') IS NOT NULL AS ok`);

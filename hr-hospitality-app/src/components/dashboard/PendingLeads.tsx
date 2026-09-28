@@ -71,8 +71,10 @@ export function PendingLeads() {
         fetchLeads();
 
         // Realtime Subscription (compatível offline via stub)
+        // Sufixo próprio: o supabase-js reutiliza o canal do mesmo tópico e,
+        // se o anterior ainda está a fechar, o `.on()` lança e parte a página.
         const channel = (supabase as any)
-            .channel('pending-leads-updates')
+            .channel(`pending-leads-updates#${Date.now().toString(36)}`)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'hotel_rooms' }, () => {
                 fetchRooms();
             })

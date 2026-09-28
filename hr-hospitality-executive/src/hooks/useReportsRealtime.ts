@@ -41,8 +41,13 @@ export function useReportsRealtime(
     if (!enabled || !isSupabaseConfigured || !tenantId) return;
 
     const client = getSupabase();
+    // O supabase-js REUSA a instancia quando o topico ja existe: um efeito
+    // que corre de novo enquanto o canal anterior ainda fecha recebe o mesmo
+    // objecto e o `.on('postgres_changes')` lanca. Sufixo proprio por
+    // abertura mantem cada subscricao num canal novo.
+    const sufixo = `#${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const channel = client
-      .channel(`exec-relatorios-${tenantId}`)
+      .channel(`exec-relatorios-${tenantId}${sufixo}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'daily_expenses', filter: `tenant_id=eq.${tenantId}` },
@@ -58,7 +63,7 @@ export function useReportsRealtime(
     const tables = tablesKey ? tablesKey.split(',') : [];
     let modulesChannel: ReturnType<typeof client.channel> | null = null;
     if (tables.length > 0) {
-      modulesChannel = client.channel(`exec-relatorios-modulos-${tenantId}`);
+      modulesChannel = client.channel(`exec-relatorios-modulos-${tenantId}${sufixo}`);
       for (const table of tables) {
         modulesChannel = modulesChannel.on(
           'postgres_changes',

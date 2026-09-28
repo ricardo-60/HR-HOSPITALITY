@@ -292,8 +292,12 @@ export function watchStatement(accountId: string, onChange: () => void): () => v
 
   let channel;
   try {
+    // Sufixo próprio: o supabase-js reutiliza o canal do mesmo tópico e, se o
+    // anterior ainda está a fechar, o `.on()` lança (aqui seria apanhado pelo
+    // try/catch, mas a subscrição ficaria perdida). Cada abertura usa um
+    // canal novo, onde os callbacks ainda podem ser registados.
     channel = client
-      .channel(`guest-statement:${accountId}`)
+      .channel(`guest-statement:${accountId}#${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'guest_order_items', filter: `account_id=eq.${accountId}` },

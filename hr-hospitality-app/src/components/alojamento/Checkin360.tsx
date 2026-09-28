@@ -45,8 +45,10 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
             fetchAvailableRooms();
         }
 
+        // Sufixo próprio: o supabase-js reutiliza o canal do mesmo tópico e,
+        // se o anterior ainda está a fechar, o `.on()` lança e parte a página.
         const channel = (supabase as any)
-            .channel('public:hotel_rooms')
+            .channel(`public:hotel_rooms#${Date.now().toString(36)}`)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'hotel_rooms' }, () => {
                 if (!roomId) fetchAvailableRooms();
             })

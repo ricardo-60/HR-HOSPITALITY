@@ -49,8 +49,15 @@ export function useSiteReservations(
     if (!enabled || !isSupabaseConfigured || !tenantId) return;
 
     const client = getSupabase();
+    // O supabase-js REUSA a mesma instancia quando o topico ja existe
+    // (RealtimeClient.channel): se o canal anterior ainda nao terminou de
+    // fechar, o `.on('postgres_changes')` lanca
+    // "cannot add postgres_changes callbacks ... after subscribe()" e mata
+    // a app. Um sufixo proprio por abertura garante um canal onde os
+    // callbacks ainda podem ser registados antes do subscribe(); o cleanup
+    // fecha o canal anterior.
     const channel = client
-      .channel(`pos-reservas-site-${tenantId}`)
+      .channel(`pos-reservas-site-${tenantId}#${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`)
       .on(
         'postgres_changes',
         {

@@ -5,6 +5,8 @@ import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 interface UseReportsRealtimeResult {
   /** `true` quando os canais estão efectivamente subscritos. */
   live: boolean;
+  /** `true` quando os módulos da migração 011 (horas/pré-contas) também estão. */
+  liveModules: boolean;
 }
 
 /**
@@ -16,9 +18,24 @@ interface UseReportsRealtimeResult {
  * web aparece no ecrã sem recarregar. A RLS decide se o operador recebe o
  * evento — sem SELECT na tabela não há evento, por aqui não há como contornar
  * política nenhuma.
+ *
+ * `extraTables` são as tabelas dos módulos novos (`hourly_billing`,
+ * `pre_bill_logs`, migração 011). Vão num CANAL SEPARADO, com indicador
+ * próprio, e só quando o relatório respectivo já leu com sucesso: se a
+ * unidade ainda não activou a migração, falhar aqui não apaga o indicador
+ * do razão nem parte o ecrã.
  */
-export function useReportsRealtime(tenantId: string | null, enabled: boolean, onChange: () => void): UseReportsRealtimeResult {
+export function useReportsRealtime(
+  tenantId: string | null,
+  enabled: boolean,
+  onChange: () => void,
+  extraTables: string[] = [],
+): UseReportsRealtimeResult {
   const [live, setLive] = useState(false);
+  const [liveModules, setLiveModules] = useState(false);
+
+  // Chave estável: sem ela o array novo a cada render recriava os canais.
+  const tablesKey = extraTables.join(',');
 
   useEffect(() => {
     if (!enabled || !isSupabaseConfigured || !tenantId) return;
@@ -38,11 +55,27 @@ export function useReportsRealtime(tenantId: string | null, enabled: boolean, on
       )
       .subscribe(status => setLive(status === 'SUBSCRIBED'));
 
+    const tables = tablesKey ? tablesKey.split(',') : [];
+    let modulesChannel: ReturnType<typeof client.channel> | null = null;
+    if (tables.length > 0) {
+      modulesChannel = client.channel(`exec-relatorios-modulos-${tenantId}`);
+      for (const table of tables) {
+        modulesChannel = modulesChannel.on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table, filter: `tenant_id=eq.${tenantId}` },
+          () => onChange(),
+        );
+      }
+      modulesChannel.subscribe(status => setLiveModules(status === 'SUBSCRIBED'));
+    }
+
     return () => {
       setLive(false);
+      setLiveModules(false);
       void client.removeChannel(channel);
+      if (modulesChannel) void client.removeChannel(modulesChannel);
     };
-  }, [enabled, tenantId, onChange]);
+  }, [enabled, tenantId, onChange, tablesKey]);
 
-  return { live };
+  return { live, liveModules };
 }

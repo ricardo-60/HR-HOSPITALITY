@@ -1,14 +1,30 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
+import { BillingCompareChart } from '@/components/reports/BillingCompareChart';
 import { FlowChart } from '@/components/reports/FlowChart';
+import { RankList } from '@/components/reports/RankList';
 import { Bar, Card, EmptyState, Header, Loading, Metric, Refresh, Screen, TenantIdentity } from '@/components/ui';
-import { formatKz, formatPercent } from '@/lib/format';
-import { loadReportsSummary, type Result } from '@/lib/executiveApi';
+import { formatKz, formatKzCompact, formatPercent } from '@/lib/format';
+import {
+  isModuleUnavailable,
+  loadHoursVsNights,
+  loadPreBills,
+  loadReportsSummary,
+  loadTopMenus,
+  MODULE_UNAVAILABLE_MESSAGE,
+  type Result,
+} from '@/lib/executiveApi';
 import { useReportsRealtime } from '@/hooks/useReportsRealtime';
 import { useExecutive } from '@/providers/ExecutiveProvider';
-import type { ReportPeriod, ReportsSummary } from '@/types/executive';
+import type {
+  HoursVsNightsSummary,
+  PreBillsSummary,
+  ReportPeriod,
+  ReportsSummary,
+  TopMenusSummary,
+} from '@/types/executive';
 
 const PERIODS: { value: ReportPeriod; label: string }[] = [
   { value: 7, label: '7 dias' },
@@ -17,8 +33,47 @@ const PERIODS: { value: ReportPeriod; label: string }[] = [
 ];
 
 /**
+ * Cartão de um relatório novo. Enquanto carrega mostra um aviso curto;
+ * quando falha, distingue "módulo não activado" (migração 011 por aplicar)
+ * de qualquer outro erro — nos dois casos um cartão compacto, nunca um
+ * crash do ecrã.
+ */
+function ReportSection<T>({
+  title,
+  result,
+  render,
+}: {
+  title: string;
+  result: Result<T> | null;
+  render: (data: T) => ReactNode;
+}) {
+  return (
+    <View className="gap-3">
+      <Text className="text-xs font-black uppercase tracking-wider text-white/45">{title}</Text>
+      {result === null ? (
+        <Card className="py-3">
+          <Text className="text-xs text-white/45">A carregar…</Text>
+        </Card>
+      ) : result.ok ? (
+        render(result.data)
+      ) : (
+        <Card className="gap-1 py-3">
+          <Text className="text-xs font-semibold text-gold">
+            {isModuleUnavailable(result.error) ? MODULE_UNAVAILABLE_MESSAGE : result.error}
+          </Text>
+        </Card>
+      )}
+    </View>
+  );
+}
+
+/**
  * Relatórios do painel executivo: KPIs do período, receitas vs despesas por dia
  * e decomposição por origem e categoria.
+ *
+ * Por baixo vêm os três relatórios da migração 011 — horas vs diárias, top
+ * pratos/bebidas e pré-contas emitidas — cada um no seu cartão, para que a
+ * falta da migração num cartão não toque nos restantes.
  *
  * Só de leitura. O razão é sincronizado (`hr_sync_financial_entries`) antes de
  * cada leitura e as alterações a `daily_expenses`/`financial_transactions`
@@ -34,19 +89,51 @@ export default function ReportsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Relatórios da migração 011. `null` = ainda a carregar; um erro de
+  // esquema fica guardado no resultado e o cartão degrada para aviso.
+  const [horas, setHoras] = useState<Result<HoursVsNightsSummary> | null>(null);
+  const [topMenus, setTopMenus] = useState<Result<TopMenusSummary> | null>(null);
+  const [preContas, setPreContas] = useState<Result<PreBillsSummary> | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
-    const result: Result<ReportsSummary> = await loadReportsSummary(period, profile?.tenantId ?? null);
-    if (result.ok) {
-      setData(result.data);
+    const [summary, horasResult, topMenusResult, preBillsResult] = await Promise.all([
+      loadReportsSummary(period, profile?.tenantId ?? null),
+      loadHoursVsNights(period),
+      loadTopMenus(period),
+      loadPreBills(period),
+    ]);
+    if (summary.ok) {
+      setData(summary.data);
       setError(null);
     } else {
-      setError(result.error);
+      setError(summary.error);
     }
+    setHoras(horasResult);
+    setTopMenus(topMenusResult);
+    setPreContas(preBillsResult);
     setLoading(false);
   }, [period, profile?.tenantId]);
 
-  const { live } = useReportsRealtime(profile?.tenantId ?? null, session === 'ready', () => void load());
+  // Tabelas novas só entram na subscrição quando o relatório respectivo
+  // já leu com sucesso — sem migração 011 não há canal a assinar.
+  const extraTables = useMemo(() => {
+    const tables: string[] = [];
+    if (horas?.ok) tables.push('hourly_billing');
+    if (preContas?.ok) tables.push('pre_bill_logs');
+    return tables;
+  }, [horas, preContas]);
+
+  const onChange = useCallback(() => {
+    void load();
+  }, [load]);
+
+  const { live, liveModules } = useReportsRealtime(
+    profile?.tenantId ?? null,
+    session === 'ready',
+    onChange,
+    extraTables,
+  );
 
   useEffect(() => {
     if (session !== 'ready') return;
@@ -98,7 +185,7 @@ export default function ReportsScreen() {
 
       {live && !error ? (
         <Text className="text-[11px] font-bold uppercase tracking-wider text-emerald-300/80">
-          Tempo real activo · razão e despesas
+          Tempo real activo · razão e despesas{liveModules ? ', horas e pré-contas' : ''}
         </Text>
       ) : null}
 
@@ -201,6 +288,137 @@ export default function ReportsScreen() {
               </View>
             </>
           )}
+
+          {/* ── Relatórios da migração 011: cada um degrada no seu cartão ── */}
+          <ReportSection
+            title="Horas vs diárias · por dia"
+            result={horas}
+            render={summary => (
+              <View className="gap-3">
+                <View className="flex-row gap-3">
+                  <Metric label="Receita por horas" value={formatKz(summary.totalHoras)} tone="inflow" />
+                  <Metric label="Receita em diárias" value={formatKz(summary.totalDiarias)} tone="inflow" />
+                </View>
+                <View className="flex-row gap-3">
+                  <Metric label="Sessões activas" value={String(summary.sessoesActivas)} />
+                  <Metric label="Ticket médio / hora" value={formatKz(summary.ticketMedioHora)} />
+                </View>
+                {summary.totalHoras === 0 && summary.totalDiarias === 0 ? (
+                  <EmptyState title="Sem facturação de quartos no período" />
+                ) : (
+                  <Card>
+                    <BillingCompareChart series={summary.series} />
+                  </Card>
+                )}
+                <Text className="text-[11px] leading-relaxed text-white/40">
+                  As sessões horárias em curso ainda não entram na receita: só contam quando são
+                  fechadas e liquidadas. Ticket médio = receita por hora vendida (bloco + extensões).
+                </Text>
+              </View>
+            )}
+          />
+
+          <ReportSection
+            title="Top pratos / top bebidas · por receita"
+            result={topMenus}
+            render={summary =>
+              summary.pratos.length === 0 && summary.bebidas.length === 0 && summary.outros.revenue === 0 ? (
+                <EmptyState
+                  title="Sem vendas no período"
+                  hint="O ranking lê as comandas pagas do POS no período seleccionado."
+                />
+              ) : (
+                <View className="gap-3">
+                  <Card className="gap-3">
+                    <Text className="text-[10px] font-black uppercase tracking-wider text-gold">Top pratos</Text>
+                    {summary.pratos.length === 0 ? (
+                      <Text className="text-xs text-white/45">Sem comida vendida no período.</Text>
+                    ) : (
+                      <RankList items={summary.pratos} tone="gold" />
+                    )}
+                  </Card>
+                  <Card className="gap-3">
+                    <Text className="text-[10px] font-black uppercase tracking-wider text-aqua">Top bebidas</Text>
+                    {summary.bebidas.length === 0 ? (
+                      <Text className="text-xs text-white/45">Sem bebidas vendidas no período.</Text>
+                    ) : (
+                      <RankList items={summary.bebidas} tone="aqua" />
+                    )}
+                  </Card>
+                  <Text className="text-[11px] leading-relaxed text-white/40">
+                    Outros artigos (serviços e restantes categorias): {formatKz(summary.outros.revenue)} em{' '}
+                    {summary.outros.units} unidades.
+                  </Text>
+                </View>
+              )
+            }
+          />
+
+          <ReportSection
+            title="Pré-contas emitidas"
+            result={preContas}
+            render={summary => {
+              if (summary.documents === 0) {
+                return (
+                  <EmptyState
+                    title="Sem pré-contas no período"
+                    hint="Cada pré-conta e extrato emitido no POS fica registado aqui."
+                  />
+                );
+              }
+              const maxTipo = Math.max(...summary.porTipo.map(row => row.count), 1);
+              const maxContexto = Math.max(...summary.porContexto.map(row => row.count), 1);
+              return (
+                <View className="gap-3">
+                  <View className="flex-row gap-3">
+                    <Metric label="Documentos" value={String(summary.documents)} />
+                    <Metric label="Valor total" value={formatKz(summary.total)} tone="inflow" />
+                  </View>
+
+                  <View className="gap-3">
+                    <Text className="text-xs font-black uppercase tracking-wider text-white/45">
+                      Por tipo de documento
+                    </Text>
+                    <Card className="gap-4">
+                      {summary.porTipo.map(row => (
+                        <Bar
+                          key={row.key}
+                          label={row.label}
+                          value={`${row.count} · ${formatKzCompact(row.total)}`}
+                          rawValue={row.count}
+                          max={maxTipo}
+                          tone="gold"
+                        />
+                      ))}
+                    </Card>
+                  </View>
+
+                  <View className="gap-3">
+                    <Text className="text-xs font-black uppercase tracking-wider text-white/45">Por contexto</Text>
+                    <Card className="gap-4">
+                      {summary.porContexto.map(row => (
+                        <Bar
+                          key={row.key}
+                          label={row.label}
+                          value={`${row.count} · ${formatKzCompact(row.total)}`}
+                          rawValue={row.count}
+                          max={maxContexto}
+                          tone="aqua"
+                        />
+                      ))}
+                    </Card>
+                  </View>
+
+                  <Card className="gap-1 py-3">
+                    <Text className="text-[11px] leading-relaxed text-white/50">
+                      Média de {summary.avgLines.toFixed(1).replace('.', ',')} itens por documento nos últimos{' '}
+                      {summary.days} dias. Cada emissão congela a comanda e fica na auditoria da unidade.
+                    </Text>
+                  </Card>
+                </View>
+              );
+            }}
+          />
 
           <Card className="gap-2">
             <Text className="text-[10px] font-black uppercase tracking-wider text-white/40">Como ler isto</Text>

@@ -1,19 +1,25 @@
-import { isoDaysAgo, localIsoDays } from '@/lib/format';
+import { isoDaysAgo, localDay, localIsoDays } from '@/lib/format';
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import type {
+  BillingComparePoint,
   DailyFlow,
   FlowBreakdown,
+  HoursVsNightsSummary,
   MovementType,
   OccupancySummary,
   PaymentMethod,
   PeriodSummary,
+  PreBillBreakdown,
+  PreBillsSummary,
   ReportPeriod,
   ReportsSummary,
   SalesBreakdown,
   StockAlert,
   StockMovementRow,
   StockState,
+  TopMenusSummary,
   TopProduct,
+  TopSeller,
 } from '@/types/executive';
 
 /**
@@ -443,5 +449,322 @@ export async function loadReportsSummary(
     };
   } catch (error) {
     return { ok: false, data: null, error: error instanceof Error ? error.message : 'Falha ao carregar os relatórios.' };
+  }
+}
+
+/* ── 6. Relatórios da migração 011 ─────────────────────────────────────── */
+
+/** Aviso compacto mostrado num cartão quando o módulo ainda não existe. */
+export const MODULE_UNAVAILABLE_MESSAGE = 'Indisponível — a unidade ainda não activou este módulo';
+
+/**
+ * `true` quando o erro é de esquema: tabela ou coluna que ainda não existe
+ * em produção porque a migração 011 não foi aplicada nesta unidade.
+ *
+ * Nessos casos o cartão do relatório degrada para o aviso compacto em vez
+ * de partir o ecrã — regra de compatibilidade da app com produção.
+ */
+export function isModuleUnavailable(error: string): boolean {
+  const message = error.toLowerCase();
+  return message.includes('schema cache') || message.includes('does not exist') || message.includes('could not find the');
+}
+
+interface HourlyBillingRow {
+  status: string;
+  amount_paid: number | string;
+  block_hours: number | string;
+  extensions: number | string;
+  started_at: string;
+  closed_at: string | null;
+}
+
+interface ReservationRow {
+  reservation_date: string;
+  total_amount: number | string | null;
+  status: string;
+}
+
+/**
+ * Horas vs diárias: receita das sessões horárias contra a receita das
+ * estadias, na mesma janela de dias.
+ *
+ * As horas entram pelo `amount_paid` das sessões fechadas (`PAGO`); as que
+ * estão `EM_CURSO` são contadas à parte, sem receita, porque ainda não
+ * foram liquidadas. As reservas entram pelo `total_amount` de todas as
+ * estados menos `CANCELADA`, agrupadas por `reservation_date`.
+ *
+ * Sem a migração 011 não existe `hourly_billing`: o erro de esquema segue
+ * para o ecrã e o cartão mostra "Indisponível".
+ */
+export async function loadHoursVsNights(period: ReportPeriod): Promise<Result<HoursVsNightsSummary>> {
+  if (!isSupabaseConfigured) return notConfigured();
+  try {
+    const client = getSupabase();
+    const from = `${isoDaysAgo(period - 1)}T00:00:00`;
+
+    const [hourly, activas, reservations] = await Promise.all([
+      client
+        .from('hourly_billing')
+        .select('status,amount_paid,block_hours,extensions,started_at,closed_at')
+        .or(`started_at.gte.${from},closed_at.gte.${from}`)
+        .limit(2000),
+      client
+        .from('hourly_billing')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'EM_CURSO'),
+      client
+        .from('hotel_reservations')
+        .select('reservation_date,total_amount,status')
+        .neq('status', 'CANCELADA')
+        .gte('reservation_date', isoDaysAgo(period - 1))
+        .limit(2000),
+    ]);
+
+    if (hourly.error) return { ok: false, data: null, error: hourly.error.message };
+    if (activas.error) return { ok: false, data: null, error: activas.error.message };
+    if (reservations.error) return { ok: false, data: null, error: reservations.error.message };
+
+    const days = localIsoDays(period);
+    const series = new Map<string, BillingComparePoint>(
+      days.map(day => [day, { date: day, horas: 0, diarias: 0 }]),
+    );
+
+    let totalHoras = 0;
+    let horasFacturadas = 0;
+
+    for (const row of (hourly.data ?? []) as HourlyBillingRow[]) {
+      // Só o que foi recebido conta: EM_CURSO não pagou, CANCELADA não conta.
+      if (row.status !== 'PAGO') continue;
+      const paid = num(row.amount_paid);
+      totalHoras += paid;
+      horasFacturadas += num(row.block_hours) + num(row.extensions);
+      const bucket = series.get(localDay(row.closed_at ?? row.started_at));
+      if (bucket) bucket.horas += paid;
+    }
+
+    let totalDiarias = 0;
+    for (const row of (reservations.data ?? []) as ReservationRow[]) {
+      const amount = num(row.total_amount);
+      totalDiarias += amount;
+      const bucket = series.get(row.reservation_date);
+      if (bucket) bucket.diarias += amount;
+    }
+
+    return {
+      ok: true,
+      data: {
+        days: period,
+        totalHoras,
+        totalDiarias,
+        sessoesActivas: activas.count ?? 0,
+        horasFacturadas,
+        ticketMedioHora: horasFacturadas > 0 ? totalHoras / horasFacturadas : 0,
+        series: days.map(day => series.get(day)!),
+      },
+    };
+  } catch (error) {
+    return { ok: false, data: null, error: error instanceof Error ? error.message : 'Falha ao comparar horas e diárias.' };
+  }
+}
+
+interface MenuEmbedded {
+  category: string | null;
+  master_product_id?: string | null;
+  master_products_catalog?: { kind: string | null } | { kind: string | null }[] | null;
+}
+
+interface MenuItemRow {
+  product_name: string;
+  quantity: number | string;
+  line_total: number | string;
+  pos_products: MenuEmbedded | MenuEmbedded[] | null;
+  pos_orders: { status: string } | { status: string }[] | null;
+}
+
+/**
+ * Classificação de uma venda para o ranking de pratos e bebidas.
+ *
+ * O `kind` do catálogo mestre manda (PRATO/LANCHE → comida, BEBIDA →
+ * bebida); quando o produto não está vinculado (`master_product_id IS
+ * NULL`) ou a migração 011 nem existe, cai para a categoria local do POS:
+ * COMIDA/SNACK/CAFETERIA → prato, BEBIDA → bebida, resto → outros.
+ */
+function classifySale(kind: string | null, category: string | null): 'prato' | 'bebida' | 'outro' {
+  if (kind === 'PRATO' || kind === 'LANCHE') return 'prato';
+  if (kind === 'BEBIDA') return 'bebida';
+  if (kind) return 'outro'; // SERVICO/OUTRO do catálogo mestre.
+
+  const local = (category ?? '').toUpperCase();
+  if (local === 'COMIDA' || local === 'SNACK' || local === 'CAFETERIA') return 'prato';
+  if (local === 'BEBIDA') return 'bebida';
+  return 'outro';
+}
+
+/**
+ * Top pratos e top bebidas do período, ordenados por receita e com as
+ * unidades vendidas ao lado.
+ *
+ * A primeira tentativa embute `master_products_catalog(kind)`. Sem a
+ * migração 011 a coluna `pos_products.master_product_id` não existe e o
+ * PostgREST recusa o pedido: repetimos sem o catálogo e classificamos só
+ * com a categoria do POS, para o relatório continuar a funcionar. Se
+ * também falhar, o cartão degrada para "Indisponível".
+ */
+export async function loadTopMenus(period: ReportPeriod, limit = 5): Promise<Result<TopMenusSummary>> {
+  if (!isSupabaseConfigured) return notConfigured();
+  try {
+    const client = getSupabase();
+    const since = `${isoDaysAgo(period - 1)}T00:00:00`;
+
+    const primary = await client
+      .from('pos_order_items')
+      .select(
+        'product_name,quantity,line_total,pos_products(category,master_product_id,master_products_catalog(kind)),pos_orders(status,closed_at)',
+      )
+      .gte('pos_orders.closed_at', since)
+      .limit(2000);
+
+    let rows: MenuItemRow[];
+    if (primary.error) {
+      const fallback = await client
+        .from('pos_order_items')
+        .select('product_name,quantity,line_total,pos_products(category),pos_orders(status,closed_at)')
+        .gte('pos_orders.closed_at', since)
+        .limit(2000);
+      if (fallback.error) return { ok: false, data: null, error: fallback.error.message };
+      rows = (fallback.data ?? []) as unknown as MenuItemRow[];
+    } else {
+      rows = (primary.data ?? []) as unknown as MenuItemRow[];
+    }
+
+    const totals = new Map<string, { kind: string | null; category: string | null; units: number; revenue: number }>();
+
+    for (const row of rows) {
+      const order = one(row.pos_orders);
+      if (!order || order.status === 'CANCELADA') continue;
+      const product = one(row.pos_products);
+      const entry = totals.get(row.product_name) ?? {
+        kind: one(product?.master_products_catalog)?.kind ?? null,
+        category: product?.category ?? null,
+        units: 0,
+        revenue: 0,
+      };
+      entry.units += num(row.quantity);
+      entry.revenue += num(row.line_total);
+      totals.set(row.product_name, entry);
+    }
+
+    const pratos: TopSeller[] = [];
+    const bebidas: TopSeller[] = [];
+    const outros = { units: 0, revenue: 0 };
+
+    for (const [name, entry] of totals) {
+      const seller: TopSeller = { name, units: entry.units, revenue: entry.revenue };
+      const bucket = classifySale(entry.kind, entry.category);
+      if (bucket === 'prato') pratos.push(seller);
+      else if (bucket === 'bebida') bebidas.push(seller);
+      else {
+        outros.units += seller.units;
+        outros.revenue += seller.revenue;
+      }
+    }
+
+    const byRevenue = (a: TopSeller, b: TopSeller) => b.revenue - a.revenue;
+
+    return {
+      ok: true,
+      data: {
+        pratos: pratos.sort(byRevenue).slice(0, limit),
+        bebidas: bebidas.sort(byRevenue).slice(0, limit),
+        outros,
+      },
+    };
+  } catch (error) {
+    return { ok: false, data: null, error: error instanceof Error ? error.message : 'Falha ao carregar os tops de venda.' };
+  }
+}
+
+interface PreBillRow {
+  doc_type: string;
+  context: string;
+  line_count: number | string;
+  total: number | string;
+  created_at: string;
+}
+
+const PRE_BILL_TYPE_LABEL: Record<string, string> = {
+  PRE_CONTA: 'Pré-contas',
+  EXTRATO: 'Extratos',
+};
+
+const PRE_BILL_CONTEXT_LABEL: Record<string, string> = {
+  MESA: 'Mesa',
+  QUARTO: 'Quarto',
+  CONTA: 'Conta',
+};
+
+/**
+ * Pré-contas emitidas no período — a leitura anti-fraude: quantos
+ * documentos saíram, pelo que valor, de que tipo, em que contexto e
+ * quantos itens em média cada um levou.
+ *
+ * `pre_bill_logs` só existe com a migração 011; sem ela o cartão mostra
+ * "Indisponível" em vez de quebrar o ecrã.
+ */
+export async function loadPreBills(period: ReportPeriod): Promise<Result<PreBillsSummary>> {
+  if (!isSupabaseConfigured) return notConfigured();
+  try {
+    const { data, error } = await getSupabase()
+      .from('pre_bill_logs')
+      .select('doc_type,context,line_count,total,created_at')
+      .gte('created_at', `${isoDaysAgo(period - 1)}T00:00:00`)
+      .limit(2000);
+    if (error) return { ok: false, data: null, error: error.message };
+
+    const rows = (data ?? []) as unknown as PreBillRow[];
+    const byType = new Map<string, { count: number; total: number }>();
+    const byContext = new Map<string, { count: number; total: number }>();
+
+    let documents = 0;
+    let total = 0;
+    let lines = 0;
+
+    const bump = (map: Map<string, { count: number; total: number }>, key: string, value: number) => {
+      const entry = map.get(key) ?? { count: 0, total: 0 };
+      entry.count += 1;
+      entry.total += value;
+      map.set(key, entry);
+    };
+
+    for (const row of rows) {
+      const value = num(row.total);
+      documents += 1;
+      total += value;
+      lines += num(row.line_count);
+      bump(byType, row.doc_type, value);
+      bump(byContext, row.context, value);
+    }
+
+    const toBreakdown = (
+      source: Map<string, { count: number; total: number }>,
+      labels: Record<string, string>,
+    ): PreBillBreakdown[] =>
+      [...source.entries()]
+        .map(([key, value]) => ({ key, label: labels[key] ?? key, count: value.count, total: value.total }))
+        .sort((a, b) => b.count - a.count);
+
+    return {
+      ok: true,
+      data: {
+        days: period,
+        documents,
+        total,
+        avgLines: documents > 0 ? lines / documents : 0,
+        porTipo: toBreakdown(byType, PRE_BILL_TYPE_LABEL),
+        porContexto: toBreakdown(byContext, PRE_BILL_CONTEXT_LABEL),
+      },
+    };
+  } catch (error) {
+    return { ok: false, data: null, error: error instanceof Error ? error.message : 'Falha ao carregar as pré-contas.' };
   }
 }

@@ -36,6 +36,13 @@ export function isoDaysAgo(days: number): string {
  * corrente. A série do gráfico de relatórios é construída com esta lista, para
  * que dias sem movimento apareçam no ecrã com valor zero.
  */
+/** Dia local (`YYYY-MM-DD`) de um timestamp ISO, alinhado com `localIsoDays`. */
+export function localDay(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 export function localIsoDays(count: number): string[] {
   const days: string[] = [];
   const now = new Date();

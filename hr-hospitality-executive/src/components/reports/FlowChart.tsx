@@ -2,15 +2,15 @@ import { ScrollView, Text, View } from 'react-native';
 
 import type { DailyFlow } from '@/types/executive';
 
-/** Largura da coluna de um dia, conforme a janela (90 dias cabe no scroll). */
-function columnWidth(days: number): number {
+/** Largura da coluna de um dia, conforme a janela (90 dias cabe no scroll). Exportada para o gráfico de comparação usar a mesma régua. */
+export function columnWidth(days: number): number {
   if (days > 60) return 12;
   if (days > 14) return 20;
   return 36;
 }
 
-/** Rótulo de dia a mostrar: todos no 7 dias, de 5 em 5 no 30, de 15 em 15 no 90. */
-function labelEvery(days: number): number {
+/** Rótulo de dia a mostrar: todos no 7 dias, de 5 em 5 no 30, de 15 em 15 no 90. Exportada para o gráfico de comparação usar a mesma régua. */
+export function labelEvery(days: number): number {
   if (days > 60) return 15;
   if (days > 14) return 5;
   return 1;

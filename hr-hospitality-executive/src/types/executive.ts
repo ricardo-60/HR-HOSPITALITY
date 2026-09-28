@@ -161,3 +161,66 @@ export interface ReportsSummary {
   receitasPorOrigem: FlowBreakdown[];
   despesasPorCategoria: FlowBreakdown[];
 }
+
+/* ── Relatórios da migração 011 ────────────────────────────────────────── */
+
+/** Ponto da comparação diária: receita por horas contra receita em diárias. */
+export interface BillingComparePoint {
+  date: string;
+  horas: number;
+  diarias: number;
+}
+
+/**
+ * Horas vs diárias. Os valores vêm de tabelas que só existem com a
+ * migração 011 (`hourly_billing`); quando ela falta, o carregamento
+ * falha e o ecrã mostra o cartão "Indisponível".
+ */
+export interface HoursVsNightsSummary {
+  days: number;
+  /** Receita já cobrada das sessões horárias (`amount_paid` das fechadas). */
+  totalHoras: number;
+  /** Receita das reservas não canceladas (`total_amount`). */
+  totalDiarias: number;
+  /** Sessões horárias ainda em curso — receita por cobrar. */
+  sessoesActivas: number;
+  /** Horas vendidas nas sessões fechadas: bloco contratado + extensões. */
+  horasFacturadas: number;
+  /** Receita média por hora vendida. */
+  ticketMedioHora: number;
+  series: BillingComparePoint[];
+}
+
+/** Linha de ranking de mais vendidos, pronta a desenhar. */
+export interface TopSeller {
+  name: string;
+  units: number;
+  revenue: number;
+}
+
+/** Top pratos e top bebidas, já separados e ordenados por receita. */
+export interface TopMenusSummary {
+  pratos: TopSeller[];
+  bebidas: TopSeller[];
+  /** Artigos fora das duas listas: serviços e restantes categorias. */
+  outros: { units: number; revenue: number };
+}
+
+/** Decomposição das pré-contas por tipo de documento ou por contexto. */
+export interface PreBillBreakdown {
+  key: string;
+  label: string;
+  count: number;
+  total: number;
+}
+
+/** Pré-contas emitidas no período — a leitura anti-fraude dos documentos. */
+export interface PreBillsSummary {
+  days: number;
+  documents: number;
+  total: number;
+  /** Média de itens por documento. */
+  avgLines: number;
+  porTipo: PreBillBreakdown[];
+  porContexto: PreBillBreakdown[];
+}

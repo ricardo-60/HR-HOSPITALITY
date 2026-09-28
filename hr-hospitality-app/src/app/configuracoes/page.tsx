@@ -12,6 +12,7 @@ import {
     Settings,
     ShieldCheck,
     Star,
+    Tag,
     Trash2,
     TriangleAlert,
     X,
@@ -29,6 +30,7 @@ import {
     type BankAccountInput,
 } from '@/lib/adminData';
 import { supabaseClient } from '@/lib/supabaseClient';
+import { TarifasTab } from '@/app/configuracoes/TarifasTab';
 
 /* ── Tipologia e catálogo de serviços (migração 010) ─────────────────── */
 
@@ -151,13 +153,14 @@ function licenseStatusClass(status: string | null): string {
 export default function ConfiguracoesPage() {
     const { user, license } = useAuth();
     const tenantId = user?.tenantId ?? null;
-    const [activeTab, setActiveTab] = useState<'empresa' | 'ibans' | 'sistema' | 'modulos'>('empresa');
+    const [activeTab, setActiveTab] = useState<'empresa' | 'ibans' | 'sistema' | 'modulos' | 'tarifas'>('empresa');
 
     const tabs = [
         { id: 'empresa' as const, label: 'Empresa', icon: Building2 },
         { id: 'ibans' as const, label: 'IBANs', icon: Landmark },
         { id: 'sistema' as const, label: 'Sistema', icon: Server },
         { id: 'modulos' as const, label: 'Módulos', icon: LayoutGrid },
+        { id: 'tarifas' as const, label: 'Tarifas', icon: Tag },
     ];
 
     /* ── EMPRESA ─────────────────────────────────────────────────────── */
@@ -947,6 +950,9 @@ export default function ConfiguracoesPage() {
                             </div>
                         </div>
                     )}
+
+                    {/* ── TARIFAS ─────────────────────────────────────────── */}
+                    {activeTab === 'tarifas' && <TarifasTab />}
                 </motion.div>
             </div>
         </DashboardLayout>

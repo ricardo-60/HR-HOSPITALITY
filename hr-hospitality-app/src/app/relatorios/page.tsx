@@ -3,7 +3,7 @@
 /**
  * Suite de Relatórios Gerenciais — `/relatorios`.
  *
- * Quatro relatórios de apenas leitura sobre os dados do tenant em sessão (a
+ * Sete relatórios de apenas leitura sobre os dados do tenant em sessão (a
  * RLS do Supabase continua a fronteira real de autorização):
  *
  *   A. Financeiro Executivo — DRE simplificado do razão consolidado. O razão
@@ -14,6 +14,15 @@
  *   C. POS e Vendas — comandas liquidadas, ticket médio, produtos mais
  *      vendidos e distribuição por forma de pagamento.
  *   D. Auditoria Operacional — rasto de auditoria e estado da licença.
+ *   E. Horas vs Diárias — sessões de facturação horária (`hourly_billing`,
+ *      migração 011) contra a receita de diárias, pelo período.
+ *   F. Top Pratos / Top Bebidas — a carta mais vendida, classificada pelo
+ *      `kind` do catálogo mestre com recurso à categoria local.
+ *   G. Pré-contas Emitidas — visibilidade anti-fraude dos documentos
+ *      (`pre_bill_logs`, migração 011): quantidade, valor e contextos.
+ *
+ * Os relatórios E, F e G degradam sem a migração 011 aplicada: mostram um
+ * estado informativo e continuam a servir as partes que já existem.
  *
  * Gráficos SVG feitos à mão (sem bibliotecas de charts) e carregamento
  * diferido no cliente, compatível com `output: 'export'`.
@@ -27,7 +36,10 @@ import {
     BarChart3,
     BedDouble,
     CalendarDays,
+    ChefHat,
     Clock,
+    FileText,
+    Hourglass,
     Receipt,
     RefreshCw,
     ScrollText,
@@ -41,6 +53,20 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuth } from '@/context/AuthContext';
+import {
+    PRODUCT_GROUP_LABELS,
+    classifyProductGroup,
+    isMissingColumn,
+    isMissingRelation,
+    type ProductGroup,
+} from '@/lib/productCatalog';
+import {
+    fetchHourlyBilling,
+    fetchPreBills,
+    type HourlyBillingRow,
+    type PreBillFetchResult,
+    type PreBillRow,
+} from '@/lib/reportQueries';
 import { isSupabaseConfigured, supabaseClient } from '@/lib/supabaseClient';
 
 /* ── Formatação ──────────────────────────────────────────────────────────── */
@@ -48,6 +74,7 @@ import { isSupabaseConfigured, supabaseClient } from '@/lib/supabaseClient';
 const CURRENCY_FMT = new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'AOA' });
 const NUMBER_FMT = new Intl.NumberFormat('pt-PT');
 const PERCENT_FMT = new Intl.NumberFormat('pt-PT', { style: 'percent', maximumFractionDigits: 1 });
+const DECIMAL_FMT = new Intl.NumberFormat('pt-PT', { maximumFractionDigits: 1 });
 
 /** Paleta dos gráficos: cores de marca + tons de apoio legíveis em fundo escuro. */
 const CHART_PALETTE = ['#40E0D0', '#FFD700', '#0047AB', '#8B5CF6', '#F59E0B', '#34D399', '#FB7185', '#EC4899'];
@@ -62,6 +89,7 @@ function toNumber(value: unknown): number {
 const fmtCurrency = (value: number): string => CURRENCY_FMT.format(value);
 const fmtNumber = (value: number): string => NUMBER_FMT.format(value);
 const fmtPercent = (ratio: number): string => PERCENT_FMT.format(ratio);
+const fmtDecimal = (value: number): string => DECIMAL_FMT.format(value);
 
 /** "1234567" → "1,2M" para os eixos dos gráficos. */
 function fmtCompact(value: number): string {
@@ -175,6 +203,23 @@ const LICENSE_TYPE_LABELS: Record<string, string> = {
     ANNUAL: 'Anual',
 };
 
+const HOURLY_STATUS_LABELS: Record<string, string> = {
+    EM_CURSO: 'Em curso',
+    PAGO: 'Paga',
+    CANCELADA: 'Cancelada',
+};
+
+const PRE_BILL_DOC_TYPE_LABELS: Record<string, string> = {
+    PRE_CONTA: 'Pré-conta',
+    EXTRATO: 'Extrato do hóspede',
+};
+
+const PRE_BILL_CONTEXT_LABELS: Record<string, string> = {
+    MESA: 'Mesa',
+    QUARTO: 'Quarto',
+    CONTA: 'Conta do hóspede',
+};
+
 /** Tom do "pill" de estado da reserva. */
 function statusTone(status: string): string {
     switch (status) {
@@ -192,6 +237,20 @@ function statusTone(status: string): string {
 }
 
 /* ── Componentes de UI genéricos ─────────────────────────────────────────── */
+
+/** Tom do "pill" de estado de uma sessão horária (migração 011). */
+function hourlyTone(status: string): string {
+    switch (status) {
+        case 'PAGO':
+            return 'bg-emerald-500/10 border border-emerald-400/30 text-emerald-300';
+        case 'EM_CURSO':
+            return 'bg-amber-500/10 border border-amber-400/30 text-amber-300';
+        case 'CANCELADA':
+            return 'bg-rose-500/10 border border-rose-400/30 text-rose-300';
+        default:
+            return 'bg-white/5 border border-white/15 text-white/50';
+    }
+}
 
 type KpiTone = 'default' | 'positive' | 'negative' | 'brand';
 
@@ -250,6 +309,17 @@ function ErrorBanner({ message }: { message: string | null }) {
     );
 }
 
+/** Aviso informativo âmbar — usado quando falta a migração 011, não um erro. */
+function InfoBanner({ message }: { message: string | null }) {
+    if (!message) return null;
+    return (
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3">
+            <TriangleAlert className="w-4 h-4 text-amber-300 shrink-0" />
+            <p className="text-sm text-amber-200">{message}</p>
+        </div>
+    );
+}
+
 function EmptyState() {
     return (
         <div className="glass-panel rounded-[24px] border border-white/5 p-10 text-center">
@@ -302,6 +372,45 @@ function BreakdownList({ items, formatValue = fmtCurrency }: {
 }
 
 /* ── Gráficos SVG (sem dependências) ─────────────────────────────────────── */
+
+interface RankEntry {
+    name: string;
+    units: number;
+    revenue: number;
+}
+
+/** Lista ranqueada com barra proporcional — Top Pratos e Top Bebidas. */
+function RankedList({ entries, formatValue = fmtCurrency }: {
+    entries: RankEntry[];
+    formatValue?: (value: number) => string;
+}) {
+    if (entries.length === 0) {
+        return <p className="text-sm text-white/35">Sem vendas deste tipo no período seleccionado.</p>;
+    }
+    const max = Math.max(1, ...entries.map(entry => entry.revenue));
+    return (
+        <ol className="space-y-3.5">
+            {entries.map((entry, index) => (
+                <li key={entry.name}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="text-white/60 truncate">
+                            <span className="text-white/30 font-mono mr-2">{index + 1}</span>
+                            {entry.name}
+                        </span>
+                        <span className="text-xs text-white/40 shrink-0">{fmtNumber(entry.units)} un</span>
+                        <span className="font-black text-white shrink-0">{formatValue(entry.revenue)}</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                        <div
+                            className="h-full rounded-full"
+                            style={{ width: `${(entry.revenue / max) * 100}%`, background: 'var(--brand-primary)' }}
+                        />
+                    </div>
+                </li>
+            ))}
+        </ol>
+    );
+}
 
 interface BarChartSeries {
     name: string;
@@ -1310,13 +1419,656 @@ function AuditoriaReport({ from, to }: { from: string; to: string }) {
 
 /* ── Página ──────────────────────────────────────────────────────────────── */
 
-type ReportId = 'financeiro' | 'ocupacao' | 'pos' | 'auditoria';
+/* ── Relatório E — Horas vs Diárias ──────────────────────────────────────── */
+
+function HorasDiariasReport({ from, to }: { from: string; to: string }) {
+    const [sessoes, setSessoes] = useState<HourlyBillingRow[]>([]);
+    const [reservasDiaria, setReservasDiaria] = useState<number | null>(null);
+    const [indisponivel, setIndisponivel] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const refresh = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        setIndisponivel(false);
+        setReservasDiaria(null);
+        if (!from || !to) { setLoading(false); return; }
+
+        // Sessões horárias (migração 011). Sem a tabela o `fetchHourlyBilling`
+        // devolve `unavailable` sem erro: o relatório degrada, não falha.
+        const resultado = await fetchHourlyBilling(from, to);
+        if (resultado.error) {
+            setError(resultado.error);
+            setSessoes([]);
+            setLoading(false);
+            return;
+        }
+        setSessoes(resultado.rows);
+        setIndisponivel(resultado.unavailable);
+
+        // Reservas com diária no período — melhor esforço, nunca bloqueia.
+        if (supabaseClient) {
+            const { data, error: reservasError } = await supabaseClient
+                .from('hotel_reservations')
+                .select('id,reservation_date,status')
+                .gte('reservation_date', from)
+                .lte('reservation_date', to)
+                .limit(3000);
+            if (!reservasError && data) {
+                setReservasDiaria(
+                    (data as { status: string }[]).filter(r => r.status !== 'CANCELADA').length,
+                );
+            }
+        }
+        setLoading(false);
+    }, [from, to]);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => { void refresh(); }, 0);
+        return () => window.clearTimeout(timer);
+    }, [refresh]);
+
+    const dados = useMemo(() => {
+        const horasVendidas = sessoes.reduce((acc, s) => acc + s.block_hours + s.extensions, 0);
+        const receita = sessoes.reduce((acc, s) => acc + s.amount_paid, 0);
+        const activas = sessoes.filter(s => s.status === 'EM_CURSO').length;
+
+        const diaMap = new Map<string, { sessoes: number; receita: number }>();
+        for (const sessao of sessoes) {
+            const dia = sessao.started_at.slice(0, 10);
+            if (!dia) continue;
+            const actual = diaMap.get(dia) ?? { sessoes: 0, receita: 0 };
+            actual.sessoes += 1;
+            actual.receita += sessao.amount_paid;
+            diaMap.set(dia, actual);
+        }
+        const porDia = [...diaMap.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([dia, valores]) => ({ dia: axisLabel(dia), ...valores }));
+
+        const estadoMap = new Map<string, number>();
+        for (const sessao of sessoes) {
+            estadoMap.set(sessao.status, (estadoMap.get(sessao.status) ?? 0) + 1);
+        }
+        const porEstado = [...estadoMap.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([estado, total]) => ({ label: HOURLY_STATUS_LABELS[estado] ?? estado, total }));
+
+        const recentes = [...sessoes]
+            .sort((a, b) => b.started_at.localeCompare(a.started_at))
+            .slice(0, 60);
+
+        return { horasVendidas, receita, activas, porDia, porEstado, recentes };
+    }, [sessoes]);
+
+    return (
+        <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <KpiCard
+                    label="Sessões Horárias"
+                    value={fmtNumber(sessoes.length)}
+                    hint={`${fmtNumber(dados.activas)} em curso`}
+                    icon={Clock}
+                />
+                <KpiCard
+                    label="Horas Vendidas"
+                    value={fmtDecimal(dados.horasVendidas)}
+                    hint="blocos mais extensões"
+                    icon={Hourglass}
+                    tone="brand"
+                />
+                <KpiCard
+                    label="Receita Horária"
+                    value={fmtCurrency(dados.receita)}
+                    hint="liquidado nas sessões"
+                    icon={Banknote}
+                    tone="positive"
+                />
+                <KpiCard
+                    label="Reservas com Diária"
+                    value={reservasDiaria === null ? '—' : fmtNumber(reservasDiaria)}
+                    hint="não canceladas no período"
+                    icon={BedDouble}
+                />
+            </div>
+
+            <ErrorBanner message={error} />
+            {indisponivel ? (
+                <InfoBanner message="A tabela hourly_billing não existe nesta base de dados — a migração 011 ainda não foi aplicada. As sessões horárias ficam indisponíveis; a contagem de reservas com diária continua a ser apresentada." />
+            ) : null}
+
+            {loading ? (
+                <LoadingState label="A carregar as sessões horárias…" />
+            ) : (
+                <>
+                    {sessoes.length === 0 && !indisponivel ? <EmptyState /> : null}
+
+                    {sessoes.length > 0 ? (
+                        <>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <SectionCard title="Sessões por Dia" subtitle="Sessões iniciadas em cada dia do período">
+                                    <BarChart
+                                        labels={dados.porDia.map(d => d.dia)}
+                                        series={[{ name: 'Sessões', color: CHART_PALETTE[0], values: dados.porDia.map(d => d.sessoes) }]}
+                                        formatValue={fmtNumber}
+                                    />
+                                </SectionCard>
+                                <SectionCard title="Receita Horária por Dia" subtitle="Valor liquidado nas sessões de cada dia">
+                                    <BarChart
+                                        labels={dados.porDia.map(d => d.dia)}
+                                        series={[{ name: 'Receita', color: CHART_PALETTE[1], values: dados.porDia.map(d => d.receita) }]}
+                                        formatValue={fmtCompact}
+                                    />
+                                </SectionCard>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <SectionCard title="Sessões por Estado" subtitle="Composição das sessões do período">
+                                    <BreakdownList items={dados.porEstado} formatValue={fmtNumber} />
+                                </SectionCard>
+                                <SectionCard title="Horas vs Diárias" subtitle="Sessões horárias e reservas com diária no mesmo período">
+                                    {reservasDiaria === null ? (
+                                        <p className="text-sm text-white/35">Contagem de reservas indisponível.</p>
+                                    ) : (
+                                        <BreakdownList
+                                            items={[
+                                                { label: 'Sessões horárias', total: sessoes.length },
+                                                { label: 'Reservas com diária', total: reservasDiaria },
+                                            ]}
+                                            formatValue={fmtNumber}
+                                        />
+                                    )}
+                                </SectionCard>
+                            </div>
+
+                            <SectionCard title="Sessões do Período" subtitle={`${fmtNumber(sessoes.length)} sessões — últimas 60`}>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead>
+                                            <tr className="text-left text-[10px] font-black text-white/35 uppercase tracking-[0.2em] border-b border-white/10">
+                                                <th className="py-3 pr-4">Início</th>
+                                                <th className="py-3 pr-4">Quarto</th>
+                                                <th className="py-3 pr-4 text-right">Horas</th>
+                                                <th className="py-3 pr-4">Estado</th>
+                                                <th className="py-3 text-right">Liquidado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {dados.recentes.map(sessao => (
+                                                <tr key={sessao.id} className="border-b border-white/5 last:border-0">
+                                                    <td className="py-3 pr-4 text-white/50 whitespace-nowrap">{fmtDateTime(sessao.started_at)}</td>
+                                                    <td className="py-3 pr-4 text-white/75">{sessao.room_number ?? '—'}</td>
+                                                    <td className="py-3 pr-4 text-right text-white/75">
+                                                        {fmtDecimal(sessao.block_hours + sessao.extensions)} h
+                                                    </td>
+                                                    <td className="py-3 pr-4">
+                                                        <span className={`inline-block px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${hourlyTone(sessao.status)}`}>
+                                                            {HOURLY_STATUS_LABELS[sessao.status] ?? sessao.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 text-right font-black text-white whitespace-nowrap">
+                                                        {fmtCurrency(sessao.amount_paid)}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </SectionCard>
+                        </>
+                    ) : null}
+                </>
+            )}
+        </div>
+    );
+}
+
+/* ── Relatório F — Top Pratos e Top Bebidas ──────────────────────────────── */
+
+/** Nível de detalhe conseguido na classificação da carta. */
+type Classificacao = 'completa' | 'parcial' | 'indisponivel';
+
+interface CartaRow {
+    id: string;
+    name: string;
+    category: string | null;
+    master_product_id?: string | null;
+}
+
+function TopProdutosReport({ from, to }: { from: string; to: string }) {
+    const [items, setItems] = useState<PosOrderItemRow[]>([]);
+    const [produtos, setProdutos] = useState<Map<string, { name: string; group: ProductGroup }>>(() => new Map());
+    const [classificacao, setClassificacao] = useState<Classificacao>('completa');
+    const [avisoMestre, setAvisoMestre] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const refresh = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        setClassificacao('completa');
+        setAvisoMestre(null);
+        if (!from || !to) { setLoading(false); return; }
+        if (!isSupabaseConfigured || !supabaseClient) {
+            setError('Supabase não configurado neste ambiente.');
+            setLoading(false);
+            return;
+        }
+        try {
+            const { data: ordersData, error: ordersError } = await supabaseClient
+                .from('pos_orders')
+                .select('id')
+                .eq('status', 'PAGA')
+                .gte('closed_at', `${from}T00:00:00.000Z`)
+                .lte('closed_at', `${to}T23:59:59.999Z`)
+                .order('closed_at', { ascending: false })
+                .limit(800);
+            if (ordersError) throw new Error(ordersError.message);
+            const orderIds = ((ordersData ?? []) as { id: string }[]).map(row => row.id);
+            if (orderIds.length === 0) {
+                setItems([]);
+                setProdutos(new Map());
+                setLoading(false);
+                return;
+            }
+
+            const { data: itemsData, error: itemsError } = await supabaseClient
+                .from('pos_order_items')
+                .select('id,order_id,product_id,product_name,unit_price,quantity,line_total')
+                .in('order_id', orderIds)
+                .order('created_at', { ascending: false })
+                .limit(5000);
+            if (itemsError) throw new Error(itemsError.message);
+            const itemRows = ((itemsData ?? []) as PosOrderItemRow[]).map(row => ({
+                ...row,
+                unit_price: toNumber(row.unit_price),
+                quantity: toNumber(row.quantity),
+                line_total: toNumber(row.line_total),
+            }));
+            setItems(itemRows);
+
+            // Classificação em três níveis: `kind` do catálogo mestre (011),
+            // categoria local do POS e, no limite, só o nome da linha de venda.
+            const productIds = [...new Set(
+                itemRows.map(i => i.product_id).filter((id): id is string => Boolean(id)),
+            )];
+            if (productIds.length === 0) {
+                setProdutos(new Map());
+                setLoading(false);
+                return;
+            }
+
+            let estado: Classificacao = 'completa';
+            let temColunaMestre = true;
+            let linhas: CartaRow[] = [];
+            try {
+                const comMestre = await supabaseClient
+                    .from('pos_products')
+                    .select('id,name,category,master_product_id')
+                    .in('id', productIds);
+                if (isMissingColumn(comMestre.error?.message ?? '')) {
+                    // Sem a migração 011 não existe a coluna de ligação.
+                    temColunaMestre = false;
+                    const semMestre = await supabaseClient
+                        .from('pos_products')
+                        .select('id,name,category')
+                        .in('id', productIds);
+                    if (semMestre.error) throw semMestre.error;
+                    linhas = (semMestre.data ?? []) as CartaRow[];
+                } else {
+                    if (comMestre.error) throw comMestre.error;
+                    linhas = (comMestre.data ?? []) as CartaRow[];
+                }
+            } catch {
+                // Sem a carta local não há classificação fiável — degrada.
+                estado = 'indisponivel';
+            }
+
+            const kindPorId = new Map<string, string>();
+            if (estado !== 'indisponivel') {
+                const masterIds = [...new Set(
+                    linhas.map(l => l.master_product_id).filter((id): id is string => Boolean(id)),
+                )];
+                if (masterIds.length > 0) {
+                    const masters = await supabaseClient
+                        .from('master_products_catalog')
+                        .select('id,kind')
+                        .in('id', masterIds);
+                    if (masters.error) {
+                        // Catálogo mestre inacessível: fica a categoria local.
+                        estado = 'parcial';
+                        setAvisoMestre(
+                            isMissingRelation(masters.error.message)
+                                ? 'O catálogo mestre (migração 011) ainda não existe nesta base de dados, por isso pratos e bebidas foram identificados pela categoria local do POS.'
+                                : `Não foi possível ler o catálogo mestre (${masters.error.message}) — a classificação recorreu à categoria local do POS.`,
+                        );
+                    } else {
+                        for (const master of (masters.data ?? []) as { id: string; kind: string | null }[]) {
+                            if (master.kind) kindPorId.set(master.id, master.kind);
+                        }
+                    }
+                }
+                if (!temColunaMestre) estado = 'parcial';
+            }
+
+            const mapa = new Map<string, { name: string; group: ProductGroup }>();
+            if (estado !== 'indisponivel') {
+                for (const linha of linhas) {
+                    const kind = linha.master_product_id
+                        ? kindPorId.get(linha.master_product_id) ?? null
+                        : null;
+                    mapa.set(linha.id, { name: linha.name, group: classifyProductGroup(kind, linha.category) });
+                }
+            }
+            setProdutos(mapa);
+            setClassificacao(estado);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao carregar o relatório de produtos.');
+            setItems([]);
+            setProdutos(new Map());
+        } finally {
+            setLoading(false);
+        }
+    }, [from, to]);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => { void refresh(); }, 0);
+        return () => window.clearTimeout(timer);
+    }, [refresh]);
+
+    const dados = useMemo(() => {
+        const mapa = new Map<string, RankEntry & { group: ProductGroup }>();
+        let receitaTotal = 0;
+        for (const item of items) {
+            const produto = item.product_id ? produtos.get(item.product_id) : undefined;
+            const chave = item.product_id ?? `item-${item.id}`;
+            const actual = mapa.get(chave) ?? {
+                name: produto?.name ?? item.product_name,
+                group: produto?.group ?? 'OUTRO' as ProductGroup,
+                units: 0,
+                revenue: 0,
+            };
+            actual.units += item.quantity;
+            actual.revenue += item.line_total;
+            mapa.set(chave, actual);
+            receitaTotal += item.line_total;
+        }
+        const todos = [...mapa.values()].sort((a, b) => b.units - a.units || b.revenue - a.revenue);
+        const doGrupo = (grupo: ProductGroup) => todos.filter(e => e.group === grupo).slice(0, 10);
+        const unidades = (lista: (RankEntry & { group: ProductGroup })[]) =>
+            lista.reduce((acc, e) => acc + e.units, 0);
+
+        const pratos = doGrupo('PRATO');
+        const bebidas = doGrupo('BEBIDA');
+        const outros = doGrupo('OUTRO');
+        return {
+            todos,
+            pratos,
+            bebidas,
+            outros,
+            receitaTotal,
+            unidadesPratos: pratos.reduce((acc, e) => acc + e.units, 0),
+            unidadesBebidas: bebidas.reduce((acc, e) => acc + e.units, 0),
+            unidadesOutros: outros.reduce((acc, e) => acc + e.units, 0),
+            unidadesTotal: unidades(todos),
+        };
+    }, [items, produtos]);
+
+    const avisoClassificacao =
+        classificacao === 'indisponivel'
+            ? 'Não foi possível ler a carta do POS (pos_products). Os rankings usam apenas o nome gravado na linha de venda e ficam agrupados em «Outros».'
+            : avisoMestre
+                ? avisoMestre
+                : classificacao === 'parcial'
+                    ? 'O catálogo mestre (migração 011) está indisponível, por isso pratos e bebidas foram identificados pela categoria local do POS.'
+                    : null;
+
+    return (
+        <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <KpiCard label="Pratos Vendidos" value={fmtNumber(dados.unidadesPratos)} hint="unidades no período" icon={ChefHat} />
+                <KpiCard label="Bebidas Vendidas" value={fmtNumber(dados.unidadesBebidas)} hint="unidades no período" icon={ShoppingBag} />
+                <KpiCard label="Outros Produtos" value={fmtNumber(dados.unidadesOutros)} hint="padaria, snack e restantes" icon={ShoppingCart} />
+                <KpiCard label="Receita dos Artigos" value={fmtCurrency(dados.receitaTotal)} hint="soma das linhas de venda" icon={Banknote} tone="positive" />
+            </div>
+
+            <ErrorBanner message={error} />
+            {avisoClassificacao ? <InfoBanner message={avisoClassificacao} /> : null}
+
+            {loading ? (
+                <LoadingState label="A analisar as comandas pagas…" />
+            ) : items.length === 0 ? (
+                <EmptyState />
+            ) : (
+                <>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <SectionCard title="Top Pratos" subtitle="Top 10 por quantidade vendada">
+                            <RankedList entries={dados.pratos} />
+                        </SectionCard>
+                        <SectionCard title="Top Bebidas" subtitle="Top 10 por quantidade vendada">
+                            <RankedList entries={dados.bebidas} />
+                        </SectionCard>
+                    </div>
+
+                    <SectionCard title="Outros Produtos" subtitle="Padaria, snack, take-away e restantes classificações">
+                        <RankedList entries={dados.outros} />
+                    </SectionCard>
+
+                    <SectionCard
+                        title="Carta Mais Vendida"
+                        subtitle={`Top 10 geral — ${fmtNumber(dados.unidadesTotal)} unidades lidas (máximo de 5000 linhas)`}
+                    >
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-[10px] font-black text-white/35 uppercase tracking-[0.2em] border-b border-white/10">
+                                        <th className="py-3 pr-4">#</th>
+                                        <th className="py-3 pr-4">Produto</th>
+                                        <th className="py-3 pr-4">Grupo</th>
+                                        <th className="py-3 pr-4 text-right">Qtd.</th>
+                                        <th className="py-3 text-right">Receita</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {dados.todos.slice(0, 10).map((produto, index) => (
+                                        <tr key={`${index}-${produto.name}`} className="border-b border-white/5 last:border-0">
+                                            <td className="py-3 pr-4 text-white/35">{index + 1}</td>
+                                            <td className="py-3 pr-4 text-white/75 max-w-[280px] truncate">{produto.name}</td>
+                                            <td className="py-3 pr-4 text-white/50">{PRODUCT_GROUP_LABELS[produto.group]}</td>
+                                            <td className="py-3 pr-4 text-right text-white/75">{fmtNumber(produto.units)}</td>
+                                            <td className="py-3 text-right font-black text-white whitespace-nowrap">{fmtCurrency(produto.revenue)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </SectionCard>
+                </>
+            )}
+        </div>
+    );
+}
+
+/* ── Relatório G — Pré-contas Emitidas ───────────────────────────────────── */
+
+function PreContasReport({ from, to }: { from: string; to: string }) {
+    const [resultado, setResultado] = useState<PreBillFetchResult | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const refresh = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        if (!from || !to) { setLoading(false); return; }
+        const r = await fetchPreBills(from, to);
+        if (r.error) {
+            setError(r.error);
+            setResultado(null);
+        } else {
+            setResultado(r);
+        }
+        setLoading(false);
+    }, [from, to]);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => { void refresh(); }, 0);
+        return () => window.clearTimeout(timer);
+    }, [refresh]);
+
+    const rows = useMemo<PreBillRow[]>(() => resultado?.rows ?? [], [resultado]);
+    const indisponivel = resultado?.unavailable ?? false;
+
+    const dados = useMemo(() => {
+        const valorTotal = rows.reduce((acc, r) => acc + r.total, 0);
+        const convidados = new Set(rows.map(r => r.guest_name).filter((nome): nome is string => Boolean(nome)));
+
+        const tipoMap = new Map<string, number>();
+        for (const row of rows) {
+            const tipo = row.doc_type || 'DESCONHECIDO';
+            tipoMap.set(tipo, (tipoMap.get(tipo) ?? 0) + 1);
+        }
+        const porTipo = [...tipoMap.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([tipo, total]) => ({ label: PRE_BILL_DOC_TYPE_LABELS[tipo] ?? tipo, total }));
+
+        const contextoMap = new Map<string, number>();
+        for (const row of rows) {
+            const contexto = row.context || 'DESCONHECIDO';
+            contextoMap.set(contexto, (contextoMap.get(contexto) ?? 0) + 1);
+        }
+        const porContexto = [...contextoMap.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([contexto, total]) => ({ label: PRE_BILL_CONTEXT_LABELS[contexto] ?? contexto, total }));
+
+        const diaMap = new Map<string, number>();
+        for (const row of rows) {
+            const dia = row.created_at.slice(0, 10);
+            if (!dia) continue;
+            diaMap.set(dia, (diaMap.get(dia) ?? 0) + 1);
+        }
+        const porDia = [...diaMap.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([dia, total]) => ({ dia: axisLabel(dia), total }));
+
+        return {
+            valorTotal,
+            convidados: convidados.size,
+            media: rows.length > 0 ? valorTotal / rows.length : 0,
+            porTipo,
+            porContexto,
+            porDia,
+            recentes: [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 50),
+        };
+    }, [rows]);
+
+    const totalDocs = resultado?.totalDocs ?? 0;
+    const truncado = resultado?.truncated ?? false;
+
+    return (
+        <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <KpiCard
+                    label="Documentos Emitidos"
+                    value={fmtNumber(totalDocs)}
+                    hint={truncado ? 'lista truncada aos primeiros 1000' : 'no período'}
+                    icon={FileText}
+                />
+                <KpiCard label="Valor Total" value={fmtCurrency(dados.valorTotal)} hint="soma dos documentos lidos" icon={Banknote} tone="positive" />
+                <KpiCard label="Convidados Distintos" value={fmtNumber(dados.convidados)} hint="por nome registado" icon={Receipt} />
+                <KpiCard label="Média por Documento" value={fmtCurrency(dados.media)} hint="valor médio de emissão" icon={ShoppingBag} tone="brand" />
+            </div>
+
+            <ErrorBanner message={error} />
+            {indisponivel ? (
+                <InfoBanner message="A tabela pre_bill_logs não existe nesta base de dados — a migração 011 ainda não foi aplicada, pelo que não é possível enumerar as pré-contas emitidas." />
+            ) : null}
+
+            {loading ? (
+                <LoadingState label="A carregar as pré-contas…" />
+            ) : (
+                <>
+                    {rows.length === 0 && !indisponivel ? <EmptyState /> : null}
+
+                    {rows.length > 0 ? (
+                        <>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <SectionCard title="Documentos por Tipo" subtitle="Pré-contas e extratos emitidos no período">
+                                    <BreakdownList items={dados.porTipo} formatValue={fmtNumber} />
+                                </SectionCard>
+                                <SectionCard title="Documentos por Contexto" subtitle="Onde os documentos foram emitidos">
+                                    <BreakdownList items={dados.porContexto} formatValue={fmtNumber} />
+                                </SectionCard>
+                            </div>
+
+                            <SectionCard title="Emissões por Dia" subtitle="Número de documentos emitidos em cada dia">
+                                <BarChart
+                                    labels={dados.porDia.map(d => d.dia)}
+                                    series={[{ name: 'Documentos', color: CHART_PALETTE[2], values: dados.porDia.map(d => d.total) }]}
+                                    formatValue={fmtNumber}
+                                />
+                            </SectionCard>
+
+                            <SectionCard
+                                title="Registos de Emissão"
+                                subtitle={`${fmtNumber(totalDocs)} documentos no período — últimas 50 emissões`}
+                            >
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead>
+                                            <tr className="text-left text-[10px] font-black text-white/35 uppercase tracking-[0.2em] border-b border-white/10">
+                                                <th className="py-3 pr-4">Emissão</th>
+                                                <th className="py-3 pr-4">Tipo</th>
+                                                <th className="py-3 pr-4">Documento</th>
+                                                <th className="py-3 pr-4">Contexto</th>
+                                                <th className="py-3 pr-4">Quarto / Hóspede</th>
+                                                <th className="py-3 text-right">Valor</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {dados.recentes.map(doc => (
+                                                <tr key={doc.id} className="border-b border-white/5 last:border-0">
+                                                    <td className="py-3 pr-4 text-white/50 whitespace-nowrap">{fmtDateTime(doc.created_at)}</td>
+                                                    <td className="py-3 pr-4 text-white/75">
+                                                        {PRE_BILL_DOC_TYPE_LABELS[doc.doc_type] ?? (doc.doc_type || '—')}
+                                                    </td>
+                                                    <td className="py-3 pr-4 text-white/75 font-mono text-xs">{doc.doc_number || '—'}</td>
+                                                    <td className="py-3 pr-4 text-white/50">
+                                                        {PRE_BILL_CONTEXT_LABELS[doc.context] ?? (doc.context || '—')}
+                                                    </td>
+                                                    <td className="py-3 pr-4 text-white/50 max-w-[220px] truncate">
+                                                        {doc.room_number ?? doc.guest_name ?? doc.label ?? '—'}
+                                                    </td>
+                                                    <td className="py-3 text-right font-black text-white whitespace-nowrap">{fmtCurrency(doc.total)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                {truncado ? (
+                                    <p className="mt-3 text-[11px] text-white/35">
+                                        A lista está truncada aos primeiros 1000 documentos — estreite o período para ver o restante.
+                                    </p>
+                                ) : null}
+                            </SectionCard>
+                        </>
+                    ) : null}
+                </>
+            )}
+        </div>
+    );
+}
+
+type ReportId = 'financeiro' | 'ocupacao' | 'pos' | 'auditoria' | 'horas_diarias' | 'top_pratos' | 'pre_contas';
 
 const REPORT_OPTIONS: { id: ReportId; title: string; subtitle: string; icon: LucideIcon }[] = [
     { id: 'financeiro', title: 'Financeiro Executivo', subtitle: 'DRE simplificado do razão', icon: Banknote },
     { id: 'ocupacao', title: 'Ocupação e Diárias', subtitle: 'RevPAR e origem das reservas', icon: BedDouble },
     { id: 'pos', title: 'POS e Vendas', subtitle: 'Comandas, ticket médio e top produtos', icon: ShoppingCart },
     { id: 'auditoria', title: 'Auditoria Operacional', subtitle: 'Rasto de auditoria e licença', icon: ScrollText },
+    { id: 'horas_diarias', title: 'Horas vs Diárias', subtitle: 'Sessões horárias e reservas', icon: Hourglass },
+    { id: 'top_pratos', title: 'Top Pratos e Bebidas', subtitle: 'Carta mais vendida por grupo', icon: ChefHat },
+    { id: 'pre_contas', title: 'Pré-contas Emitidas', subtitle: 'Documentos e contextos de emissão', icon: FileText },
 ];
 
 type PeriodPreset = 'hoje' | '7d' | '30d' | 'mes' | 'ano' | 'custom';
@@ -1390,7 +2142,7 @@ export default function RelatoriosPage() {
                     </div>
                 </motion.div>
 
-                {/* Filtro de período — partilhado pelos quatro relatórios */}
+                {/* Filtro de período — partilhado por todos os relatórios */}
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1498,6 +2250,9 @@ export default function RelatoriosPage() {
                     {activeReport === 'ocupacao' && <OcupacaoReport from={range.from} to={range.to} />}
                     {activeReport === 'pos' && <PosReport from={range.from} to={range.to} />}
                     {activeReport === 'auditoria' && <AuditoriaReport from={range.from} to={range.to} />}
+                    {activeReport === 'horas_diarias' && <HorasDiariasReport from={range.from} to={range.to} />}
+                    {activeReport === 'top_pratos' && <TopProdutosReport from={range.from} to={range.to} />}
+                    {activeReport === 'pre_contas' && <PreContasReport from={range.from} to={range.to} />}
                 </motion.div>
             </div>
         </DashboardLayout>

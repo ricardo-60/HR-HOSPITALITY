@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Home, Users, Key, Calendar, ArrowRight, Zap, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
-import { HoloRoomMap } from '@/components/alojamento/HoloRoomMap';
+import { RoomBoard } from '@/app/alojamento/RoomBoard';
 import { supabase } from '@/lib/supabase';
 
 export default function AlojamentoPage() {
@@ -52,7 +52,9 @@ export default function AlojamentoPage() {
     }, []);
 
     const handleSelectRoom = async (roomId: string, status: string) => {
-        if (status === 'DISPONIVEL') {
+        // Um quarto reservado para hoje ainda sem check-in comporta-se como
+        // livre no fluxo: leva directamente ao check-in com o quarto pré-seleccionado.
+        if (status === 'DISPONIVEL' || status === 'RESERVADO') {
             window.location.href = `/alojamento/checkin?room=${roomId}`;
         } else if (status === 'OCUPADO') {
             setLoadingCheckout(true);
@@ -220,7 +222,7 @@ export default function AlojamentoPage() {
                 </div>
 
                 <div id="room-map">
-                    <HoloRoomMap onSelectRoom={handleSelectRoom} />
+                    <RoomBoard onSelectRoom={handleSelectRoom} />
                 </div>
 
                 {/* Feedback inline do CHECK-OUT (sem extrato carregado) */}

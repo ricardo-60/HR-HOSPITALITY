@@ -3,9 +3,10 @@
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { HoloTableMap } from '@/components/pos/HoloTableMap';
-import { ShoppingBag, Sparkles } from 'lucide-react';
+import { ChefHat, ShoppingBag, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useState } from 'react';
 
 const posAreas = ['Main Gastro Hall', 'Executive Lounge', 'External Deck'];
@@ -45,6 +46,40 @@ export default function POSPage() {
                             <p className="text-[9px] md:text-[11px] font-black text-black uppercase tracking-[0.1em] md:tracking-[0.2em] text-center">New Order</p>
                         </div>
                     </div>
+                </motion.div>
+
+                {/* Gestão de produtos — entrada em destaque para /pos/produtos */}
+                <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 }}
+                    className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-6 px-6 md:px-10 py-7 rounded-[32px] md:rounded-[44px] bg-[#111111] border border-[var(--brand-secondary)]/25 shadow-[0_30px_60px_rgba(0,0,0,0.6)] overflow-hidden"
+                >
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-[var(--brand-secondary)]/5 blur-[100px] -mr-24 -mt-24 pointer-events-none" />
+                    <div className="flex items-center gap-5 relative z-10">
+                        <div className="w-14 h-14 rounded-2xl bg-[var(--brand-secondary)]/10 border border-[var(--brand-secondary)]/35 flex items-center justify-center shrink-0">
+                            <ChefHat className="w-7 h-7 text-[var(--brand-secondary)]" />
+                        </div>
+                        <div>
+                            <p className="text-[9px] md:text-[10px] font-black text-[var(--brand-secondary)] uppercase tracking-[0.4em] mb-1.5">
+                                Catálogo do POS
+                            </p>
+                            <h2 className="text-xl md:text-3xl font-black text-white uppercase tracking-tighter">
+                                Gerir Produtos e Stock
+                            </h2>
+                            <p className="text-xs md:text-sm text-white/40 mt-1.5 max-w-xl leading-relaxed">
+                                Registar pratos novos, ajustar preços, ligar artigos ao economato e importar entradas do
+                                catálogo mestre — incluindo os produtos em rutura, que ficam ocultos só na caixa.
+                            </p>
+                        </div>
+                    </div>
+                    <Link
+                        href="/pos/produtos"
+                        className="relative z-10 shrink-0 flex items-center justify-center gap-2 px-7 py-4 rounded-[24px] bg-[var(--brand-secondary)] text-black text-[11px] font-black uppercase tracking-[0.2em] shadow-[0_20px_40px_rgba(255,215,0,0.2)] hover:scale-105 transition-transform"
+                    >
+                        <ShoppingBag className="w-4 h-4" />
+                        Abrir gestão de produtos
+                    </Link>
                 </motion.div>
 
                 {/* Restaurante Vista */}

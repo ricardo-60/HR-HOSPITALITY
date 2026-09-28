@@ -1214,6 +1214,12 @@ $$;
 -- ------------------------------------------------------------
 -- 10. RLS e privilegios
 -- ------------------------------------------------------------
+-- Lacuna da 008: `pos_products` so tinha GRANT SELECT, mas a policy de
+-- escrita ja la existia. Qualquer INSERT/UPDATE feito pela interface da
+-- empresa devolvia 42501. A escrita continua condicionada a
+-- hr_can_write_module('pos') pela policy pos_products_write da 008.
+GRANT INSERT, UPDATE, DELETE ON TABLE public.pos_products TO authenticated;
+
 ALTER TABLE public.master_products_catalog ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.room_rates               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hourly_billing           ENABLE ROW LEVEL SECURITY;
@@ -1501,6 +1507,23 @@ CREATE POLICY pre_bill_logs_update
     WITH CHECK (
         tenant_id = (SELECT public.hr_tenant_id())
         AND (SELECT public.hr_can_write_module('pos'))
+    );
+
+-- Politicas de SELECT sao somadas, nao substituidas: o hospede lê os
+-- documentos emitidos sobre a CONTA PROPRIA (o comprovativo no extrato
+-- da app do cliente) e a staff continua a ler todos da instancia.
+DROP POLICY IF EXISTS pre_bill_logs_guest ON public.pre_bill_logs;
+CREATE POLICY pre_bill_logs_guest
+    ON public.pre_bill_logs
+    FOR SELECT
+    TO authenticated
+    USING (
+        tenant_id = (SELECT public.hr_tenant_id())
+        AND guest_account_id IN (
+            SELECT a.id
+            FROM public.guest_accounts AS a
+            WHERE a.auth_user_id = (SELECT auth.uid())
+        )
     );
 
 REVOKE ALL ON FUNCTION public.hr_pick_room_rate(UUID, TEXT, INT) FROM PUBLIC, anon;

@@ -739,6 +739,52 @@ async function main() {
             () => rls.query(`DELETE FROM public.pre_bill_logs WHERE tenant_id = $1`, [TENANT_TESTE]),
             '42501');
 
+        // ✅ Lacuna da 008: a policy de escrita de `pos_products` já existia,
+        // mas o GRANT só concedia SELECT — a interface devolvia 42501.
+        await setRlsJwt(OPERADOR);
+        await rls.query(`
+            UPDATE public.pos_products
+            SET price = 750
+            WHERE tenant_id = $1 AND sku = 'POS-011-RESELO'`, [TENANT_TESTE]);
+        const resoldPrice = (await db.query(
+            `SELECT price FROM public.pos_products WHERE tenant_id = $1 AND sku = 'POS-011-RESELO'`,
+            [TENANT_TESTE])).rows[0].price;
+        check('interface da empresa escreve em pos_products',
+            Number(resoldPrice) === 750, `${resoldPrice}`);
+
+        // O catálogo mestre continua fechado a quem não é Master Global.
+        // (Uma UPDATE bloqueada pela RLS não devolve erro: afecta 0 linhas.)
+        await rls.query(`UPDATE public.master_products_catalog SET suggested_price = 1 WHERE sku = 'REFR-COMPAL-250'`);
+        const masterPrice = (await db.query(
+            `SELECT suggested_price FROM public.master_products_catalog WHERE sku = 'REFR-COMPAL-250'`
+        )).rows[0].suggested_price;
+        check('produto mestre continua fechado ao operador',
+            Number(masterPrice) > 1, `${masterPrice}`);
+
+        // ✅ Extrato do hóspede: o documento emitido sobre a conta própria
+        // fica visível para a app do cliente (a staff já via tudo).
+        await setJwt(OPERADOR);
+        const guestBill = (await db.query(`
+            SELECT public.hr_issue_pre_bill(NULL, $1, 'QUARTO', 'Quarto H01', NULL, 'PDF') AS r`,
+            [accId])).rows[0].r;
+        check('extrato da conta do hóspede emitido com as linhas congeladas',
+            guestBill.doc_type === 'EXTRATO' && guestBill.line_count === 2 &&
+            Number(guestBill.total) === 5700 && guestBill.locked_items === 0,
+            JSON.stringify(guestBill));
+
+        await setRlsJwt(GUEST);
+        const guestDocs = (await rls.query(
+            `SELECT count(*)::int AS n FROM public.pre_bill_logs`)).rows[0].n;
+        check('hóspede vê os documentos emitidos sobre a própria conta',
+            guestDocs === 1, `${guestDocs} documentos`);
+
+        await setRlsJwt(OPERADOR);
+        const staffDocs = (await rls.query(
+            `SELECT count(*)::int AS n FROM public.pre_bill_logs WHERE tenant_id = $1`,
+            [TENANT_TESTE])).rows[0].n;
+        check('staff vê todos os documentos da instância',
+            staffDocs >= 2, `${staffDocs} documentos`);
+
     } finally {
         await db.end();
         await rls.end();

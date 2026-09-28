@@ -141,7 +141,7 @@ async function main() {
         const files = readdirSync(MIGRATIONS_DIR)
             .filter((f) => /^\d{3}_.+\.sql$/.test(f))
             .sort();
-        check('lista de migrações não vazia', files.length >= 10, `${files.length} ficheiros`);
+        check('lista de migrações não vazia', files.length >= 11, `${files.length} ficheiros`);
 
         const applied = [];
         for (const file of files) {
@@ -162,10 +162,10 @@ async function main() {
                 throw error;
             }
         }
-        check('migrações 001..010 aplicadas sem erro', applied.length === files.length, applied.join(','));
+        check('migrações 001..011 aplicadas sem erro', applied.length === files.length, applied.join(','));
 
         const tracked = await db.query('SELECT version FROM public._schema_migrations ORDER BY version');
-        check('_schema_migrations com 10 versões', tracked.rowCount === 10, `${tracked.rowCount} registos`);
+        check('_schema_migrations com 11 versões', tracked.rowCount === 11, `${tracked.rowCount} registos`);
 
         for (const table of ['system_licenses', 'daily_expenses', 'financial_transactions']) {
             const r = await db.query(`SELECT to_regclass('public.${table}') IS NOT NULL AS ok`);
@@ -459,6 +459,285 @@ async function main() {
         )).rows[0].n;
         check('Master Global lê o histórico de licenças de todas as instâncias',
             masterSeesAll >= 3, `${masterSeesAll} licenças`);
+
+        // ✅ Módulo 011: catálogo mestre, tarifas, stock zero, extrato e
+        // pré-conta anti-fraude.
+        const catalog = (await db.query(`
+            SELECT count(*)::int AS n,
+                   count(*) FILTER (WHERE kind = 'BEBIDA')::int AS bebidas,
+                   count(*) FILTER (WHERE kind = 'PRATO')::int  AS pratos,
+                   count(*) FILTER (WHERE origin = 'LOCAL')::int AS locais
+            FROM public.master_products_catalog`)).rows[0];
+        check('catálogo mestre semeado (bebidas, pratos e origem local)',
+            catalog.n >= 60 && catalog.bebidas >= 20 && catalog.pratos >= 10 && catalog.locais >= 20,
+            JSON.stringify(catalog));
+
+        const reservedState = (await db.query(`
+            SELECT count(*)::int AS n
+            FROM pg_catalog.pg_enum AS e
+            JOIN pg_catalog.pg_type AS t ON t.oid = e.enumtypid
+            JOIN pg_catalog.pg_namespace AS s ON s.oid = t.typnamespace
+            WHERE s.nspname = 'public'
+              AND t.typname = 'hotel_room_status'
+              AND e.enumlabel = 'RESERVADO'`)).rows[0].n;
+        check('estado de quarto RESERVADO disponível para o quadro',
+            reservedState === 1, `${reservedState} valores`);
+
+        // Escrita no catálogo: exclusiva do Master Global.
+        await setRlsJwt(OPERADOR);
+        await expectError('operador comum não escreve no catálogo mestre',
+            () => rls.query(`INSERT INTO public.master_products_catalog (sku, name) VALUES ('SO-OPERADOR-011', 'Tentativa')`),
+            '42501');
+
+        await setRlsJwt(MASTER_ID);
+        await rls.query(`
+            INSERT INTO public.master_products_catalog (sku, name, kind, category, origin)
+            VALUES ('TESTE-MASTER-011', 'Produto do Master', 'PRATO', 'COMIDA', 'LOCAL')
+            ON CONFLICT (sku) DO NOTHING`);
+        const masterWrote = (await db.query(
+            `SELECT count(*)::int AS n FROM public.master_products_catalog WHERE sku = 'TESTE-MASTER-011'`
+        )).rows[0].n;
+        check('Master Global escreve no catálogo mestre', masterWrote === 1, `${masterWrote}`);
+
+        // ✅ Regra de stock zero: economato com saldo 0 esconde o produto
+        // da tela de vendas, sem o remover da gestão.
+        await setJwt(OPERADOR);
+        await db.query(`
+            INSERT INTO public.inventory_items (tenant_id, sku, name, category, unit, current_stock, average_cost)
+            VALUES ($1, 'SKU-011-STOCK', 'Sumo de Teste', 'BEBIDA', 'un', 0, 500)
+            ON CONFLICT (tenant_id, sku) DO NOTHING`, [TENANT_TESTE]);
+        const invId = (await db.query(
+            `SELECT id FROM public.inventory_items WHERE tenant_id = $1 AND sku = 'SKU-011-STOCK'`,
+            [TENANT_TESTE])).rows[0].id;
+
+        await db.query(`
+            INSERT INTO public.pos_products (
+                tenant_id, sku, name, category, price, inventory_item_id,
+                affects_inventory, master_product_id
+            ) VALUES (
+                $1, 'POS-011-STOCK', 'Sumo Teste', 'BEBIDA', 700, $2, true,
+                (SELECT id FROM public.master_products_catalog WHERE sku = 'REFR-COMPAL-250')
+            )
+            ON CONFLICT (tenant_id, sku) DO NOTHING`, [TENANT_TESTE, invId]);
+        const stockedProduct = (await db.query(
+            `SELECT id FROM public.pos_products WHERE tenant_id = $1 AND sku = 'POS-011-STOCK'`,
+            [TENANT_TESTE])).rows[0].id;
+
+        const zeroStock = (await db.query(
+            `SELECT * FROM public.hr_pos_stock(ARRAY[$1]::uuid[])`, [stockedProduct])).rows[0];
+        check('stock zero torna o produto indisponível no POS',
+            zeroStock !== undefined && zeroStock.is_available === false &&
+            Number(zeroStock.quantity_in_stock) === 0,
+            JSON.stringify(zeroStock));
+
+        await db.query(`UPDATE public.inventory_items SET current_stock = 5 WHERE id = $1`, [invId]);
+        const restocked = (await db.query(
+            `SELECT * FROM public.hr_pos_stock(ARRAY[$1]::uuid[])`, [stockedProduct])).rows[0];
+        check('stock positivo volta a disponibilizar o produto',
+            restocked !== undefined && restocked.is_available === true, JSON.stringify(restocked));
+
+        // Artigos revendidos nao consomem economato: ficam sempre visiveis.
+        await db.query(`
+            INSERT INTO public.pos_products (tenant_id, sku, name, category, price, affects_inventory)
+            VALUES ($1, 'POS-011-RESELO', 'Refil Revendido', 'BEBIDA', 900, false)
+            ON CONFLICT (tenant_id, sku) DO NOTHING`, [TENANT_TESTE]);
+        const resoldProduct = (await db.query(
+            `SELECT id FROM public.pos_products WHERE tenant_id = $1 AND sku = 'POS-011-RESELO'`,
+            [TENANT_TESTE])).rows[0].id;
+        const resold = (await db.query(
+            `SELECT * FROM public.hr_pos_stock(ARRAY[$1]::uuid[])`, [resoldProduct])).rows[0];
+        check('artigo sem vínculo ao economato continua sempre visível',
+            resold !== undefined && resold.is_available === true, JSON.stringify(resold));
+
+        // ✅ Tarifas: diária e blocos horários editáveis pela administração.
+        await db.query(`
+            INSERT INTO public.hotel_rooms (tenant_id, room_number, room_type, price_per_night, floor)
+            VALUES ($1, 'H01', 'Standard', 25000, 1)
+            ON CONFLICT (tenant_id, room_number) DO NOTHING`, [TENANT_TESTE]);
+        const roomId = (await db.query(
+            `SELECT id FROM public.hotel_rooms WHERE tenant_id = $1 AND room_number = 'H01'`,
+            [TENANT_TESTE])).rows[0].id;
+
+        await db.query(`
+            INSERT INTO public.room_rates (tenant_id, room_id, billing_mode, block_hours, price, label)
+            VALUES ($1, $2, 'PER_DAY', 0, 45000, 'Diaria')
+            ON CONFLICT DO NOTHING`, [TENANT_TESTE, roomId]);
+        await db.query(`
+            INSERT INTO public.room_rates (
+                tenant_id, room_id, billing_mode, block_hours, price, extra_hour_price, label
+            ) VALUES ($1, $2, 'PER_HOUR', 1, 15000, 12000, 'Bloco 1h'),
+                    ($1, $2, 'PER_HOUR', 2, 25000, 12000, 'Bloco 2h'),
+                    ($1, $2, 'PER_HOUR', 3, 33000, 12000, 'Bloco 3h')
+            ON CONFLICT DO NOTHING`, [TENANT_TESTE, roomId]);
+
+        const dayRate = (await db.query(
+            `SELECT public.hr_room_rate($1, 'PER_DAY', 0) AS r`, [roomId])).rows[0].r;
+        const hourRate = (await db.query(
+            `SELECT public.hr_room_rate($1, 'PER_HOUR', 2) AS r`, [roomId])).rows[0].r;
+        check('tarifa diária e bloco horário resolvidos',
+            Number(dayRate) === 45000 && Number(hourRate) === 25000,
+            `${dayRate} / ${hourRate}`);
+
+        const started = (await db.query(
+            `SELECT public.hr_start_hourly_billing($1, 2) AS r`, [roomId])).rows[0].r;
+        check('sessão horária aberta com fim calculado',
+            typeof started.ends_at !== 'undefined' && started.block_hours === 2 &&
+            Number(started.rate) === 25000 && Number(started.extra_hour_rate) === 12000,
+            JSON.stringify(started));
+
+        await expectError('segunda sessão horária no mesmo quarto é rejeitada',
+            () => db.query(`SELECT public.hr_start_hourly_billing($1, 1)`, [roomId]), '23505');
+
+        const extended = (await db.query(
+            `SELECT public.hr_extend_hourly_billing($1, 1) AS r`,
+            [started.hourly_billing_id])).rows[0].r;
+        check('estendimento da sessão alarga o prazo e conta a extensão',
+            extended.extensions === 1 && typeof extended.ends_at !== 'undefined',
+            JSON.stringify(extended));
+
+        const closed = (await db.query(
+            `SELECT public.hr_close_hourly_billing($1) AS r`,
+            [started.hourly_billing_id])).rows[0].r;
+        check('fecho da sessão horária liquida o valor e liberta o quarto',
+            typeof closed.room_number === 'string' && Number(closed.amount_paid) > 0 &&
+            closed.hours_used >= 0, JSON.stringify(closed));
+
+        const roomAfterClose = (await db.query(
+            `SELECT status::text AS s FROM public.hotel_rooms WHERE id = $1`, [roomId])).rows[0].s;
+        check('quarto passa a LIMPEZA no fecho da sessão horária',
+            roomAfterClose === 'LIMPEZA', roomAfterClose);
+
+        // ✅ Extrato transparente: as linhas somam a conta e o total é
+        // derivado pelo Postgres, nunca escrito pela aplicação.
+        await db.query(`
+            INSERT INTO public.guest_accounts (
+                tenant_id, account_number, guest_name, room_number, source
+            ) VALUES ($1, 'GC-011-TESTE', 'Hospede de Validacao', 'H01', 'HOSPEDAGEM')
+            ON CONFLICT (tenant_id, account_number) DO NOTHING`, [TENANT_TESTE]);
+        await db.query(`
+            INSERT INTO public.guest_accounts (
+                tenant_id, account_number, guest_name, source
+            ) VALUES ($1, 'GC-011-OUTRA', 'Outro Hospede', 'HOSPEDAGEM')
+            ON CONFLICT (tenant_id, account_number) DO NOTHING`, [TENANT_TESTE]);
+        const accId = (await db.query(
+            `SELECT id FROM public.guest_accounts WHERE tenant_id = $1 AND account_number = 'GC-011-TESTE'`,
+            [TENANT_TESTE])).rows[0].id;
+
+        await db.query(`
+            INSERT INTO public.guest_order_items (
+                tenant_id, account_id, origin, description, quantity, unit_price, line_total
+            ) VALUES ($1, $2, 'RESTAURANTE', 'Muamba de Galinha', 1, 3500, 3500),
+                    ($1, $2, 'BAR', 'Cuca 600ml', 2, 1100, 2200)
+            ON CONFLICT DO NOTHING`, [TENANT_TESTE, accId]);
+        const account = (await db.query(
+            `SELECT subtotal, discount, total FROM public.guest_accounts WHERE id = $1`,
+            [accId])).rows[0];
+        check('conta do hóspede soma as linhas e deriva o total',
+            Number(account.subtotal) === 5700 && Number(account.total) === 5700,
+            JSON.stringify(account));
+
+        // O hóspede autenticado vê a propria conta; a staff vê as da
+        // instancia inteira.
+        const GUEST = '66666666-6666-4666-8666-666666666666';
+        await db.query(`
+            INSERT INTO auth.users (id, email) VALUES ($1, 'hospede@validacao.teste')
+            ON CONFLICT (id) DO NOTHING`, [GUEST]);
+        await db.query(`
+            INSERT INTO public.guest_profiles (
+                id, tenant_id, auth_user_id, full_name,
+                document_type, document_number, document_country
+            ) VALUES ($1, $2, $1, 'Hospede Validacao', 'BI', '123456789LA041', 'ANGOLA')
+            ON CONFLICT (id) DO NOTHING`, [GUEST, TENANT_TESTE]);
+        await db.query(
+            `UPDATE public.guest_accounts SET auth_user_id = $1 WHERE id = $2`,
+            [GUEST, accId]);
+
+        await setRlsJwt(GUEST);
+        const guestVisible = (await rls.query(
+            `SELECT count(*)::int AS n FROM public.guest_accounts`)).rows[0].n;
+        check('hóspede vê apenas a própria conta no extrato',
+            guestVisible === 1, `${guestVisible} contas visíveis`);
+
+        const guestLines = (await rls.query(
+            `SELECT count(*)::int AS n FROM public.guest_order_items`)).rows[0].n;
+        check('hóspede vê as linhas do próprio extrato',
+            guestLines === 2, `${guestLines} linhas visíveis`);
+
+        await setRlsJwt(OPERADOR);
+        const staffVisible = (await rls.query(
+            `SELECT count(*)::int AS n FROM public.guest_accounts WHERE tenant_id = $1`,
+            [TENANT_TESTE])).rows[0].n;
+        check('staff vê todas as contas da instância', staffVisible === 2,
+            `${staffVisible} contas`);
+
+        // ✅ Pré-conta anti-fraude: congela a comanda, numera o documento e
+        // exige justificativa auditada para retirar qualquer item.
+        await db.query(`
+            INSERT INTO public.pos_orders (
+                tenant_id, order_number, status, payment_method,
+                customer_name, subtotal, total, closed_at
+            ) VALUES ($1, 'PC-011-TESTE', 'FECHADA', 'DINHEIRO',
+                      'Cliente Pre-Conta', 0, 0, now())
+            ON CONFLICT (tenant_id, order_number) DO NOTHING`, [TENANT_TESTE]);
+        const testOrder = (await db.query(
+            `SELECT id FROM public.pos_orders WHERE tenant_id = $1 AND order_number = 'PC-011-TESTE'`,
+            [TENANT_TESTE])).rows[0].id;
+
+        await db.query(`
+            INSERT INTO public.pos_order_items (
+                tenant_id, order_id, product_id, product_name,
+                unit_price, quantity, line_total
+            ) VALUES ($1, $2, $3, 'Cuca 600ml', 1100, 2, 2200)`,
+            [TENANT_TESTE, testOrder, stockedProduct]);
+        const lockedItem = (await db.query(
+            `SELECT id FROM public.pos_order_items WHERE order_id = $1`,
+            [testOrder])).rows[0].id;
+
+        await setJwt(OPERADOR);
+        const preBill = (await db.query(`
+            SELECT public.hr_issue_pre_bill($1, NULL, 'MESA', 'Mesa de Teste', NULL, 'ESCPOS_58') AS r`,
+            [testOrder])).rows[0].r;
+        check('pré-conta emitida com número, total e itens congelados',
+            typeof preBill.doc_number === 'string' && preBill.doc_number.startsWith('PC-') &&
+            preBill.line_count === 1 && Number(preBill.total) === 2200 &&
+            preBill.locked_items === 1 && preBill.printer === 'ESCPOS_58',
+            JSON.stringify(preBill));
+
+        const billRows = (await db.query(
+            `SELECT count(*)::int AS n FROM public.pre_bill_logs
+             WHERE tenant_id = $1 AND doc_number = $2`,
+            [TENANT_TESTE, preBill.doc_number])).rows[0].n;
+        check('registo de pré-conta persistido', billRows === 1, `${billRows}`);
+
+        await expectError('remoção de item da pré-conta sem justificativa é bloqueada',
+            () => db.query(`DELETE FROM public.pos_order_items WHERE id = $1`, [lockedItem]),
+            '42501');
+
+        await expectError('alterar a quantidade de um item da pré-conta é bloqueada',
+            () => db.query(`UPDATE public.pos_order_items SET quantity = 99 WHERE id = $1`,
+                [lockedItem]),
+            '42501');
+
+        await db.query(`
+            UPDATE public.pos_order_items
+            SET removal_justification = 'Consumo anulado pelo gerente de sala',
+                removed_at = now()
+            WHERE id = $1`, [lockedItem]);
+        await db.query(`DELETE FROM public.pos_order_items WHERE id = $1`, [lockedItem]);
+
+        const removalAudit = (await db.query(
+            `SELECT count(*)::int AS n FROM public.tenant_audit_log
+             WHERE tenant_id = $1 AND entity_table = 'pos_order_items'
+               AND action = 'ITEM_PRE_CONTA_REMOVIDO'`,
+            [TENANT_TESTE])).rows[0].n;
+        check('remoção justificada de item da pré-conta fica auditada',
+            removalAudit >= 1, `${removalAudit} registos`);
+
+        // O log de documentos é permanente: a aplicação não o apaga.
+        await setRlsJwt(OPERADOR);
+        await expectError('log de pré-conta não pode ser apagado pela aplicação',
+            () => rls.query(`DELETE FROM public.pre_bill_logs WHERE tenant_id = $1`, [TENANT_TESTE]),
+            '42501');
 
     } finally {
         await db.end();

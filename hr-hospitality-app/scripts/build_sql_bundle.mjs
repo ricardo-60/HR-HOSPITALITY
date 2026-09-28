@@ -4,7 +4,7 @@
  *
  * Concatena, por ordem de aplicacao:
  *   1. cabecalho transaccional + tabela _schema_migrations
- *   2. migrations/supabase/001..010  (+ INSERT da versao aplicada)
+ *   2. migrations/supabase/001..011  (+ INSERT da versao aplicada)
  *   3. migrations/seeders/supabase_demo.sql
  *   4. perfil do utilizador master (ADMINISTRATOR)
  *   5. verificacao final + COMMIT
@@ -24,7 +24,7 @@ const ROOT = resolve(HERE, '..', '..');
 
 const OUT =
   process.argv[2] ||
-  join(process.env.USERPROFILE || process.env.HOME || '.', 'Desktop', 'HR-SUPABASE_001-010_SEED_MASTER.sql');
+  join(process.env.USERPROFILE || process.env.HOME || '.', 'Desktop', 'HR-SUPABASE_001-011_SEED_MASTER.sql');
 
 const MIGRATIONS = [
   ['migrations/supabase/001_initial_schema.sql', '001'],
@@ -37,6 +37,7 @@ const MIGRATIONS = [
   ['migrations/supabase/008_pos_inventory_cash.sql', '008'],
   ['migrations/supabase/009_public_site_access.sql', '009'],
   ['migrations/supabase/010_master_global_licensing.sql', '010'],
+  ['migrations/supabase/011_guest_ledger_rates_prebill.sql', '011'],
 ];
 
 const SEEDER = 'migrations/seeders/supabase_demo.sql';
@@ -45,14 +46,26 @@ const MASTER = `
 -- =====================================================================
 -- PERFIL DO UTILIZADOR MASTER
 -- =====================================================================
+-- O perfil so pode apontar para uma conta Supabase Auth que exista: numa
+-- instalacao nova ainda nao ha sessao nenhuma e a chave estrangeira
+-- abortaria o bundle inteiro. Liga-se portanto ao uid existente - ou ao
+-- que usar o mesmo email - e nunca se apaga uma ligacao ja feita.
 INSERT INTO public.app_users (
     id, tenant_id, auth_user_id, email, employee_code, name, role,
     commission_rate, restrictions, allowed_modules, status,
     must_change_password, is_master_global, permissions, created_at, updated_at
-) VALUES (
+)
+SELECT
     '9e42e6aa-5155-4440-b368-5972fe391669',
     '11111111-1111-1111-1111-111111111111',
-    '9e42e6aa-5155-4440-b368-5972fe391669',
+    (
+        SELECT u.id
+        FROM auth.users AS u
+        WHERE u.id = '9e42e6aa-5155-4440-b368-5972fe391669'
+           OR lower(u.email) = lower('hermenegildo.ricardo@gmail.com')
+        ORDER BY (u.id = '9e42e6aa-5155-4440-b368-5972fe391669') DESC
+        LIMIT 1
+    ),
     'hermenegildo.ricardo@gmail.com',
     'MASTER',
     'Hermenegildo Ricardo',
@@ -67,10 +80,9 @@ INSERT INTO public.app_users (
     true,
     '[]'::jsonb,
     NOW(), NOW()
-)
 ON CONFLICT (id) DO UPDATE SET
     tenant_id = EXCLUDED.tenant_id,
-    auth_user_id = EXCLUDED.auth_user_id,
+    auth_user_id = COALESCE(EXCLUDED.auth_user_id, app_users.auth_user_id),
     email = EXCLUDED.email,
     employee_code = EXCLUDED.employee_code,
     name = EXCLUDED.name,
@@ -102,7 +114,7 @@ function read(rel) {
 
 const banner = [
   '-- ============================================================',
-  '--   HR-HOSPITALITY - BUNDLE UNICO (migracoes 001..010 + seed + master)',
+  '--   HR-HOSPITALITY - BUNDLE UNICO (migracoes 001..011 + seed + master)',
   '--   Gerado por hr-hospitality-app/scripts/build_sql_bundle.mjs',
   '--   Idempotente: seguro para re-execucao sobre uma base vazia',
   '--   ou sobre um projecto legado (a migracao 001 tolera um tenants',

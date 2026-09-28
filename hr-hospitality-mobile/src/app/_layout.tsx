@@ -34,6 +34,7 @@ export default function RootLayout() {
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="checkout" options={{ title: 'Pagamento', presentation: 'modal' }} />
+          <Stack.Screen name="extrato" options={{ title: 'Extrato' }} />
         </Stack>
       </BookingProvider>
     </SafeAreaProvider>

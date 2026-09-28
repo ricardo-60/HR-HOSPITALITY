@@ -23,6 +23,19 @@ export function formatKzShort(value: number | string | null | undefined): string
   return `${safe.toFixed(0)} ${CURRENCY}`;
 }
 
+/** Hora gravada no ISO (`19:30`), sem conversão de fuso — o que está na BD. */
+export function formatClock(iso: string | null | undefined): string {
+  if (!iso || iso.length < 16) return '';
+  return iso.slice(11, 16);
+}
+
+/** `1` → `1`; `1.500` → `1,5` — quantidades com vírgula decimal. */
+export function formatQuantity(value: number | string | null | undefined): string {
+  const n = typeof value === 'string' ? Number.parseFloat(value) : (value ?? 0);
+  if (!Number.isFinite(n)) return String(value ?? '');
+  return String(Math.round(n * 1000) / 1000).replace('.', ',');
+}
+
 /** Aceita `YYYY-MM-DD`; devolve `12 Out` ou `12 Out 2026` se não for o ano corrente. */
 export function formatDay(iso: string): string {
   const date = parseIsoDate(iso);

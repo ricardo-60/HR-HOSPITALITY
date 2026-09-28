@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { Alert, Pressable, Text, View } from 'react-native';
 
-import { Card, Screen, SectionHeader } from '@/components/ui';
+import { Badge, Card, Screen, SectionHeader } from '@/components/ui';
 import { HOTEL, isPlaceholderIban } from '@/constants/hotel';
 import { clearCache } from '@/lib/cache';
 import { isSupabaseConfigured } from '@/lib/supabase';
@@ -30,6 +30,19 @@ export default function AccountScreen() {
         <Text className="text-2xl font-black text-white">Conta</Text>
         <Text className="text-sm text-white/50">Configuração e apoio.</Text>
       </View>
+
+      <Pressable accessibilityRole="button" onPress={() => router.push('/extrato')} className="active:opacity-80">
+        <Card className="gap-1 border-gold/30 bg-gold/10">
+          <View className="flex-row items-center justify-between gap-3">
+            <Text className="text-sm font-bold text-gold">Extrato da conta</Text>
+            <Badge label="›" tone="muted" />
+          </View>
+          <Text className="text-xs leading-relaxed text-white/70">
+            Veja linha a linha tudo o que consumiu no hotel — com hora, quantidade, totais e os
+            comprovativos já emitidos.
+          </Text>
+        </Card>
+      </Pressable>
 
       <Card className="gap-1 divide-y divide-white/5">
         <Row label="Estabelecimento" value={HOTEL.name} />

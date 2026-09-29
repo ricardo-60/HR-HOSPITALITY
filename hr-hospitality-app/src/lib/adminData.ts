@@ -52,6 +52,14 @@ export interface GuestProfile {
   kyc_reviewed_at: string | null;
   created_at: string;
   documents?: GuestDocument[];
+  /**
+   * Fotografia e documento de identificação do hóspede, preenchidos por
+   * trigger a partir de `guest_documents` (migração 014). Guardam o CAMINHO
+   * no Storage, não uma URL assinada - essa expirava em 300 s. São opcionais
+   * no tipo porque, até a 014 estar aplicada, não existem na base.
+   */
+  photo_url?: string | null;
+  id_document_url?: string | null;
 }
 
 export interface PaymentProof {
@@ -205,20 +213,32 @@ export async function deleteBankAccount(id: string): Promise<Result<null>> {
 const GUEST_COLUMNS =
   'id,full_name,document_type,document_number,document_country,birth_date,nationality,phone,email,kyc_status,kyc_notes,kyc_reviewed_at,created_at';
 
+/* Colunas derivadas da migração 014: enquanto ela não estiver aplicada na
+   base, o PostgREST devolve 42703 e a lista tem de ser repetida sem elas -
+   ver `listGuestProfiles`. */
+const GUEST_MEDIA_COLUMNS = ',photo_url,id_document_url';
+
 export async function listGuestProfiles(status?: KycStatus): Promise<Result<GuestProfile[]>> {
   try {
-    let query = db()
-      .from('guest_profiles')
-      .select(GUEST_COLUMNS)
-      .order('created_at', { ascending: false })
-      .limit(200);
-    if (status) query = query.eq('kyc_status', status);
-    const { data, error } = await query;
+    const fetchPage = async (columns: string) => {
+      let query = db()
+        .from('guest_profiles')
+        .select(columns)
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (status) query = query.eq('kyc_status', status);
+      return query;
+    };
+
+    let { data, error } = await fetchPage(GUEST_COLUMNS + GUEST_MEDIA_COLUMNS);
+    if (error && (error as { code?: string }).code === '42703') {
+      ({ data, error } = await fetchPage(GUEST_COLUMNS));
+    }
     if (error) return { data: null, error: message(error, 'Falha ao carregar os hóspedes.') };
 
     // Documentos carregados à parte: uma policy por tabela, e o N+1 fica
     // explícito em vez de escondido numa relação do PostgREST.
-    const guests = (data ?? []) as GuestProfile[];
+    const guests = (data ?? []) as unknown as GuestProfile[];
     const withDocs = await Promise.all(
       guests.map(async guest => {
         const { data: docs } = await db()
@@ -247,6 +267,133 @@ export async function signedDocumentUrl(storagePath: string): Promise<Result<str
       .createSignedUrl(storagePath, 300);
     if (error) return { data: null, error: message(error, 'Não foi possível abrir o documento.') };
     return { data: data.signedUrl, error: null };
+  } catch (error) {
+    return { data: null, error: message(error as Error, 'Supabase não configurado.') };
+  }
+}
+
+/**
+ * Abre um documento de identificação no balcão deixando rasto de auditoria.
+ *
+ * A RPC `hr_open_guest_document` (migração 014) escreve em
+ * `tenant_audit_log` e devolve o caminho no Storage. Só depois disso é que se
+ * pede a URL assinada: "quem abriu que documento, quando" fica registado na
+ * base, não na app.
+ *
+ * Enquanto a 014 não estiver aplicada a função não existe (42883) e a
+ * abertura degrada para a assinatura directa - o balcão não pode ficar sem
+ * ver documentos por uma migração pendente. Qualquer outro erro é de
+ * autorização e bloqueia.
+ */
+export async function openGuestDocument(
+  documentId: string,
+  storagePath: string,
+): Promise<Result<string>> {
+  try {
+    const { error } = await db().rpc('hr_open_guest_document', {
+      p_document_id: documentId,
+    });
+    const code = (error as { code?: string } | null)?.code;
+    const texto = error?.message ?? '';
+    const ausente = code === '42883' || code === 'PGRST202'
+      || /could not find the function/i.test(texto);
+    if (error && !ausente) {
+      return { data: null, error: message(error, 'Sem permissão para abrir este documento.') };
+    }
+    return signedDocumentUrl(storagePath);
+  } catch (error) {
+    return { data: null, error: message(error as Error, 'Supabase não configurado.') };
+  }
+}
+
+export type GuestDocumentKind = GuestDocument['kind'];
+
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+
+function safeName(name: string): string {
+  const base = name.replace(/\.[^.]+$/, '');
+  const cleaned = base.replace(/[^\p{L}\d._-]+/gu, '_').replace(/^[_.-]+|[_.-]+$/g, '');
+  return (cleaned || 'documento').slice(-60);
+}
+
+function extensionOf(name: string): string {
+  const match = /\.([^.]+)$/.exec(name);
+  const ext = (match?.[1] ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return ext || 'bin';
+}
+
+/**
+ * Carrega a fotografia ou o BI/Passaporte de um hóspede a partir do balcão.
+ *
+ * O caminho segue `<tenant_id>/<hóspede>/<ficheiro>` porque as policies de
+ * `storage.objects` validam o primeiro segmento contra o tenant da sessão.
+ * A linha em `guest_documents` é gravada por `upsert` em
+ * `(guest_profile_id, kind)`: reenviar substitui a peça, que é a regra da
+ * tabela, e o trigger da 014 mantém `photo_url`/`id_document_url` no perfil.
+ */
+export async function uploadGuestDocument(input: {
+  guestId: string;
+  tenantId: string;
+  kind: GuestDocumentKind;
+  file: File;
+}): Promise<Result<GuestDocument>> {
+  try {
+    if (!input.tenantId) return { data: null, error: 'Sessão sem instância associada.' };
+    if (input.file.size === 0) return { data: null, error: 'Ficheiro vazio.' };
+    if (input.file.size > MAX_UPLOAD_BYTES) {
+      return { data: null, error: 'Ficheiro demasiado grande: máximo 8 MB.' };
+    }
+
+    const path =
+      `${input.tenantId}/${input.guestId}/` +
+      `${Date.now()}-${safeName(input.file.name)}.${extensionOf(input.file.name)}`;
+
+    const previous = await db()
+      .from('guest_documents')
+      .select('storage_path')
+      .eq('guest_profile_id', input.guestId)
+      .eq('kind', input.kind)
+      .maybeSingle();
+    const previousPath = previous.data?.storage_path ?? null;
+
+    const { error: uploadError } = await db()
+      .storage.from('kyc-documents')
+      .upload(path, input.file, {
+        contentType: input.file.type || 'application/octet-stream',
+        upsert: false,
+      });
+    if (uploadError) {
+      return { data: null, error: message(uploadError, 'Não foi possível carregar o ficheiro.') };
+    }
+
+    const { data, error } = await db()
+      .from('guest_documents')
+      .upsert(
+        {
+          guest_profile_id: input.guestId,
+          kind: input.kind,
+          storage_path: path,
+          mime_type: input.file.type || null,
+          size_bytes: input.file.size,
+        },
+        { onConflict: 'guest_profile_id,kind' },
+      )
+      .select('id,kind,storage_path,mime_type')
+      .single();
+
+    if (error) {
+      // A linha nova falhou: o objecto recém-criado ficaria órfão.
+      try { await db().storage.from('kyc-documents').remove([path]); } catch { /* best-effort */ }
+      return { data: null, error: message(error, 'Falha ao registar o documento.') };
+    }
+
+    if (previousPath && previousPath !== path) {
+      // A peça antiga deixa de ser referenciada. A remoção é best-effort:
+      // uma falha no Storage não pode invalidar um documento já gravado.
+      try { await db().storage.from('kyc-documents').remove([previousPath]); } catch { /* best-effort */ }
+    }
+
+    return { data: data as GuestDocument, error: null };
   } catch (error) {
     return { data: null, error: message(error as Error, 'Supabase não configurado.') };
   }

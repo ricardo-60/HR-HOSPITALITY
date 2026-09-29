@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import {
-    BadgeCheck, BedDouble, Check, Eye, FileText, IdCard, RefreshCw,
+    BadgeCheck, BedDouble, Camera, Check, Eye, FileText, FileUp, IdCard, RefreshCw,
     TriangleAlert, UserX, X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -13,7 +13,10 @@ import {
     decideKyc,
     listGuestProfiles,
     listOccupancy,
-    signedDocumentUrl,
+    openGuestDocument,
+    uploadGuestDocument,
+    type GuestDocument,
+    type GuestDocumentKind,
     type GuestProfile,
     type KycStatus,
     type OccupancyRow,
@@ -31,6 +34,22 @@ const DOCUMENT_LABEL: Record<GuestProfile['document_type'], string> = {
     PASSAPORTE: 'Passaporte',
 };
 
+/** Peça principal do documento: é ela que o KYC exige para aprovar. */
+function pecaDocumento(guest: GuestProfile): GuestDocumentKind {
+    return guest.document_type === 'BI' ? 'BI_FRENTE' : 'PASSAPORTE';
+}
+
+function temFoto(guest: GuestProfile): boolean {
+    if (guest.photo_url) return true;
+    return (guest.documents ?? []).some(doc => doc.kind === 'SELFIE');
+}
+
+function temDocumento(guest: GuestProfile): boolean {
+    if (guest.id_document_url) return true;
+    const peca = pecaDocumento(guest);
+    return (guest.documents ?? []).some(doc => doc.kind === peca);
+}
+
 export default function KycPage() {
     const { user } = useAuth();
     const [guests, setGuests] = useState<GuestProfile[]>([]);
@@ -40,6 +59,7 @@ export default function KycPage() {
     const [notice, setNotice] = useState<string | null>(null);
     const [filter, setFilter] = useState<KycStatus | 'TODOS'>('TODOS');
     const [notes, setNotes] = useState<Record<string, string>>({});
+    const [uploading, setUploading] = useState<string | null>(null);
 
     const canDecide = user?.role === 'ADMINISTRATOR' || user?.role === 'PERMISSAO' || user?.role === 'ACESSO';
 
@@ -60,13 +80,32 @@ export default function KycPage() {
         return () => window.clearTimeout(timer);
     }, [refresh]);
 
-    const openDocument = async (storagePath: string) => {
-        const result = await signedDocumentUrl(storagePath);
+    /** Abre o documento no balcão com registo de auditoria na base. */
+    const openDocument = async (doc: GuestDocument) => {
+        const result = await openGuestDocument(doc.id, doc.storage_path);
         if (result.error || !result.data) {
             setError(result.error ?? 'Não foi possível abrir o documento.');
             return;
         }
         window.open(result.data, '_blank', 'noopener,noreferrer');
+    };
+
+    const carregarPeca = async (
+        guest: GuestProfile,
+        kind: GuestDocumentKind,
+        file: File | null | undefined,
+    ) => {
+        if (!file) return;
+        const tenantId = user?.tenantId;
+        if (!tenantId) { setError('Sessão sem instância associada.'); return; }
+        setError(null);
+        setNotice(null);
+        setUploading(`${guest.id}:${kind}`);
+        const result = await uploadGuestDocument({ guestId: guest.id, tenantId, kind, file });
+        setUploading(null);
+        if (result.error) { setError(result.error); return; }
+        setNotice(`${guest.full_name}: ${kind.replace('_', ' ').toLowerCase()} carregado.`);
+        await refresh();
     };
 
     const decide = async (guest: GuestProfile, status: Extract<KycStatus, 'APROVADO' | 'REJEITADO' | 'EM_ANALISE'>) => {
@@ -266,7 +305,7 @@ export default function KycPage() {
                                         {(guest.documents ?? []).map(doc => (
                                             <button
                                                 key={doc.id}
-                                                onClick={() => void openDocument(doc.storage_path)}
+                                                onClick={() => void openDocument(doc)}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/55 text-[10px] font-black uppercase tracking-wider hover:text-white"
                                             >
                                                 <Eye className="w-3 h-3" /> {doc.kind}
@@ -277,6 +316,63 @@ export default function KycPage() {
                                                 Sem documentos
                                             </span>
                                         ) : null}
+                                    </div>
+
+                                    {/* Fotografia e documento de identificação captados no balcão */}
+                                    <div className="grid grid-cols-2 gap-3 pt-3 border-t border-white/5">
+                                        <label
+                                            className={`flex items-center justify-center gap-2 px-3 py-3 rounded-xl border text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all ${
+                                                uploading === `${guest.id}:SELFIE`
+                                                    ? 'bg-white/5 border-white/10 text-white/30'
+                                                    : temFoto(guest)
+                                                        ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/20'
+                                                        : 'bg-white/5 border-white/10 text-white/55 hover:text-white hover:bg-white/10'
+                                            }`}
+                                        >
+                                            <Camera className="w-3.5 h-3.5" />
+                                            {uploading === `${guest.id}:SELFIE`
+                                                ? 'A carregar…'
+                                                : temFoto(guest) ? 'Fotografia ✓' : 'Fotografia'}
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="sr-only"
+                                                disabled={uploading !== null}
+                                                onChange={event => {
+                                                    const file = event.target.files?.[0];
+                                                    event.target.value = '';
+                                                    void carregarPeca(guest, 'SELFIE', file);
+                                                }}
+                                            />
+                                        </label>
+
+                                        <label
+                                            className={`flex items-center justify-center gap-2 px-3 py-3 rounded-xl border text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all ${
+                                                uploading === `${guest.id}:${pecaDocumento(guest)}`
+                                                    ? 'bg-white/5 border-white/10 text-white/30'
+                                                    : temDocumento(guest)
+                                                        ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/20'
+                                                        : 'bg-white/5 border-white/10 text-white/55 hover:text-white hover:bg-white/10'
+                                            }`}
+                                        >
+                                            <FileUp className="w-3.5 h-3.5" />
+                                            {uploading === `${guest.id}:${pecaDocumento(guest)}`
+                                                ? 'A carregar…'
+                                                : temDocumento(guest)
+                                                    ? `${guest.document_type} ✓`
+                                                    : `Carregar ${guest.document_type}`}
+                                            <input
+                                                type="file"
+                                                accept="image/*,application/pdf"
+                                                className="sr-only"
+                                                disabled={uploading !== null}
+                                                onChange={event => {
+                                                    const file = event.target.files?.[0];
+                                                    event.target.value = '';
+                                                    void carregarPeca(guest, pecaDocumento(guest), file);
+                                                }}
+                                            />
+                                        </label>
                                     </div>
 
                                     {canDecide ? (

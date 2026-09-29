@@ -8,10 +8,14 @@ import {
     Clock,
     Crown,
     KeyRound,
+    Pencil,
     Plus,
     RefreshCw,
     ShieldAlert,
+    Trash2,
     TriangleAlert,
+    UserCog,
+    X,
     XCircle,
 } from 'lucide-react';
 
@@ -37,6 +41,31 @@ interface TenantRow {
     company_name: string | null;
     property_type: PropertyType | null;
     is_active: boolean;
+    tax_id?: string | null;
+    address?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    /** Derivados por trigger da migração 014 — presentes só depois dela. */
+    admin_user_id?: string | null;
+    license_status?: string | null;
+    license_expires_at?: string | null;
+}
+
+/**
+ * Administrador local de uma instância, tal como o devolve `hr_tenant_admins`.
+ * A função existe desde a migração 014 e não expõe os hashes de `app_users`.
+ */
+interface AdminRow {
+    id: string;
+    name: string | null;
+    email: string | null;
+    role: string;
+    status: string;
+}
+
+/** PostgREST devolve PGRST202 quando a função ainda não existe na base. */
+function isMissingRpc(code: string | undefined, text: string): boolean {
+    return code === 'PGRST202' || code === '42883' || /could not find the function/i.test(text);
 }
 
 interface LicenseRow {
@@ -117,6 +146,28 @@ export default function MasterLicensingPage() {
     const [newType, setNewType] = useState<PropertyType>('HOSPEDARIA');
     const [creating, setCreating] = useState(false);
 
+    // Edição / eliminação de instância
+    const [editing, setEditing] = useState<TenantRow | null>(null);
+    const [editForm, setEditForm] = useState({
+        name: '',
+        company_name: '',
+        tax_id: '',
+        address: '',
+        phone: '',
+        email: '',
+        is_active: true,
+    });
+    const [saving, setSaving] = useState(false);
+    const [deleting, setDeleting] = useState<TenantRow | null>(null);
+    const [deleteConfirm, setDeleteConfirm] = useState('');
+    const [deletingBusy, setDeletingBusy] = useState(false);
+
+    // Administrador local de cada instância
+    const [adminTarget, setAdminTarget] = useState<TenantRow | null>(null);
+    const [admins, setAdmins] = useState<AdminRow[]>([]);
+    const [adminsNote, setAdminsNote] = useState<string | null>(null);
+    const [loadingAdmins, setLoadingAdmins] = useState(false);
+
     const refresh = useCallback(async () => {
         if (!supabaseClient) return;
         setLoading(true);
@@ -143,6 +194,20 @@ export default function MasterLicensingPage() {
         const timer = window.setTimeout(() => { void refresh(); }, 0);
         return () => window.clearTimeout(timer);
     }, [refresh]);
+
+    // Escape fecha os diálogos de edição, eliminação e administrador local
+    useEffect(() => {
+        if (!editing && !deleting && !adminTarget) return;
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape') return;
+            setEditing(null);
+            setDeleting(null);
+            setDeleteConfirm('');
+            setAdminTarget(null);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [editing, deleting, adminTarget]);
 
     const licensesByTenant = useMemo(() => {
         const map = new Map<string, LicenseRow[]>();
@@ -263,6 +328,129 @@ export default function MasterLicensingPage() {
         } finally {
             setCreating(false);
         }
+    };
+
+    /* ── Edição de instância ────────────────────────────────────────────── */
+
+    const openEdit = (tenant: TenantRow) => {
+        setError(null);
+        setEditForm({
+            name: tenant.name ?? '',
+            company_name: tenant.company_name ?? '',
+            tax_id: tenant.tax_id ?? '',
+            address: tenant.address ?? '',
+            phone: tenant.phone ?? '',
+            email: tenant.email ?? '',
+            is_active: tenant.is_active !== false,
+        });
+        setEditing(tenant);
+    };
+
+    const saveEdit = async () => {
+        const client = supabaseClient;
+        if (!client || !editing) return;
+        if (!editForm.name.trim()) {
+            setError('A designação da instância não pode ficar vazia — é ela que confirma a eliminação.');
+            return;
+        }
+        setSaving(true);
+        try {
+            const { error: updateError } = await client
+                .from('tenants')
+                .update({
+                    name: editForm.name.trim(),
+                    company_name: editForm.company_name.trim() || null,
+                    tax_id: editForm.tax_id.trim() || null,
+                    address: editForm.address.trim() || null,
+                    phone: editForm.phone.trim() || null,
+                    email: editForm.email.trim() || null,
+                    is_active: editForm.is_active,
+                })
+                .eq('id', editing.id);
+            if (updateError) throw new Error(updateError.message);
+            const nome = editForm.name.trim();
+            setEditing(null);
+            await run(async () => undefined, `Instância "${nome}" actualizada.`);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Não foi possível gravar a instância.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    /* ── Eliminação segura em cascata ───────────────────────────────────── */
+
+    const deleteTenant = async () => {
+        const client = supabaseClient;
+        if (!client || !deleting) return;
+        const confirmacao = deleteConfirm.trim();
+        if (confirmacao !== deleting.name) {
+            setError(`Escreva exactamente "${deleting.name}" para confirmar a eliminação.`);
+            return;
+        }
+        setDeletingBusy(true);
+        try {
+            const { error: rpcError } = await client.rpc('hr_delete_tenant', {
+                p_tenant_id: deleting.id,
+                p_confirm: confirmacao,
+            });
+            if (rpcError) {
+                throw new Error(
+                    isMissingRpc(rpcError.code, rpcError.message)
+                        ? 'A eliminação em cascata exige a migração 014 aplicada na base de dados.'
+                        : rpcError.message,
+                );
+            }
+            const nome = deleting.name;
+            setDeleting(null);
+            setDeleteConfirm('');
+            await run(async () => undefined, `Instância "${nome}" eliminada em cascata.`);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Não foi possível eliminar a instância.');
+        } finally {
+            setDeletingBusy(false);
+        }
+    };
+
+    /* ── Administrador local ────────────────────────────────────────────── */
+
+    const openAdmins = async (tenant: TenantRow) => {
+        const client = supabaseClient;
+        if (!client) return;
+        setAdminTarget(tenant);
+        setAdmins([]);
+        setAdminsNote(null);
+        setError(null);
+        setLoadingAdmins(true);
+        try {
+            const { data, error: rpcError } = await client.rpc('hr_tenant_admins', {
+                p_tenant_id: tenant.id,
+            });
+            if (rpcError) {
+                setAdminsNote(
+                    isMissingRpc(rpcError.code, rpcError.message)
+                        ? 'A gestão de administrador local fica disponível depois da migração 014.'
+                        : rpcError.message,
+                );
+                return;
+            }
+            setAdmins((data ?? []) as AdminRow[]);
+        } finally {
+            setLoadingAdmins(false);
+        }
+    };
+
+    const assignAdmin = async (tenant: TenantRow, adminId: string | null) => {
+        const client = supabaseClient;
+        if (!client) return;
+        await run(async () => {
+            const { error: updateError } = await client
+                .from('tenants')
+                .update({ admin_user_id: adminId })
+                .eq('id', tenant.id);
+            if (updateError) throw new Error(updateError.message);
+        }, adminId ? 'Administrador local atribuído.' : 'Administrador local removido.');
+        await openAdmins(tenant);
     };
 
     if (!user?.isMasterGlobal) {
@@ -525,6 +713,13 @@ export default function MasterLicensingPage() {
                                                 <td className="p-5">
                                                     <p className="font-bold text-white">{tenant.company_name || tenant.name}</p>
                                                     <p className="text-[10px] font-mono text-white/30 mt-1">{tenant.slug}</p>
+                                                    {'admin_user_id' in tenant ? (
+                                                        <p className="text-[10px] mt-1 text-white/40">
+                                                            {tenant.admin_user_id
+                                                                ? '✓ Administrador local atribuído'
+                                                                : 'Sem administrador local'}
+                                                        </p>
+                                                    ) : null}
                                                 </td>
                                                 <td className="p-5 text-xs text-white/60">
                                                     {tenant.property_type ? PROPERTY_LABELS[tenant.property_type] : '—'}
@@ -566,6 +761,26 @@ export default function MasterLicensingPage() {
                                                     )}
                                                 </td>
                                                 <td className="p-5">
+                                                    <div className="flex flex-wrap gap-2 mb-2">
+                                                        <button
+                                                            onClick={() => openEdit(tenant)}
+                                                            className="px-3 py-1.5 rounded-lg bg-[var(--brand-primary)]/15 border border-[var(--brand-primary)]/40 text-[#8CC0FF] text-[9px] font-black uppercase tracking-widest hover:bg-[var(--brand-primary)]/30 flex items-center gap-1.5"
+                                                        >
+                                                            <Pencil className="w-3 h-3" /> Editar
+                                                        </button>
+                                                        <button
+                                                            onClick={() => { setError(null); setDeleteConfirm(''); setDeleting(tenant); }}
+                                                            className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-[9px] font-black uppercase tracking-widest hover:bg-red-500/20 flex items-center gap-1.5"
+                                                        >
+                                                            <Trash2 className="w-3 h-3" /> Eliminar
+                                                        </button>
+                                                        <button
+                                                            onClick={() => void openAdmins(tenant)}
+                                                            className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/55 text-[9px] font-black uppercase tracking-widest hover:bg-white/10 flex items-center gap-1.5"
+                                                        >
+                                                            <UserCog className="w-3 h-3" /> Admin
+                                                        </button>
+                                                    </div>
                                                     {current && (
                                                         <div className="flex flex-wrap gap-2">
                                                             {current.status !== 'ACTIVE' && (
@@ -609,6 +824,257 @@ export default function MasterLicensingPage() {
                         </table>
                     </div>
                 </div>
+
+                {/* ── Diálogos do Master Global ────────────────────────────── */}
+
+                {/* Editar instância */}
+                {editing && (
+                    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 print:hidden">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="glass-panel rounded-3xl border border-white/10 w-full max-w-3xl p-6 space-y-5"
+                        >
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-amber-400">
+                                        Editar Instância
+                                    </h3>
+                                    <p className="text-[10px] font-mono text-white/35 mt-1">{editing.slug}</p>
+                                </div>
+                                <button
+                                    onClick={() => setEditing(null)}
+                                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-all"
+                                    title="Fechar"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">Designação</label>
+                                    <input
+                                        value={editForm.name}
+                                        onChange={event => setEditForm(form => ({ ...form, name: event.target.value }))}
+                                        className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm focus:outline-none focus:border-amber-500/50"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">Nome comercial</label>
+                                    <input
+                                        value={editForm.company_name}
+                                        onChange={event => setEditForm(form => ({ ...form, company_name: event.target.value }))}
+                                        className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm focus:outline-none focus:border-amber-500/50"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">NIF / Tributário</label>
+                                    <input
+                                        value={editForm.tax_id}
+                                        onChange={event => setEditForm(form => ({ ...form, tax_id: event.target.value }))}
+                                        className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm focus:outline-none focus:border-amber-500/50"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">Telefone</label>
+                                    <input
+                                        value={editForm.phone}
+                                        onChange={event => setEditForm(form => ({ ...form, phone: event.target.value }))}
+                                        className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm focus:outline-none focus:border-amber-500/50"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">E-mail</label>
+                                    <input
+                                        type="email"
+                                        value={editForm.email}
+                                        onChange={event => setEditForm(form => ({ ...form, email: event.target.value }))}
+                                        className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm focus:outline-none focus:border-amber-500/50"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-white/40 ml-2">Morada</label>
+                                    <input
+                                        value={editForm.address}
+                                        onChange={event => setEditForm(form => ({ ...form, address: event.target.value }))}
+                                        className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-sm focus:outline-none focus:border-amber-500/50"
+                                    />
+                                </div>
+                            </div>
+
+                            <label className="flex items-center gap-3 text-xs font-black uppercase tracking-widest text-white/55 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={editForm.is_active}
+                                    onChange={event => setEditForm(form => ({ ...form, is_active: event.target.checked }))}
+                                    className="w-4 h-4 accent-amber-500"
+                                />
+                                Instância activa
+                            </label>
+
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    onClick={() => setEditing(null)}
+                                    className="px-5 py-3 rounded-xl bg-white/5 border border-white/10 text-white/55 text-[10px] font-black uppercase tracking-widest hover:bg-white/10"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={() => void saveEdit()}
+                                    disabled={saving}
+                                    className="px-5 py-3 rounded-xl bg-amber-500 text-black text-[10px] font-black uppercase tracking-widest hover:bg-amber-400 disabled:opacity-40"
+                                >
+                                    {saving ? 'A gravar…' : 'Guardar'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+
+                {/* Eliminar instância — exige digitar o nome exacto */}
+                {deleting && (
+                    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 print:hidden">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="glass-panel rounded-3xl border border-red-500/30 w-full max-w-xl p-6 space-y-5"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400">
+                                    <ShieldAlert className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-red-400">
+                                        Eliminar Instância
+                                    </h3>
+                                    <p className="text-[10px] text-white/40 mt-1">Acção irreversível · em cascata</p>
+                                </div>
+                            </div>
+
+                            <div className="text-xs text-white/55 leading-relaxed space-y-2">
+                                <p>
+                                    Serão eliminados por ordem de dependência: quartos, reservas,
+                                    consumos e registos de RH de{' '}
+                                    <span className="text-white font-bold">{deleting.name}</span>.
+                                </p>
+                                <p>
+                                    Licenças, hóspedes e utilizadores <span className="text-white font-bold">não</span>{' '}
+                                    são apagados: ficam órfãos de propósito, para que o histórico de
+                                    auditoria não desapareça. A eliminação fica registada em{' '}
+                                    <span className="font-mono text-white/70">master_tenant_deletions</span>.
+                                </p>
+                            </div>
+
+                            <p className="text-xs text-white/50">
+                                Escreva <span className="font-mono text-red-300">{deleting.name}</span> para confirmar:
+                            </p>
+                            <input
+                                value={deleteConfirm}
+                                onChange={event => setDeleteConfirm(event.target.value)}
+                                className="w-full px-4 py-3 bg-black/40 border border-red-500/30 rounded-xl text-sm font-mono focus:outline-none focus:border-red-400"
+                            />
+
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    onClick={() => { setDeleting(null); setDeleteConfirm(''); }}
+                                    className="px-5 py-3 rounded-xl bg-white/5 border border-white/10 text-white/55 text-[10px] font-black uppercase tracking-widest hover:bg-white/10"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={() => void deleteTenant()}
+                                    disabled={deletingBusy || deleteConfirm.trim() !== deleting.name}
+                                    className="px-5 py-3 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500/30 disabled:opacity-30 disabled:cursor-not-allowed"
+                                >
+                                    {deletingBusy ? 'A eliminar…' : 'Eliminar em cascata'}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+
+                {/* Administrador local da instância */}
+                {adminTarget && (
+                    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 print:hidden">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="glass-panel rounded-3xl border border-white/10 w-full max-w-xl p-6 space-y-5"
+                        >
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-amber-400">
+                                        Administrador Local
+                                    </h3>
+                                    <p className="text-xs text-white/45 mt-1">{adminTarget.company_name || adminTarget.name}</p>
+                                </div>
+                                <button
+                                    onClick={() => setAdminTarget(null)}
+                                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-all"
+                                    title="Fechar"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+
+                            {adminsNote ? (
+                                <div className="flex items-start gap-3 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3">
+                                    <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0" />
+                                    <span>{adminsNote}</span>
+                                </div>
+                            ) : loadingAdmins ? (
+                                <p className="text-xs font-black uppercase tracking-widest text-white/35 text-center py-6">
+                                    A carregar administradores…
+                                </p>
+                            ) : admins.length === 0 ? (
+                                <p className="text-xs text-white/40 text-center py-6">
+                                    Nenhum utilizador com papel ADMINISTRATOR nesta instância.
+                                    Crie um administrador no módulo de utilizadores primeiro.
+                                </p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {admins.map(admin => {
+                                        const activo = adminTarget.admin_user_id === admin.id;
+                                        return (
+                                            <div
+                                                key={admin.id}
+                                                className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border px-4 py-3 ${activo
+                                                    ? 'bg-amber-500/10 border-amber-500/30'
+                                                    : 'bg-white/5 border-white/10'}`}
+                                            >
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-bold text-white truncate">
+                                                        {admin.name || admin.email || admin.id}
+                                                    </p>
+                                                    <p className="text-[10px] text-white/35 truncate">
+                                                        {admin.email} · {admin.role} · {admin.status}
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    onClick={() => { if (!activo) void assignAdmin(adminTarget, admin.id); }}
+                                                    disabled={activo}
+                                                    className="shrink-0 px-3.5 py-2 rounded-lg bg-white/5 border border-white/10 text-white/55 text-[9px] font-black uppercase tracking-widest hover:bg-white/10 disabled:opacity-40"
+                                                >
+                                                    {activo ? 'Actual' : 'Tornar admin'}
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {!adminsNote && 'admin_user_id' in adminTarget && adminTarget.admin_user_id ? (
+                                <button
+                                    onClick={() => void assignAdmin(adminTarget, null)}
+                                    className="w-full px-5 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20"
+                                >
+                                    Remover administrador local
+                                </button>
+                            ) : null}
+                        </motion.div>
+                    </div>
+                )}
 
                 <p className="text-[10px] font-black uppercase tracking-[0.25em] text-white/25 text-center">
                     O Master Global nunca é afectado pela expiração de licença, bloqueio de empresa ou restrição de módulo.

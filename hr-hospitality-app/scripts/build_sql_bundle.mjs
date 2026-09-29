@@ -4,7 +4,7 @@
  *
  * Concatena, por ordem de aplicacao:
  *   1. cabecalho transaccional + tabela _schema_migrations
- *   2. migrations/supabase/001..013  (+ INSERT da versao aplicada)
+ *   2. migrations/supabase/001..014  (+ INSERT da versao aplicada)
  *   3. migrations/seeders/supabase_demo.sql
  *   4. perfil do utilizador master (ADMINISTRATOR)
  *   5. verificacao final + COMMIT
@@ -24,7 +24,7 @@ const ROOT = resolve(HERE, '..', '..');
 
 const OUT =
   process.argv[2] ||
-  join(process.env.USERPROFILE || process.env.HOME || '.', 'Desktop', 'HR-SUPABASE_001-013_SEED_MASTER.sql');
+  join(process.env.USERPROFILE || process.env.HOME || '.', 'Desktop', 'HR-SUPABASE_001-014_SEED_MASTER.sql');
 
 const MIGRATIONS = [
   ['migrations/supabase/001_initial_schema.sql', '001'],
@@ -40,6 +40,7 @@ const MIGRATIONS = [
   ['migrations/supabase/011_guest_ledger_rates_prebill.sql', '011'],
   ['migrations/supabase/012_tenant_id_default.sql', '012'],
   ['migrations/supabase/013_pos_tables_write_grant.sql', '013'],
+  ['migrations/supabase/014_master_companies_guest_media.sql', '014'],
 ];
 
 const SEEDER = 'migrations/seeders/supabase_demo.sql';
@@ -116,7 +117,7 @@ function read(rel) {
 
 const banner = [
   '-- ============================================================',
-  '--   HR-HOSPITALITY - BUNDLE UNICO (migracoes 001..011 + seed + master)',
+  '--   HR-HOSPITALITY - BUNDLE UNICO (migracoes 001..014 + seed + master)',
   '--   Gerado por hr-hospitality-app/scripts/build_sql_bundle.mjs',
   '--   Idempotente: seguro para re-execucao sobre uma base vazia',
   '--   ou sobre um projecto legado (a migracao 001 tolera um tenants',

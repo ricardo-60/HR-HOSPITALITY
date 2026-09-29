@@ -443,14 +443,24 @@ export default function MasterLicensingPage() {
     const assignAdmin = async (tenant: TenantRow, adminId: string | null) => {
         const client = supabaseClient;
         if (!client) return;
-        await run(async () => {
+        try {
             const { error: updateError } = await client
                 .from('tenants')
                 .update({ admin_user_id: adminId })
                 .eq('id', tenant.id);
             if (updateError) throw new Error(updateError.message);
-        }, adminId ? 'Administrador local atribuído.' : 'Administrador local removido.');
-        await openAdmins(tenant);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Não foi possível actualizar o administrador local.');
+            return;
+        }
+
+        // O objecto veio do estado anterior: sem repor aqui o `admin_user_id`,
+        // o diálogo continuaria a mostrar o valor antigo e o botão "Actual"
+        // (e o de remover) nunca chegava a aparecer.
+        const actualizado: TenantRow = { ...tenant, admin_user_id: adminId };
+        setAdminTarget(actualizado);
+        await run(async () => undefined, adminId ? 'Administrador local atribuído.' : 'Administrador local removido.');
+        await openAdmins(actualizado);
     };
 
     if (!user?.isMasterGlobal) {

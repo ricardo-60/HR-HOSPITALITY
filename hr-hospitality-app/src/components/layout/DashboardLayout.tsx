@@ -80,16 +80,16 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     const licenseBlocked = license?.is_expired === true && user?.isMasterGlobal !== true;
 
     return (
-        <div className="min-h-screen bg-[#111827] text-white overflow-hidden relative font-sans">
+        <div className="min-h-screen bg-[#111827] text-white overflow-hidden relative font-sans print:overflow-visible print:bg-white print:min-h-0">
             {/* Background Ambience */}
-            <div className="fixed inset-0 pointer-events-none">
+            <div className="fixed inset-0 pointer-events-none print:hidden">
                 <div className="absolute top-0 -left-64 w-[600px] h-[600px] bg-cyber-cyan/5 blur-[128px] rounded-full opacity-30" />
                 <div className="absolute bottom-0 -right-64 w-[600px] h-[600px] bg-cyber-purple/5 blur-[128px] rounded-full opacity-20" />
             </div>
 
             {/* Mobile Top Bar */}
             {viewport === 'MOBILE' && user && (
-                <div className="fixed top-0 left-0 right-0 z-[120] flex items-center justify-between px-4 py-3 glass-panel border-b border-white/5 shadow-lg">
+                <div className="fixed top-0 left-0 right-0 z-[120] flex items-center justify-between px-4 py-3 glass-panel border-b border-white/5 shadow-lg print:hidden">
                     <button
                         onClick={() => setDrawerOpen(true)}
                         className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white transition-all active:scale-95"
@@ -112,16 +112,16 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
             {/* Sidebar - Desktop & Tablet */}
             {viewport !== 'MOBILE' && user && (
-                <div className={`fixed inset-y-0 left-0 z-[100] transition-all duration-500 ease-in-out`}>
+                <div className={`fixed inset-y-0 left-0 z-[100] transition-all duration-500 ease-in-out print:hidden`}>
                     <Sidebar isCompact={viewport === 'TABLET'} />
                 </div>
             )}
 
             {/* Main Content */}
-            <main className={`transition-all duration-500 h-screen overflow-y-auto no-scrollbar ${
+            <main className={`transition-all duration-500 h-screen overflow-y-auto no-scrollbar print:h-auto print:overflow-visible print:p-0 print:pl-0 print:pt-0 print:pb-0 ${
                 viewport === 'DESKTOP' ? 'pl-80' : viewport === 'TABLET' ? 'pl-24' : 'pl-0 pt-14 pb-28'
             }`}>
-                <div className="p-4 md:p-10 lg:p-16 max-w-[1920px] mx-auto min-h-full flex flex-col">
+                <div className="p-4 md:p-10 lg:p-16 max-w-[1920px] mx-auto min-h-full flex flex-col print:p-0 print:max-w-none">
                     <div className="flex-1">
                         {licenseBlocked ? (
                             /* Licença caducada: o operador local fica de fora até o Master Global renovar */
@@ -187,7 +187,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                     </div>
 
                     {/* Official Signature */}
-                    <div className="mt-16 md:mt-20 pt-10 md:pt-12 border-t border-white/5 flex flex-col items-center gap-4 text-center opacity-60 group hover:opacity-100 transition-opacity duration-700">
+                    <div className="mt-16 md:mt-20 pt-10 md:pt-12 border-t border-white/5 flex flex-col items-center gap-4 text-center opacity-60 group hover:opacity-100 transition-opacity duration-700 print:hidden">
                         <div className="flex items-center gap-3">
                             <div className="w-1 h-3 bg-cyber-cyan rounded-full" />
                             <p className="text-[10px] font-sans font-medium tracking-widest text-white/80 uppercase">Powered by HR-TECNOLOGIA | CEO Hermenegildo Ricardo</p>
@@ -209,6 +209,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                         animate={{ y: 0, opacity: 1 }}
                         exit={{ y: 100, opacity: 0 }}
                         transition={{ type: 'spring', damping: 20 }}
+                        className="print:hidden"
                     >
                         <BottomBar onMenuOpen={() => setDrawerOpen(true)} />
                     </motion.div>

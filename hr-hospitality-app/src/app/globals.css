@@ -238,3 +238,75 @@ body {
     min-height: 44px;
   }
 }
+
+/* ── Impressão (folhas do RH) ──────────────────────────────────────────────
+   A folha existe só para o papel: fica `hidden print:block` na página, a
+   interface leva `print:hidden` e o `@page` (A4 ou bobina de 80 mm) vem do
+   próprio componente. Aqui fica a tipografia preta que o papel exige - a
+   app é escura e o navegador não inverte cores sozinho.                     */
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+  }
+
+  .print-sheet {
+    display: block !important;
+    background: #ffffff;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 11px;
+    line-height: 1.35;
+    text-shadow: none !important;
+  }
+
+  .print-sheet,
+  .print-sheet * {
+    color: #000000;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .print-table th,
+  .print-table td {
+    border: 1px solid #444444;
+    padding: 4px 6px;
+    vertical-align: top;
+    font-size: 10px;
+  }
+
+  .print-table thead th {
+    background: #eeeeee;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 9px;
+  }
+
+  .print-table tbody tr,
+  .print-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-thermal {
+    font-family: 'Courier New', monospace;
+    width: 72mm;
+    margin: 0;
+    font-size: 11px;
+  }
+
+  .print-thermal .print-table th,
+  .print-thermal .print-table td {
+    border: none;
+    border-bottom: 1px dashed #000000;
+    padding: 2px 0;
+    font-size: 10px;
+  }
+}

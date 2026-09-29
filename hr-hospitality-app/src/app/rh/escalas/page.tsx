@@ -3,18 +3,48 @@
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CalendarClock, CalendarDays, Plus, ArrowLeft, ArrowRight, Sun, Moon, Sunrise, X } from 'lucide-react';
+import { CalendarClock, CalendarDays, Plus, ArrowLeft, ArrowRight, Printer, Sun, Moon, Sunrise, X } from 'lucide-react';
 import Link from 'next/link';
 
-type Turno = { id: string; nome: string; dia: string; tipo: string; horas: string };
+import {
+    EscalasPrintSheet,
+    SECTORES,
+    SEM_SETOR,
+    type FormatoImpressao,
+} from '@/components/rh/EscalasPrintSheet';
+
+type Turno = {
+    id: string;
+    nome: string;
+    dia: string;
+    tipo: string;
+    horas: string;
+    /** Setor do colaborador — é o que agrupa o resumo imprimível. */
+    setor: string;
+};
 
 export const SEED_TURNOS: Turno[] = [
-    { id: 'T-001', nome: 'Ricardo Ferreira', dia: 'Segunda', tipo: 'Manhã', horas: '08:00 - 16:30' },
-    { id: 'T-002', nome: 'Ana Sousa', dia: 'Terça', tipo: 'Tarde', horas: '16:00 - 00:30' },
-    { id: 'T-003', nome: 'João Silva', dia: 'Quarta', tipo: 'Noite', horas: '00:00 - 08:30' },
-    { id: 'T-004', nome: 'Maria Conceição', dia: 'Quinta', tipo: 'Manhã', horas: '08:00 - 16:30' },
-    { id: 'T-005', nome: 'Carlos Pereira', dia: 'Sexta', tipo: 'Folga', horas: '---' },
+    { id: 'T-001', nome: 'Ricardo Ferreira', dia: 'Segunda', tipo: 'Manhã', horas: '08:00 - 16:30', setor: 'RECEPÇÃO' },
+    { id: 'T-002', nome: 'Ana Sousa', dia: 'Terça', tipo: 'Tarde', horas: '16:00 - 00:30', setor: 'BAR' },
+    { id: 'T-003', nome: 'João Silva', dia: 'Quarta', tipo: 'Noite', horas: '00:00 - 08:30', setor: 'SEGURANÇA' },
+    { id: 'T-004', nome: 'Maria Conceição', dia: 'Quinta', tipo: 'Manhã', horas: '08:00 - 16:30', setor: 'LIMPEZA' },
+    { id: 'T-005', nome: 'Carlos Pereira', dia: 'Sexta', tipo: 'Folga', horas: '---', setor: 'RESTAURANTE' },
 ];
+
+/** Escalas guardadas antes da migração do setor continuam legíveis. */
+function normalizar(lista: unknown[]): Turno[] {
+    return lista
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+        .map(item => ({
+            id: String(item.id ?? ''),
+            nome: String(item.nome ?? ''),
+            dia: String(item.dia ?? 'Segunda'),
+            tipo: String(item.tipo ?? 'Manhã'),
+            horas: String(item.horas ?? ''),
+            setor: typeof item.setor === 'string' && item.setor.trim() ? item.setor : SEM_SETOR,
+        }))
+        .filter(item => item.id && item.nome);
+}
 
 const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const DIAS_ESCOLHA = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
@@ -42,7 +72,9 @@ export default function EscalasPage() {
     const [vistaMes, setVistaMes] = useState(false);
     const [modal, setModal] = useState(false);
     const [erro, setErro] = useState('');
-    const [form, setForm] = useState({ nome: '', dia: 'Segunda', tipo: 'Manhã', horas: '' });
+    const [form, setForm] = useState({ nome: '', dia: 'Segunda', tipo: 'Manhã', horas: '', setor: SECTORES[0] as string });
+    const [formatoImpressao, setFormatoImpressao] = useState<FormatoImpressao | null>(null);
+    const [impressoEm, setImpressoEm] = useState('');
 
     // Hydratação a partir do localStorage (seed com o array atual se vazio)
     useEffect(() => {
@@ -50,7 +82,7 @@ export default function EscalasPage() {
             try {
                 const raw = localStorage.getItem('rh_escalas');
                 const parsed = raw ? JSON.parse(raw) : null;
-                if (Array.isArray(parsed) && parsed.length > 0) setTurnos(parsed);
+                if (Array.isArray(parsed) && parsed.length > 0) setTurnos(normalizar(parsed));
                 else localStorage.setItem('rh_escalas', JSON.stringify(SEED_TURNOS));
             } catch { /* ignore */ }
         }, 0);
@@ -88,18 +120,33 @@ export default function EscalasPage() {
 
     const colaboradores = Array.from(new Set(turnos.map(t => t.nome)));
 
+    /**
+     * Prepara a folha e abre a caixa de impressão do navegador.
+     *
+     * A folha tem de estar no DOM antes de `window.print()`, por isso a troca
+     * de estado acontece primeiro e o pedido de impressão vai no tick seguinte.
+     */
+    const imprimir = (formato: FormatoImpressao) => {
+        setErro('');
+        setFormatoImpressao(formato);
+        setImpressoEm(new Date().toLocaleString('pt-PT'));
+        window.setTimeout(() => { window.print(); }, 80);
+    };
+
     const criarEscala = () => {
-        if (!form.nome) { setErro('Selecione um colaborador.'); return; }
+        const nome = form.nome.trim();
+        if (!nome) { setErro('Indique o colaborador (escreva o nome ou escolha na lista).'); return; }
         if (form.tipo !== 'Folga' && !form.horas.trim()) { setErro('Indique as horas do turno (ex: 08:00 - 16:30).'); return; }
         const novo: Turno = {
             id: `T-${Date.now().toString().slice(-5)}`,
-            nome: form.nome,
+            nome,
             dia: form.dia,
             tipo: form.tipo,
             horas: form.tipo === 'Folga' ? '---' : form.horas.trim(),
+            setor: form.setor || SEM_SETOR,
         };
         guardarTurnos([...turnos, novo]);
-        setForm({ nome: '', dia: 'Segunda', tipo: 'Manhã', horas: '' });
+        setForm({ nome: '', dia: 'Segunda', tipo: 'Manhã', horas: '', setor: SECTORES[0] as string });
         setErro('');
         setModal(false);
     };
@@ -118,7 +165,7 @@ export default function EscalasPage() {
 
     return (
         <DashboardLayout>
-            <div className="max-w-[1500px] mx-auto space-y-12 pb-20 px-4">
+            <div className="max-w-[1500px] mx-auto space-y-12 pb-20 px-4 print:hidden">
                 {/* Header */}
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
@@ -137,19 +184,46 @@ export default function EscalasPage() {
                         </p>
                     </div>
 
-                    <div className="flex gap-4">
-                        <button
-                            onClick={() => setVistaMes(v => !v)}
-                            className="flex items-center gap-2 bg-white/5 border border-white/10 text-white px-6 py-4 rounded-full font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all"
-                        >
-                            <CalendarDays className="w-4 h-4" /> {vistaMes ? 'Ver Semana' : 'Ver Mês'}
-                        </button>
-                        <button
-                            onClick={() => { setErro(''); setModal(true); }}
-                            className="flex items-center gap-2 bg-[#F59E0B] text-black px-6 py-4 rounded-full font-black text-xs uppercase tracking-widest hover:scale-105 transition-all shadow-[0_0_20px_rgba(245,158,11,0.3)]"
-                        >
-                            <Plus className="w-4 h-4" /> Criar Escala
-                        </button>
+                    <div className="flex flex-col items-stretch gap-4 print:hidden">
+                        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/5 p-2">
+                            <span className="flex items-center gap-1.5 px-2 text-[9px] font-black uppercase tracking-widest text-white/40">
+                                <Printer className="w-3.5 h-3.5" /> Imprimir
+                            </span>
+                            {([
+                                ['A4', 'A4'],
+                                ['SETOR', 'Por Setor'],
+                                ['TERMICO', 'Térmico'],
+                            ] as const).map(([valor, rotulo]) => (
+                                <button
+                                    key={valor}
+                                    onClick={() => imprimir(valor)}
+                                    className="px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 text-white/60 text-[9px] font-black uppercase tracking-widest hover:bg-white/10 hover:text-white transition-all"
+                                    title={
+                                        valor === 'A4'
+                                            ? 'Folha completa da semana em A4'
+                                            : valor === 'SETOR'
+                                                ? 'Resumo agrupado por setor em A4'
+                                                : 'Bobina térmica de 80 mm'
+                                    }
+                                >
+                                    {rotulo}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex gap-4">
+                            <button
+                                onClick={() => setVistaMes(v => !v)}
+                                className="flex items-center gap-2 bg-white/5 border border-white/10 text-white px-6 py-4 rounded-full font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all"
+                            >
+                                <CalendarDays className="w-4 h-4" /> {vistaMes ? 'Ver Semana' : 'Ver Mês'}
+                            </button>
+                            <button
+                                onClick={() => { setErro(''); setModal(true); }}
+                                className="flex items-center gap-2 bg-[#F59E0B] text-black px-6 py-4 rounded-full font-black text-xs uppercase tracking-widest hover:scale-105 transition-all shadow-[0_0_20px_rgba(245,158,11,0.3)]"
+                            >
+                                <Plus className="w-4 h-4" /> Criar Escala
+                            </button>
+                        </div>
                     </div>
                 </motion.div>
 
@@ -199,7 +273,12 @@ export default function EscalasPage() {
                                             key={t.id}
                                             className="border-b border-white/5 hover:bg-white/5 transition-colors"
                                         >
-                                            <td className="p-4 text-sm font-black text-white">{t.nome}</td>
+                                            <td className="p-4">
+                                                <p className="text-sm font-black text-white">{t.nome}</p>
+                                                <p className="text-[9px] font-black uppercase tracking-widest text-white/35 mt-1">
+                                                    {t.setor || SEM_SETOR}
+                                                </p>
+                                            </td>
 
                                             {/* Mocking a week for visual purposes */}
                                             {[1, 2, 3, 4, 5].map(day => (
@@ -266,7 +345,7 @@ export default function EscalasPage() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+                        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 print:hidden"
                         onClick={() => setModal(false)}
                     >
                         <motion.div
@@ -292,13 +371,26 @@ export default function EscalasPage() {
                             <div className="space-y-5">
                                 <div>
                                     <label className={labelCls}>Colaborador</label>
-                                    <select
+                                    <input
+                                        list="escalas-colaboradores"
                                         value={form.nome}
                                         onChange={(e) => setForm(f => ({ ...f, nome: e.target.value }))}
+                                        placeholder="Escreva o nome ou escolha da lista"
+                                        className={inputCls}
+                                    />
+                                    <datalist id="escalas-colaboradores">
+                                        {colaboradores.map(n => <option key={n} value={n} />)}
+                                    </datalist>
+                                </div>
+
+                                <div>
+                                    <label className={labelCls}>Setor</label>
+                                    <select
+                                        value={form.setor}
+                                        onChange={(e) => setForm(f => ({ ...f, setor: e.target.value }))}
                                         className={inputCls}
                                     >
-                                        <option value="">Selecione...</option>
-                                        {colaboradores.map(n => <option key={n} value={n}>{n}</option>)}
+                                        {[...SECTORES, SEM_SETOR].map(s => <option key={s} value={s}>{s}</option>)}
                                     </select>
                                 </div>
 
@@ -362,6 +454,16 @@ export default function EscalasPage() {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* Folha de impressão: invisível no ecrã, única coisa no papel. */}
+            {formatoImpressao ? (
+                <EscalasPrintSheet
+                    formato={formatoImpressao}
+                    turnos={turnos}
+                    rotulo={vistaMes ? labelMes : labelSemana}
+                    impresso={impressoEm}
+                />
+            ) : null}
         </DashboardLayout>
     );
 }

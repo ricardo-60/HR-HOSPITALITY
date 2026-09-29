@@ -23,8 +23,17 @@ export function Screen({
   );
 }
 
-export function Refresh({ onRefresh, refreshing }: { onRefresh: () => void; refreshing: boolean }) {
-  return <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FBBF24" />;
+/**
+ * Pull-to-refresh dos painéis.
+ *
+ * Em Android o `ScrollView` faz *wrap* do ecrã neste componente e injecta-lhe
+ * `style` (o `flex: 1` que dá altura ao ecrã) e `children` (o próprio
+ * `ScrollView`). Um wrapper que só repasse `refreshing`/`onRefresh` descarta
+ * as duas coisas: fica um `SwipeRefreshLayout` órfão, sem filhos e a 0 px —
+ * ecrã inteiro preto depois do login. Por isso repassa todos os props.
+ */
+export function Refresh(props: RefreshControlProps) {
+  return <RefreshControl {...props} tintColor="#FBBF24" />;
 }
 
 export function Header({ title, subtitle, right }: { title: string; subtitle?: string; right?: ReactNode }) {

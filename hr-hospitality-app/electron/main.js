@@ -49,9 +49,9 @@ function loadPublicSupabaseConfig() {
   return null;
 }
 
-function loadConfig() {
+// Lê o modo embutido no instalador (resources/electron/build_config.json).
+function readBuildConfig() {
   let buildConfig = { mode: 'server' };
-  let savedConfig = { mode: buildConfig.mode, serverIp: '' };
   const buildConfigPaths = [
     ...(isDev ? [] : [
       path.join(process.resourcesPath || '', 'electron', 'build_config.json'),
@@ -66,6 +66,21 @@ function loadConfig() {
   } catch (error) {
     console.error('[ElectronMain] Invalid build_config.json:', error.message);
   }
+  return buildConfig;
+}
+
+// Perfis separados por modo: os dois instaladores partilhavam o mesmo
+// %APPDATA%, o que fazia o Cliente disputar a cache do Chromium com o
+// Servidor ("Unable to create cache") e permitia que um gravasse o `mode` que
+// o outro lê em app_config.json. O Servidor mantém o perfil original, onde
+// vive a base de dados local (hospitality_local.db).
+if (readBuildConfig().mode === 'client') {
+  app.setPath('userData', path.join(app.getPath('appData'), 'hr-hospitality-cliente'));
+}
+
+function loadConfig() {
+  const buildConfig = readBuildConfig();
+  let savedConfig = { mode: buildConfig.mode, serverIp: '' };
 
   try {
     const file = configFilePath();
@@ -334,7 +349,7 @@ function createServerTray(win) {
   try {
     const icon = nativeImage.createFromPath(getIconPath('server')).resize({ width: 16, height: 16 });
     const tray = new Tray(icon);
-    const contextMenu = Menu.buildTemplate([
+    const contextMenu = Menu.buildFromTemplate([
       { label: 'HR Hospitality — Servidor Seguro', enabled: false },
       { type: 'separator' },
       { label: 'Abrir HR Hospitality', click: () => { win.show(); win.focus(); } },

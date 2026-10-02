@@ -20,6 +20,17 @@ function ensureColumn(db, table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name);
   if (columns.length > 0 && !columns.includes(column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    return true;
+  }
+  return false;
+}
+
+// O SQLite recusa defaults não constantes em ADD COLUMN ("Cannot add a column
+// with non-constant default"), por isso `updated_at` é criada sem DEFAULT
+// (idêntico a migrations/sqlite/005) e preenchida logo a seguir.
+function ensureUpdatedAt(db, table, backfill = "datetime('now')") {
+  if (ensureColumn(db, table, 'updated_at', 'TEXT')) {
+    db.exec(`UPDATE ${table} SET updated_at = ${backfill} WHERE updated_at IS NULL`);
   }
 }
 
@@ -85,11 +96,11 @@ function applyLocalSecurityCompatibility(db) {
   ensureColumn(db, 'app_users', 'employee_code', 'TEXT');
   dropColumnIfPresent(db, 'app_users', 'password_hash');
   dropColumnIfPresent(db, 'app_users', 'password_salt');
-  ensureColumn(db, 'hotel_consumptions', 'updated_at', "TEXT DEFAULT (datetime('now'))");
+  ensureUpdatedAt(db, 'hotel_consumptions', "COALESCE(registered_at, created_at, datetime('now'))");
   ensureColumn(db, 'hotel_consumptions', 'sync_status', "TEXT DEFAULT 'synced'");
-  ensureColumn(db, 'hotel_reservations', 'updated_at', "TEXT DEFAULT (datetime('now'))");
+  ensureUpdatedAt(db, 'hotel_reservations');
   ensureColumn(db, 'hotel_reservations', 'sync_status', "TEXT DEFAULT 'synced'");
-  ensureColumn(db, 'hotel_rooms', 'updated_at', "TEXT DEFAULT (datetime('now'))");
+  ensureUpdatedAt(db, 'hotel_rooms');
   ensureColumn(db, 'hotel_rooms', 'sync_status', "TEXT DEFAULT 'synced'");
 }
 

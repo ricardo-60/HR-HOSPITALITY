@@ -65,3 +65,9 @@ run_migration.ps1
 # Artefactos de auditoria QA (capturas e relatórios)
 qa-audit/
 **/qa-audit/
+
+# Registos de auditoria CLI (dados operacionais — nunca versionar)
+logs/audit_*.csv
+
+# Capturas geradas por scripts/shot.ps1
+hr-hospitality-app/scripts/shots/

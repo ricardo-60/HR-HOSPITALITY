@@ -49,6 +49,20 @@ function existingFile(pathname) {
   // Sem esta correspondencia cada prefetch do App Router dava 404 na consola.
   const rscPage = target.match(/^(.*)\.__PAGE__\.txt$/);
   if (rscPage) candidates.push(`${rscPage[1]}/__PAGE__.txt`);
+  // Rotas aninhadas gravam os segmentos como directorios:
+  //   /rh/escalas/__next.rh.escalas.__PAGE__.txt  ->  __next.rh/escalas/__PAGE__.txt
+  // A regra acima só cobre o caso plano, por isso as prefetch do App Router a
+  // /rh/empregados, /rh/ferias, /master/licensing, ... continuavam a dar 404.
+  const rscAninhado = target.match(/^(.*)[/\\]__next\.(.+)\.__PAGE__\.txt$/i);
+  if (rscAninhado) {
+    const segs = rscAninhado[2].split('.').filter(Boolean);
+    if (segs.length) {
+      const raizDir = rscAninhado[1].replace(/[/\\]+$/, '');
+      const dir = `${raizDir}/__next.${segs[0]}`;
+      const resto = segs.slice(1);
+      candidates.push(resto.length ? `${dir}/${resto.join('/')}/__PAGE__.txt` : `${dir}/__PAGE__.txt`);
+    }
+  }
   for (const candidate of candidates) {
     try {
       if (statSync(candidate).isFile()) return candidate;

@@ -19,7 +19,7 @@ win:
     - target: "nsis"
       arch:
         - "x64"
-  icon: "public/icon-server.png"
+  icon: "public/icon-server.ico"
   artifactName: "HR-Hospitality-Servidor-Setup-${version}.exe"
 
 nsis:

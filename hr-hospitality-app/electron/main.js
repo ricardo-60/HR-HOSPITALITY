@@ -4,11 +4,13 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { createHash } = require('node:crypto');
 const { TENANT_ID } = require('./operations');
+const { startStaticServer } = require('./static-server');
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let localRuntime = null;
 let localServer = null;
+let uiServer = null;
 
 function configFilePath() {
   return path.join(app.getPath('userData'), 'app_config.json');
@@ -329,15 +331,35 @@ function createWindow(config) {
   win.setMenuBarVisibility(false);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => {
-    const allowed = isDev && url.startsWith('http://localhost:3000');
+    const mesmaOrigem = uiServer && (url === uiServer.origin || url.startsWith(`${uiServer.origin}/`));
+    const allowed = (isDev && url.startsWith('http://localhost:3000')) || (!isDev && mesmaOrigem);
     if (!allowed) event.preventDefault();
+  });
+
+  // Diagnóstico de falhas de renderização (tela preta): qualquer erro de carga
+  // ou morte do processo renderer fica registado em consola.
+  win.webContents.on('did-fail-load', (_event, code, desc, urlFalha, isMainFrame) => {
+    if (isMainFrame) console.error(`[ElectronMain] Falha ao carregar a UI (${code} ${desc}): ${urlFalha}`);
+  });
+  win.webContents.on('render-process-gone', (_event, detalhes) => {
+    if (detalhes.reason !== 'clean-exit') {
+      console.error(`[ElectronMain] Processo renderer terminou: ${detalhes.reason} (exitCode=${detalhes.exitCode})`);
+    }
   });
 
   if (isDev) {
     win.loadURL('http://localhost:3000');
     win.webContents.openDevTools({ mode: 'detach' });
+  } else if (uiServer) {
+    // Servida por HTTP local: sob file:// os absolutos /_next/* viravam
+    // C:\_next\* (ERR_FILE_NOT_FOUND) e a janela ficava preta.
+    win.loadURL(uiServer.url);
   } else {
-    win.loadFile(path.join(__dirname, '../out/index.html'));
+    win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
+      '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;background:#111827;color:#e5e7eb;padding:3rem">' +
+      '<h1>HR Hospitality</h1><p>Nao foi possivel iniciar o servidor local da interface.</p>' +
+      '<p>Reinstale a aplicacao ou consulte a consola para o detalhe do erro.</p></body>'
+    ));
   }
 
   win.once('ready-to-show', () => { win.show(); win.focus(); });
@@ -387,6 +409,15 @@ app.whenReady().then(async () => {
     }
   }
 
+  // A UI é servida por HTTP local (porta efémera) antes de abrir a janela.
+  try {
+    uiServer = await startStaticServer({ root: path.join(__dirname, '..', 'out') });
+    console.log(`[ElectronMain] UI local em ${uiServer.url}`);
+  } catch (error) {
+    console.error('[ElectronMain] Falha ao iniciar o servidor local da UI:', error.message);
+    uiServer = null;
+  }
+
   const win = createWindow(config);
   if (config.mode === 'server') tray = createServerTray(win);
   app.on('activate', () => {
@@ -397,6 +428,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   try { if (localServer) localServer.close(); } catch { /* ignore */ }
   try { if (localRuntime) localRuntime.close(); } catch { /* ignore */ }
+  try { if (uiServer) uiServer.close(); } catch { /* ignore */ }
 });
 
 app.on('window-all-closed', () => {

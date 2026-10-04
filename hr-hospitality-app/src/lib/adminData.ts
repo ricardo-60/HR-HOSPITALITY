@@ -639,33 +639,72 @@ export async function recordInventoryMovement(input: {
 
 export async function listOccupancy(): Promise<Result<OccupancyRow[]>> {
   try {
-    const { data, error } = await db()
-      .from('hotel_rooms')
-      .select(
-        'id,room_number,room_type,status,price_per_night,hotel_reservations(reference,guest_name,check_in_date,check_out_date,status)'
-      )
-      .order('room_number');
-    if (error) return { data: null, error: message(error, 'Falha ao carregar a ocupação.') };
+    // O PostgREST só faz `embed` quando existe chave estrangeira. Entre
+    // `hotel_rooms` e `hotel_reservations` a coluna `room_id` nunca recebeu
+    // CONSTRAINT (migração 015), pelo que
+    //   ...hotel_rooms?select=...,hotel_reservations(...)
+    // devolvia PGRST200 -> HTTP 400 e a página /kyc ficava sem quartos.
+    // Lê-se as duas tabelas e junta-se em memória: funciona quer a 015 já
+    // tenha sido aplicada quer ainda não, e evita depender do embed.
+    const [quartosRes, reservasRes] = await Promise.all([
+      db()
+        .from('hotel_rooms')
+        .select('id,room_number,room_type,status,price_per_night')
+        .order('room_number'),
+      db()
+        .from('hotel_reservations')
+        .select('room_id,reference,guest_name,check_in_date,check_out_date,status')
+        .order('created_at', { ascending: false })
+        .limit(1000),
+    ]);
+    if (quartosRes.error) {
+      return { data: null, error: message(quartosRes.error, 'Falha ao carregar a ocupação.') };
+    }
+    if (reservasRes.error) {
+      return { data: null, error: message(reservasRes.error, 'Falha ao carregar a ocupação.') };
+    }
 
-    type RoomJoinRow = {
+    type RoomRow = {
       id: string;
       room_number: string;
       room_type: string;
       status: string;
       price_per_night: number | string;
-      hotel_reservations: Array<{
-        reference: string | null;
-        guest_name: string | null;
-        check_in_date: string | null;
-        check_out_date: string | null;
-        status: string | null;
-      }> | null;
     };
 
-    const rows = (data ?? []) as unknown as RoomJoinRow[];
+    type ReservationRow = {
+      room_id: string | null;
+      reference: string | null;
+      guest_name: string | null;
+      check_in_date: string | null;
+      check_out_date: string | null;
+      status: string | null;
+    };
+
+    // Estada activa de cada quarto, por prioridade: CHECKED_IN ganha (é quem
+    // está dentro), depois CONFIRMADA e depois PENDENTE_PAGAMENTO. CHECKED_OUT
+    // e CANCELADA são estadas terminadas e não atribuem hóspede - o quarto
+    // aparece livre. Antes isto era o `[0]` do embed, cuja ordem o PostgREST
+    // não garante: o mesmo quarto podia mostrar uma reserva cancelada.
+    const PRIORIDADE: Record<string, number> = {
+      CHECKED_IN: 0,
+      CONFIRMADA: 1,
+      PENDENTE_PAGAMENTO: 2,
+    };
+    const peso = (status: string | null): number => PRIORIDADE[status ?? ''] ?? 9;
+
+    const estadaPorQuarto = new Map<string, ReservationRow>();
+    for (const reserva of (reservasRes.data ?? []) as ReservationRow[]) {
+      if (!reserva.room_id) continue;
+      const actual = estadaPorQuarto.get(reserva.room_id);
+      if (!actual || peso(reserva.status) < peso(actual.status)) {
+        estadaPorQuarto.set(reserva.room_id, reserva);
+      }
+    }
+
     return {
-      data: rows.map(room => {
-        const active = (room.hotel_reservations ?? [])[0];
+      data: ((quartosRes.data ?? []) as RoomRow[]).map(room => {
+        const active = estadaPorQuarto.get(room.id) ?? null;
         return {
           room_id: room.id,
           room_number: room.room_number,

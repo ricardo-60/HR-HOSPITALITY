@@ -3,6 +3,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { isSupabaseConfigured, supabaseClient } from '@/lib/supabaseClient';
+import { BootSplash } from '@/components/BootSplash';
 
 /**
  * Perfis de staff.
@@ -523,7 +524,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return user.permissions.includes(permission);
   };
 
-  if (!mounted) return null;
+  // `null` aqui deixava a janela vazia até hidratar: o HTML pré-renderizado
+  // saía com ~5 elementos. Ver comentário em BootSplash.
+  if (!mounted) return <BootSplash />;
 
   return (
     <AuthContext.Provider value={{

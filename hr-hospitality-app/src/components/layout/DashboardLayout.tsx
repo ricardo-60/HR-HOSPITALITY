@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import { BootSplash } from '@/components/BootSplash';
 import { DEFAULT_TENANT } from '@/config/tenants';
 import { Ban, Clock, Menu, KeyRound } from 'lucide-react';
 
@@ -59,7 +60,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     }, [user, pathname, mounted, router]);
 
     if (!mounted) {
-        return null;
+        return <BootSplash />;
     }
 
     // Auth screen check: If loading login/cadastro, bypass layout wrap

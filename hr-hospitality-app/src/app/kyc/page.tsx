@@ -196,7 +196,7 @@ export default function KycPage() {
                         </div>
                     </div>
 
-                    <div className="glass-panel rounded-[28px] border border-white/5 overflow-hidden">
+                    <div className="glass-panel rounded-[28px] border border-white/5 overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-white/5 text-left">

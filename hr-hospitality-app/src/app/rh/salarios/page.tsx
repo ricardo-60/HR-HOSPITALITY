@@ -188,7 +188,7 @@ export default function SalariosPage() {
 
                 {/* Tabela de Salários */}
                 <div className="bg-[#111111] border border-white/5 rounded-[40px] overflow-hidden">
-                    <div className="p-8 border-b border-white/5 flex justify-between items-center bg-white/5">
+                    <div className="p-8 border-b border-white/5 flex flex-wrap justify-between items-center gap-4 bg-white/5">
                         <h2 className="text-lg font-black text-white uppercase tracking-widest">Pré-Visualização ({mesRefLabel})</h2>
                         <div className="relative">
                             <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-white/20" />

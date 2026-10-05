@@ -3,7 +3,8 @@
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { HoloTableMap } from '@/components/pos/HoloTableMap';
-import { ChefHat, ShoppingBag, Sparkles } from 'lucide-react';
+import { QuickSale } from '@/components/pos/QuickSale';
+import { ChefHat, ShoppingBag, Sparkles, Table as TableIcon, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -13,9 +14,12 @@ const posAreas = ['Main Gastro Hall', 'Executive Lounge', 'External Deck'];
 
 export default function POSPage() {
     const [activeArea, setActiveArea] = useState(posAreas[0]);
+    const [mesaSelecionada, setMesaSelecionada] = useState<{ id: string; name: string } | null>(null);
+
     return (
         <DashboardLayout>
             <div className="max-w-[1500px] mx-auto space-y-12 md:space-y-16 pb-20 px-4">
+                {/* Header Principal */}
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -48,7 +52,7 @@ export default function POSPage() {
                     </div>
                 </motion.div>
 
-                {/* Gestão de produtos — entrada em destaque para /pos/produtos */}
+                {/* Gestão de produtos */}
                 <motion.div
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -82,7 +86,7 @@ export default function POSPage() {
                     </Link>
                 </motion.div>
 
-                {/* Restaurante Vista */}
+                {/* Vista do Restaurante */}
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="relative w-full h-[300px] md:h-[400px] rounded-[50px] overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.6)] border border-white/10 group">
                     <div className="absolute inset-0 bg-black/50 z-10 group-hover:bg-black/30 transition-all duration-700 pointer-events-none" />
                     <Image 
@@ -104,6 +108,7 @@ export default function POSPage() {
                     </div>
                 </motion.div>
 
+                {/* Seleção de Área */}
                 <div className="flex flex-col sm:flex-row justify-between items-center px-4 md:px-10 border-b border-white/5 pb-6 md:pb-8 gap-4 overflow-x-auto no-scrollbar">
                     <div className="flex gap-6 md:gap-10 min-w-max">
                         {posAreas.map((area) => (
@@ -120,7 +125,7 @@ export default function POSPage() {
                     </div>
                 </div>
 
-                {/* Legenda da área ativa — reflexo visível do separador escolhido */}
+                {/* Legenda da área ativa */}
                 <AnimatePresence mode="wait">
                     <motion.div key={activeArea}
                         initial={{ opacity: 0, y: 10 }}
@@ -134,14 +139,41 @@ export default function POSPage() {
                             <span className="text-[10px] font-black text-[var(--brand-secondary)] uppercase tracking-[0.4em]">Mapa de Mesas — {activeArea}</span>
                         </div>
                         <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em]">
-                            {activeArea === 'Main Gastro Hall' ? 'Salão principal • 6 mesas ativas' :
-                             activeArea === 'Executive Lounge' ? 'Lounge executivo • Mesa reservadas & VIP' :
-                             'Esplanada externa • Serviço ao ar livre'}
+                            {activeArea === 'Main Gastro Hall' ? 'Salão principal' :
+                             activeArea === 'Executive Lounge' ? 'Lounge executivo' :
+                             'Esplanada externa'}
                         </span>
                     </motion.div>
                 </AnimatePresence>
 
-                <HoloTableMap />
+                {/* Mapa de Mesas — FLUXO OBRIGATÓRIO */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="space-y-8"
+                >
+                    <HoloTableMap 
+                        onTableSelect={(mesa) => { 
+                            console.log('[POSPage] Mesa selecionada:', mesa?.name || 'nenhuma');
+                        }} 
+                    />
+                    
+                    {/* QuickSale — SÓ APARECE QUANDO HÁ MESA SELECIONADA */}
+                    <AnimatePresence mode="wait">
+                        {mesaSelecionada && (
+                            <motion.div
+                                key="quicksale"
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                className="bg-[#111111] border border-[var(--brand-secondary)]/20 rounded-[24px] md:rounded-[32px] p-5 md:p-6 lg:p-8 shadow-[0_50px_100px_rgba(0,0,0,1)] relative overflow-hidden"
+                            >
+                                <div className="absolute top-0 right-0 w-32 h-32 md:w-48 md:h-48 bg-[var(--brand-secondary)]/5 blur-[100px] -mr-16 -mt-16 md:-mr-24 md:-mt-24 pointer-events-none" />
+                                <QuickSale />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </motion.div>
             </div>
         </DashboardLayout>
     );

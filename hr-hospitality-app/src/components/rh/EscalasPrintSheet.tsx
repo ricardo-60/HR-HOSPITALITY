@@ -257,14 +257,21 @@ export function EscalasPrintSheet({
     turnos,
     rotulo,
     impresso,
+    telaCheia = false,
 }: {
     formato: FormatoImpressao;
     turnos: EscalaTurno[];
     rotulo: string;
     impresso: string;
+    telaCheia?: boolean;
 }) {
+    const classesBase = 'print-sheet text-black bg-white';
+    const classesTela = telaCheia
+        ? 'w-full h-full min-h-screen flex flex-col' // ocupa 100% viewport
+        : 'hidden print:block';
+
     return (
-        <div id="print-sheet" className="print-sheet hidden print:block text-black bg-white">
+        <div id="print-sheet" className={`${classesBase} ${classesTela}`}>
             <style>{PAGE_RULES[formato]}</style>
             {formato === 'A4' ? (
                 <FolhaA4 turnos={turnos} rotulo={rotulo} impresso={impresso} />

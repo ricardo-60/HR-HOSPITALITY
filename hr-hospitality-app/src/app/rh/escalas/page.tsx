@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CalendarClock, CalendarDays, Plus, ArrowLeft, ArrowRight, Printer, Sun, Moon, Sunrise, X } from 'lucide-react';
+import { CalendarClock, CalendarDays, Plus, ArrowLeft, ArrowRight, Printer, Sun, Moon, Sunrise, X, Maximize2, Minimize2 } from 'lucide-react';
 import Link from 'next/link';
 
 import {
@@ -75,6 +75,7 @@ export default function EscalasPage() {
     const [form, setForm] = useState({ nome: '', dia: 'Segunda', tipo: 'Manhã', horas: '', setor: SECTORES[0] as string });
     const [formatoImpressao, setFormatoImpressao] = useState<FormatoImpressao | null>(null);
     const [impressoEm, setImpressoEm] = useState('');
+    const [telaCheia, setTelaCheia] = useState(false);
 
     // Hydratação a partir do localStorage (seed com o array atual se vazio)
     useEffect(() => {
@@ -210,12 +211,19 @@ export default function EscalasPage() {
                                 </button>
                             ))}
                         </div>
-                        <div className="flex gap-4">
+                        <div className="flex gap-4 flex-wrap">
                             <button
                                 onClick={() => setVistaMes(v => !v)}
                                 className="flex items-center gap-2 bg-white/5 border border-white/10 text-white px-6 py-4 rounded-full font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all"
                             >
                                 <CalendarDays className="w-4 h-4" /> {vistaMes ? 'Ver Semana' : 'Ver Mês'}
+                            </button>
+                            <button
+                                onClick={() => { setTelaCheia(true); }}
+                                className="flex items-center gap-2 bg-white/5 border border-white/10 text-white px-6 py-4 rounded-full font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all"
+                                title="Ver escala em tela cheia (ocupa 100% do ecrã)"
+                            >
+                                <Maximize2 className="w-4 h-4" /> Tela Cheia
                             </button>
                             <button
                                 onClick={() => { setErro(''); setModal(true); }}
@@ -464,6 +472,38 @@ export default function EscalasPage() {
                     impresso={impressoEm}
                 />
             ) : null}
+
+            {/* Visualização Tela Cheia — ocupa 100% do viewport */}
+            {telaCheia && (
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[300] bg-[#0A0A0A] flex flex-col"
+                    onKeyDown={(e) => { if (e.key === 'Escape') setTelaCheia(false); }}
+                >
+                    <div className="fixed top-4 right-4 z-10 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-2">
+                        <span className="text-[10px] font-black text-white/60 uppercase tracking-widest px-2">
+                            {vistaMes ? labelMes : labelSemana}
+                        </span>
+                        <button
+                            onClick={() => setTelaCheia(false)}
+                            aria-label="Sair da tela cheia"
+                            className="p-2 bg-white/5 hover:bg-red-500/20 hover:border-red-500/40 rounded-lg text-white/60 hover:text-white transition-all"
+                            title="Sair (Esc)"
+                        >
+                            <Minimize2 className="w-5 h-5" />
+                        </button>
+                    </div>
+                    <EscalasPrintSheet
+                        formato="A4"
+                        turnos={turnos}
+                        rotulo={vistaMes ? labelMes : labelSemana}
+                        impresso={new Date().toLocaleString('pt-PT')}
+                        telaCheia
+                    />
+                </motion.div>
+            )}
         </DashboardLayout>
     );
 }

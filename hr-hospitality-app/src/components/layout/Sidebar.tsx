@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useState } from 'react';
 import {
     BarChart3,
     Home,
@@ -18,10 +19,24 @@ import {
     Download,
     Crown,
     TrendingUp,
+    FileText,
+    Layout,
+    HelpCircle,
+    ChevronRight,
+    ChevronDown,
+    BookOpen,
     LucideIcon
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
+import { SubMenuItem } from './SidebarSubItem';
+
+interface SubMenuItem {
+    name: string;
+    path: string;
+    icon: LucideIcon;
+    description?: string;
+}
 
 interface MenuItem {
     name: string;
@@ -31,8 +46,9 @@ interface MenuItem {
     isReady?: boolean;
     brandColor?: string;
     adminOnly?: boolean;
-    /** Só o Utilizador Master Global vê e entra nesta rota. */
     masterOnly?: boolean;
+    isSection?: boolean;
+    subItems?: SubMenuItem[];
 }
 
 const menuItems: MenuItem[] = [
@@ -49,9 +65,39 @@ const menuItems: MenuItem[] = [
     { name: 'CONTROLO ACESSOS', icon: ShieldCheck, path: '/rh/usuarios', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-accent)', adminOnly: true },
     { name: 'CENTRAL DE DESCARGAS', icon: Download, path: '/admin/downloads', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-primary)', adminOnly: true },
     { name: 'RELATÓRIOS', icon: TrendingUp, path: '/relatorios', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-secondary)' },
+    { name: 'CENTRAL DE RELATÓRIOS', icon: FileText, path: '/relatorios-central', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-accent)' },
+    { name: 'GESTÃO DE MESAS', icon: Layout, path: '/admin/mesas', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-primary)', adminOnly: true },
+    {
+        name: 'AJUDA & SUPORTE',
+        icon: HelpCircle,
+        path: '/ajuda',
+        category: 'CORE',
+        isReady: true,
+        brandColor: 'var(--brand-accent)',
+        isSection: true,
+        subItems: [
+            {
+                name: 'Manual de Instalação e Configuração',
+                path: '/ajuda/instalacao',
+                icon: BookOpen,
+                description: 'Parte 1 — Requisitos, Instalação, Configuração LAN, Validação'
+            },
+            {
+                name: 'Manual de Utilização e Operação',
+                path: '/ajuda/utilizacao',
+                icon: BookOpen,
+                description: 'Parte 2 — Perfis, Fluxos Operacionais, Administração, Relatórios'
+            },
+            {
+                name: 'Manual Técnico Completo (PDF)',
+                path: '/ajuda/completo',
+                icon: FileText,
+                description: 'Manual unificado para impressão/exportação (A4/PDF/TXT)'
+            },
+        ]
+    },
     { name: 'MASTER GLOBAL', icon: Crown, path: '/master/licensing', category: 'MANAGEMENT', isReady: true, brandColor: 'var(--brand-accent)', masterOnly: true },
     { name: 'CONFIGURAÇÕES', icon: Settings, path: '/configuracoes', category: 'CORE' },
-    { name: 'CENTRAL DE AJUDA', icon: ShieldCheck, path: '/ajuda', category: 'CORE', isReady: true, brandColor: 'var(--brand-accent)' },
 ];
 
 interface SidebarProps {
@@ -63,14 +109,24 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
     const router = useRouter();
     const { user, logout, checkAccess } = useAuth();
 
+    const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+
     const handleLogout = () => {
         logout();
         router.push('/login');
     };
 
+    const toggleSection = (sectionName: string) => {
+        setExpandedSections(prev => {
+            const next = new Set(prev);
+            if (next.has(sectionName)) next.delete(sectionName);
+            else next.add(sectionName);
+            return next;
+        });
+    };
+
     if (!user) return null;
 
-    // Filter items to hide AdminOnly menus for non-admins
     const visibleMenuItems = menuItems.filter(item => {
         if (item.adminOnly && user.role !== 'ADMINISTRATOR') {
             return false;
@@ -113,8 +169,97 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
                                 {categoryItems.map((item) => {
                                     const isActive = pathname === item.path;
                                     const hasAccess = checkAccess(item.path);
+                                    const isSection = item.isSection === true;
+                                    const isExpanded = expandedSections.has(item.name);
 
-                                    return (
+                                    if (isSection) {
+                                        return (
+                                            <div key={item.name} className="relative group">
+                                                <div className="group">
+                                                    {!hasAccess ? (
+                                                        <div className={`flex items-center rounded-xl md:rounded-2xl border border-dashed border-red-500/10 bg-red-500/5 opacity-40 cursor-not-allowed ${
+                                                            isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'
+                                                        }`}>
+                                                            <Lock className="w-5 h-5 md:w-6 md:h-6 text-red-500" />
+                                                            {!isCompact && (
+                                                                <div className="flex items-center gap-2 md:gap-3 w-full">
+                                                                    <span className="text-xs md:text-sm font-black tracking-widest text-red-400 line-through">
+                                                                        {item.name}
+                                                                    </span>
+                                                                    <span className="ml-auto px-2 py-1 md:px-3 md:py-1.5 rounded-md bg-red-500/10 border border-red-500/20 text-[8px] md:text-[9px] text-red-400 font-black uppercase tracking-widest leading-none">
+                                                                        Bloqueado
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => toggleSection(item.name)}
+                                                            className={`flex items-center w-full rounded-xl md:rounded-2xl transition-all duration-300 ${
+                                                                isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'
+                                                            } ${
+                                                                isActive
+                                                                    ? 'bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 shadow-[0_0_20px_rgba(0,71,171,0.2)]'
+                                                                    : 'hover:bg-[var(--brand-primary)]/5 border border-transparent hover:border-[var(--brand-primary)]/25'
+                                                            }`}
+                                                            aria-expanded={isExpanded}
+                                                            aria-controls={`${item.name}-submenu`}
+                                                        >
+                                                            {isActive && !isCompact && (
+                                                                <motion.div
+                                                                    layoutId="activeBar"
+                                                                    className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 md:h-10 bg-[var(--brand-primary)] rounded-r-full shadow-[0_0_15px_var(--brand-primary)]"
+                                                                />
+                                                            )}
+                                                            <item.icon
+                                                                className={`w-5 h-5 md:w-6 md:h-6 transition-all z-10 ${isActive ? 'animate-pulse' : 'opacity-80 group-hover:opacity-100 group-hover:scale-110'}`}
+                                                                style={{ color: isActive ? 'var(--brand-primary)' : (item.brandColor || 'white') }}
+                                                            />
+                                                            {!isCompact && (
+                                                                <div className="flex items-center gap-2 md:gap-3 z-10 w-full">
+                                                                    <span className={`text-xs md:text-sm font-black tracking-widest transition-all ${
+                                                                        isActive ? 'text-white drop-shadow-[0_0_8px_var(--brand-primary)]' : 'text-white/50 group-hover:text-white'
+                                                                    }`}>
+                                                                        {item.name}
+                                                                    </span>
+                                                                    <ChevronRight
+                                                                        className={`ml-auto w-4 h-4 md:w-5 md:h-5 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                                                                        style={{ color: isActive ? 'var(--brand-primary)' : 'white' }}
+                                                                    />
+                                                                </div>
+                                                            )}
+                                                        </button>
+                                                    )}
+
+                                                    <AnimatePresence>
+                                                        {isExpanded && item.subItems && item.subItems.length > 0 && (
+                                                            <motion.div
+                                                                id={`${item.name}-submenu`}
+                                                                initial={{ opacity: 0, height: 0, x: isCompact ? 0 : -10 }}
+                                                                animate={{ opacity: 1, height: 'auto', x: 0 }}
+                                                                exit={{ opacity: 0, height: 0, x: isCompact ? 0 : -10 }}
+                                                                transition={{ duration: 0.2 }}
+                                                                className="overflow-hidden pl-2 md:pl-8"
+                                                            >
+                                                                <div className="space-y-1 md:space-y-2 pt-1 pb-2">
+                                                                    {item.subItems.map((subItem) => (
+                                                                        <SubMenuItem
+                                                                            key={subItem.path}
+                                                                            subItem={subItem}
+                                                                            item={item}
+                                                                            isCompact={isCompact}
+                                                                            pathname={pathname}
+                                                                            checkAccess={checkAccess}
+                                                                        />
+                                                                    ))}
+                                                                </div>
+                                                            </motion.div>
+                                                        )}
+                                                    </AnimatePresence>
+                                                </div>
+                                            </div>
+                                        )
+                                    : (
                                         <div key={item.path} className="relative group">
                                             {hasAccess ? (
                                                 <Link href={item.path} className="block">
@@ -156,7 +301,6 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
                                                     </motion.div>
                                                 </Link>
                                             ) : (
-                                                /* Locked/Restricted Menu Item styling */
                                                 <div className={`flex items-center rounded-xl md:rounded-2xl border border-dashed border-red-500/10 bg-red-500/5 opacity-40 cursor-not-allowed ${
                                                     isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'
                                                 }`}>
@@ -174,15 +318,14 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
                                                 </div>
                                             )}
 
-                                            {/* Compact Tooltip */}
                                             {isCompact && (
                                                 <div className="sidebar-tooltip hidden md:block text-xs">
                                                     {item.name} {!hasAccess && ' (Bloqueado)'}
                                                 </div>
                                             )}
                                         </div>
-                                    );
-                                })}
+                                    )
+                                )}
                             </div>
                         </div>
                     );

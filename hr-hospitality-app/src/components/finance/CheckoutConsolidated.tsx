@@ -1,7 +1,7 @@
 'use client';
 
-import { Printer, ShieldCheck, Download } from 'lucide-react';
-import { useState } from 'react';
+import { Printer, ShieldCheck, Download, X, ArrowLeft } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
 
 interface CheckoutConsolidatedProps {
     guestName: string;
@@ -9,29 +9,129 @@ interface CheckoutConsolidatedProps {
     items: { description: string, value: number, category: string }[];
     taxes: number;
     onFinalize: () => void;
+    onClose?: () => void;
 }
 
-export function CheckoutConsolidated({ guestName, roomNumber, items, taxes, onFinalize }: CheckoutConsolidatedProps) {
+export function CheckoutConsolidated({ guestName, roomNumber, items, taxes, onFinalize, onClose }: CheckoutConsolidatedProps) {
     const subtotal = items.reduce((acc, item) => acc + item.value, 0);
     const total = subtotal + taxes;
     const [auditId] = useState(() => 'AUDIT-' + Math.random().toString(36).substr(2, 9).toUpperCase());
+    const [downloading, setDownloading] = useState(false);
+
+    // Escape key handler
+    const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        if (e.key === 'Escape' && onClose) {
+            onClose();
+        }
+    }, [onClose]);
+
+    useEffect(() => {
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleKeyDown]);
+
+    const handleDownload = async () => {
+        setDownloading(true);
+        try {
+            // Generate report content
+            const reportContent = generateReportContent();
+            const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `checkout-relatorio-${roomNumber}-${guestName.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('Falha ao gerar relatório:', err);
+        } finally {
+            setDownloading(false);
+        }
+    };
+
+    const generateReportContent = () => {
+        const lines = [
+            '========================================',
+            'HR-HOSPITALITY - CONSOLIDATED AUDIT REPORT',
+            '========================================',
+            '',
+            `Audit ID: ${auditId}`,
+            `Date: ${new Date().toLocaleString('pt-PT')}`,
+            `Guest: ${guestName}`,
+            `Room: RM-${roomNumber}`,
+            '',
+            '--- TRANSACTIONAL LOGS ---',
+            ...items.map((item, i) => {
+                const num = String(i + 1).padStart(3, '0');
+                return `${num}. ${item.description.padEnd(50)} | ${item.category.padEnd(15)} | ${item.value.toFixed(2).padStart(12)} Kz`;
+            }),
+            '',
+            '--- SUMMARY ---',
+            `Subtotal: ${subtotal.toFixed(2).padStart(12)} Kz`,
+            `Taxes:    ${taxes.toFixed(2).padStart(12)} Kz`,
+            `TOTAL:    ${total.toFixed(2).padStart(12)} Kz`,
+            '',
+            '--- VERIFICATION ---',
+            'Status: Signed & Verified',
+            '========================================',
+        ];
+        return lines.join('\n');
+    };
+
+    const handleBack = () => {
+        if (onClose) onClose();
+    };
 
     return (
         <div className="bg-[#111111] border border-white/20 rounded-[60px] p-16 shadow-[0_50px_100px_rgba(0,0,0,1)] flex flex-col h-full relative overflow-hidden border-t-[#00F2FF] border-t-2">
             <div className="absolute top-0 right-0 w-64 h-64 bg-[#00F2FF]/5 blur-[120px] -mr-32 -mt-32" />
 
             <div className="flex justify-between items-start mb-20 relative z-10">
-                <div>
-                    <div className="flex items-center gap-4 mb-6">
-                        <div className="w-1 h-10 bg-[#00F2FF] shadow-[0_0_20px_rgba(0,242,255,0.4)]" />
-                        <h3 className="text-5xl font-black text-white tracking-tighter uppercase">
-                            FAST <span className="text-[#00F2FF]">CHECK-OUT</span>
-                        </h3>
+                <div className="flex items-center gap-4">
+                    {/* Back/Close button */}
+                    <button
+                        onClick={handleBack}
+                        className="p-3 bg-white/5 rounded-2xl border border-white/10 hover:bg-white/10 hover:border-[#00F2FF]/40 transition-all flex items-center justify-center"
+                        aria-label="Voltar ao painel principal"
+                        title="Voltar (Esc)"
+                    >
+                        <ArrowLeft className="w-5 h-5 text-white/70 hover:text-[#00F2FF] transition-colors" />
+                    </button>
+                    <div>
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="w-1 h-10 bg-[#00F2FF] shadow-[0_0_20px_rgba(0,242,255,0.4)]" />
+                            <h3 className="text-5xl font-black text-white tracking-tighter uppercase">
+                                FAST <span className="text-[#00F2FF]">CHECK-OUT</span>
+                            </h3>
+                        </div>
+                        <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.5em] ml-6">DNA HR-HOSPITALITY • CONSOLIDATED AUDIT</p>
                     </div>
-                    <p className="text-[10px] text-white/30 font-black uppercase tracking-[0.5em] ml-6">DNA HR-HOSPITALITY • CONSOLIDATED AUDIT</p>
                 </div>
-                <div className="p-5 bg-white/5 rounded-3xl border border-white/10 group cursor-pointer hover:border-[#00F2FF]/40 transition-all">
-                    <Download className="w-6 h-6 text-white/40 group-hover:text-[#00F2FF]" />
+                <div className="flex items-center gap-3">
+                    {/* Download button - now functional */}
+                    <button
+                        onClick={handleDownload}
+                        disabled={downloading}
+                        className="p-5 bg-white/5 rounded-3xl border border-white/10 hover:bg-white/10 hover:border-[#00F2FF]/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                        aria-label="Baixar relatório consolidado"
+                        title="Baixar relatório"
+                    >
+                        <Download className="w-6 h-6 text-white/40 hover:text-[#00F2FF] transition-colors" />
+                        {downloading && (
+                            <span className="sr-only">A gerar relatório...</span>
+                        )}
+                    </button>
+                    {/* Explicit close button */}
+                    <button
+                        onClick={handleBack}
+                        className="p-3 bg-white/5 rounded-2xl border border-white/10 hover:bg-red-500/20 hover:border-red-500/40 transition-all flex items-center justify-center"
+                        aria-label="Fechar e cancelar"
+                        title="Fechar (Esc)"
+                    >
+                        <X className="w-5 h-5 text-white/50 hover:text-red-400 transition-colors" />
+                    </button>
                 </div>
             </div>
 

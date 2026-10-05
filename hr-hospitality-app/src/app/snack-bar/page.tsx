@@ -3,46 +3,21 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { QuickSale } from '@/components/pos/QuickSale';
 import { BillModal } from '@/components/pos/BillModal';
-import { Zap, Search, Filter } from 'lucide-react';
+import { HoloTableMap } from '@/components/pos/HoloTableMap';
+import { Zap, Search, Filter, Table as TableIcon, AlertCircle, Loader2, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState } from 'react';
-import type { Table } from '@/types';
-
-interface SnackTable {
-    id: string;
-    number: number;
-    status: 'FREE' | 'OCCUPIED';
-    bill?: number;
-}
-
-const initialSnackTables: SnackTable[] = [
-    { id: 'S1', number: 1, status: 'FREE' },
-    { id: 'S2', number: 2, status: 'OCCUPIED', bill: 12.50 },
-    { id: 'S3', number: 3, status: 'FREE' },
-    { id: 'S4', number: 4, status: 'OCCUPIED', bill: 45.00 },
-    { id: 'S5', number: 5, status: 'OCCUPIED', bill: 8.20 },
-    { id: 'S6', number: 6, status: 'FREE' },
-];
+import { useState, useCallback } from 'react';
 
 const snackAreas = ['Interior Deck', 'Pool Area'];
 
 export default function SnackBarPage() {
-    const [tableList, setTableList] = useState<SnackTable[]>(initialSnackTables);
-    const [selectedTable, setSelectedTable] = useState<Table | null>(null);
     const [activeArea, setActiveArea] = useState(snackAreas[0]);
-
-    const handleBillClosed = (tableId: string) => {
-        setTableList(prev => prev.map(t => {
-            if (t.id === tableId) {
-                return { ...t, status: 'FREE', bill: undefined };
-            }
-            return t;
-        }));
-    };
+    const [mesaSelecionada, setMesaSelecionada] = useState<{ id: string; name: string } | null>(null);
 
     return (
         <DashboardLayout>
             <div className="max-w-[1500px] mx-auto space-y-16 pb-20 px-4">
+                {/* Header */}
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -72,29 +47,51 @@ export default function SnackBarPage() {
                     </div>
                 </motion.div>
 
-                <div className="flex flex-col lg:grid lg:grid-cols-12 gap-10 md:gap-16 items-start">
-                    <div className="w-full lg:col-span-7 space-y-8 md:space-y-12">
-                        <div className="flex justify-between items-center bg-[#111111] px-5 md:px-6 py-3 md:py-4 rounded-full border border-white/10 shadow-lg hidden md:flex">
-                            <div className="flex gap-6 md:gap-8">
-                                {snackAreas.map((area) => (
-                                    <button key={area} onClick={() => setActiveArea(area)}
-                                        className={`btn-base btn-ghost btn-sm relative font-black uppercase tracking-widest transition-colors ${
-                                            activeArea === area ? 'text-[var(--brand-accent)]' : 'text-white/40 hover:text-[var(--brand-primary)]'
-                                        }`}>
-                                        {area}
-                                        {activeArea === area && (
-                                            <motion.div layoutId="snackNav" className="absolute -bottom-2 left-0 right-0 h-1 bg-[var(--brand-accent)] rounded-full drop-shadow-[0_0_8px_var(--brand-accent)]" />
-                                        )}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="flex gap-6">
-                                <Search className="w-5 h-5 text-white/20 cursor-pointer hover:text-[var(--brand-accent)] transition-all" />
-                                <Filter className="w-5 h-5 text-white/20 cursor-pointer hover:text-[var(--brand-accent)] transition-all" />
-                            </div>
-                        </div>
+                {/* Seleção de Área */}
+                <div className="flex justify-between items-center bg-[#111111] px-5 md:px-6 py-3 md:py-4 rounded-full border border-white/10 shadow-lg hidden md:flex">
+                    <div className="flex gap-6 md:gap-8">
+                        {snackAreas.map((area) => (
+                            <button key={area} onClick={() => setActiveArea(area)}
+                                className={`btn-base btn-ghost btn-sm relative font-black uppercase tracking-widest transition-colors ${
+                                    activeArea === area ? 'text-[var(--brand-accent)]' : 'text-white/40 hover:text-[var(--brand-primary)]'
+                                }`}>
+                                {area}
+                                {activeArea === area && (
+                                    <motion.div layoutId="snackNav" className="absolute -bottom-2 left-0 right-0 h-1 bg-[var(--brand-accent)] rounded-full drop-shadow-[0_0_8px_var(--brand-accent)]" />
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex gap-6">
+                        <Search className="w-5 h-5 text-white/20 cursor-pointer hover:text-[var(--brand-accent)] transition-all" />
+                        <Filter className="w-5 h-5 text-white/20 cursor-pointer hover:text-[var(--brand-accent)] transition-all" />
+                    </div>
+                </div>
 
-                        {/* Cabeçalho/Legenda da grelha — reflete a área ativa (visível também em mobile) */}
+                {/* Cabeçalho/Legenda da grelha */}
+                <AnimatePresence mode="wait">
+                    <motion.div key={activeArea}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.25 }}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 bg-white/[0.02] border border-[var(--brand-accent)]/20 rounded-2xl"
+                    >
+                        <div className="flex items-center gap-3">
+                            <span className="w-2 h-2 rounded-full bg-[var(--brand-accent)] animate-pulse shadow-[0_0_10px_var(--brand-accent)]" />
+                            <span className="text-[10px] font-black text-[var(--brand-accent)] uppercase tracking-[0.4em]">Grelha de Mesas — {activeArea}</span>
+                        </div>
+                        <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em]">
+                            {activeArea === 'Interior Deck' ? 'Zona interior • Serviço rápido em sala' : 'Zona da piscina • Serviço exterior'}
+                        </span>
+                    </motion.div>
+                </AnimatePresence>
+
+                {/* LAYOUT PRINCIPAL — Mapa de Mesas (Obrigatório) + QuickSale (Condicional) */}
+                <div className="flex flex-col lg:grid lg:grid-cols-12 gap-10 md:gap-16 items-start">
+                    {/* Lado Esquerdo — MAPA DE MESAS (OBRIGATÓRIO — Sempre Visível) */}
+                    <div className="w-full lg:col-span-7 space-y-8 md:space-y-12">
+                        {/* Legenda da área ativa */}
                         <AnimatePresence mode="wait">
                             <motion.div key={activeArea}
                                 initial={{ opacity: 0, y: 10 }}
@@ -113,55 +110,77 @@ export default function SnackBarPage() {
                             </motion.div>
                         </AnimatePresence>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-6 md:gap-10">
-                            {tableList.map((table) => (
-                                <motion.div
-                                    key={table.id}
-                                    whileHover={{ scale: 1.05, border: '2px solid var(--brand-accent)' }}
-                                    onClick={() => {
-                                        if (table.status === 'OCCUPIED') {
-                                            setSelectedTable({
-                                                id: table.id,
-                                                number: table.number,
-                                                status: table.status,
-                                                currentBill: table.bill
-                                            });
-                                        }
-                                    }}
-                                    className={`aspect-square rounded-full flex flex-col items-center justify-center transition-all duration-300 border shadow-2xl relative ${table.status === 'OCCUPIED'
-                                            ? 'border-[var(--brand-accent)] bg-[#111111] shadow-[0_0_30px_var(--brand-accent)] cursor-pointer'
-                                            : 'border-white/10 bg-[#111111]/30 hover:bg-[#111111]'
-                                        }`}
-                                >
-                                    <span className={`text-4xl md:text-5xl lg:text-6xl font-black tracking-tighter ${table.status === 'OCCUPIED' ? 'text-white' : 'text-white/5'}`}>{table.number}</span>
-
-                                    {table.bill && (
-                                        <div className="absolute bottom-6 md:bottom-10 px-3 md:px-4 py-1.5 bg-[var(--brand-accent)] rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.6)] border border-white/20">
-                                            <span className="text-black font-black text-[9px] md:text-[10px] tracking-widest">{table.bill.toFixed(2)}Kz</span>
+                        {/* MAPA DE MESAS — SEMPRE VISÍVEL, FLUXO OBRIGATÓRIO */}
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="space-y-6"
+                        >
+                            <div className="bg-[#111111] border border-[var(--brand-accent)]/20 rounded-2xl p-4 md:p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-[var(--brand-accent)]/10 border border-[var(--brand-accent)]/30 rounded-xl">
+                                            <TableIcon className="w-5 h-5 text-[var(--brand-accent)]" />
                                         </div>
-                                    )}
+                                        <div>
+                                            <p className="text-[10px] font-black text-white/50 uppercase tracking-wider">Mapa de Mesas — {activeArea}</p>
+                                            <p className="text-white/40 text-sm">Selecione uma mesa para iniciar o atendimento</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="px-3 py-1 bg-green-500/20 border border-green-500/30 rounded-full text-green-400 text-[10px] font-black uppercase tracking-wider">
+                                            FLUXO OBRIGATÓRIO
+                                        </span>
+                                    </div>
+                                </div>
 
-                                    {table.status === 'OCCUPIED' && (
-                                        <div className="absolute inset-0 rounded-full border-2 border-[var(--brand-accent)]/80 animate-pulse pointer-events-none drop-shadow-[0_0_10px_var(--brand-accent)]" />
-                                    )}
-                                </motion.div>
-                            ))}
-                        </div>
+                                {/* HoloTableMap integrado — gerencia seleção de mesa */}
+                                <HoloTableMap 
+                                    onTableSelect={(mesa) => { 
+                                        console.log('[SnackBar] Mesa selecionada:', mesa?.name || 'nenhuma');
+                                    }} 
+                                />
+                            </div>
+                        </motion.div>
                     </div>
 
-                    <div className="w-full lg:col-span-5 h-[600px] md:h-[700px] lg:h-full">
-                        <QuickSale />
+                    {/* Lado Direito — QuickSale (SÓ APARECE COM MESA SELECIONADA) */}
+                    <div className="w-full lg:col-span-5">
+                        <AnimatePresence mode="wait">
+                            {/* Placeholder quando NÃO há mesa selecionada */}
+                            <motion.div
+                                key="placeholder"
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                className="bg-[#111111] border border-[var(--brand-accent)]/20 rounded-[24px] md:rounded-[32px] p-5 md:p-6 lg:p-8 h-[600px] md:h-[700px] lg:h-full flex flex-col items-center justify-center shadow-[0_50px_100px_rgba(0,0,0,1)] relative overflow-hidden"
+                            >
+                                <div className="absolute top-0 right-0 w-32 h-32 md:w-48 md:h-48 bg-[var(--brand-accent)]/5 blur-[100px] -mr-16 -mt-16 md:-mr-24 md:-mt-24 pointer-events-none" />
+                                <div className="text-center relative z-10">
+                                    <div className="p-4 bg-[var(--brand-accent)]/10 border border-[var(--brand-accent)]/30 rounded-2xl inline-block mb-6">
+                                        <TableIcon className="w-12 h-12 text-[var(--brand-accent)]" />
+                                    </div>
+                                    <h3 className="text-2xl font-black text-white uppercase tracking-wider mb-3">Selecione uma Mesa</h3>
+                                    <p className="text-white/50 max-w-sm mx-auto mb-6">
+                                        O fluxo de vendas exige que uma mesa seja selecionada no mapa à esquerda antes de lançar itens.
+                                    </p>
+                                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                                        <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-xl text-green-400 text-sm font-black">
+                                            <CheckCircle className="w-5 h-5 inline mr-2" /> Mesa Livre — Abrir Nova Comanda
+                                        </div>
+                                        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm font-black">
+                                            <AlertCircle className="w-5 h-5 inline mr-2" /> Mesa Ocupada — Ver Conta / Fechar
+                                        </div>
+                                        <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-yellow-400 text-sm font-black">
+                                            <Loader2 className="w-5 h-5 inline mr-2" /> Reservada / Manutenção — Indisponível
+                                        </div>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        </AnimatePresence>
                     </div>
                 </div>
             </div>
-
-            {selectedTable && (
-                <BillModal
-                    table={selectedTable}
-                    onClose={() => setSelectedTable(null)}
-                    onBillClosed={handleBillClosed}
-                />
-            )}
         </DashboardLayout>
     );
 }

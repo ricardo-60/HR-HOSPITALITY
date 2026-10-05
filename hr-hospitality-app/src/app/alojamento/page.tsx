@@ -283,6 +283,10 @@ export default function AlojamentoPage() {
                                     items={checkoutData.items}
                                     taxes={checkoutData.taxes}
                                     onFinalize={handleFinalizeCheckout}
+                                    onClose={() => {
+                                        setShowCheckout(false);
+                                        setCheckoutData(null);
+                                    }}
                                 />
                             </motion.div>
                         </div>

@@ -71,3 +71,7 @@ logs/audit_*.csv
 
 # Capturas geradas por scripts/shot.ps1
 hr-hospitality-app/scripts/shots/
+
+# Artefactos PyInstaller de outro projeto (Ajente-60) que vazaram para a raiz — nunca versionar
+build_installer/
+server.spec

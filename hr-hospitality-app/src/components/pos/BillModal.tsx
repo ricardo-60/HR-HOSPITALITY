@@ -10,9 +10,11 @@ interface BillModalProps {
     table: Table;
     onClose: () => void;
     onBillClosed?: (tableId: string) => void;
+    /** Zona/ponto de venda da mesa (SNACK_BAR, RESTAURANTE, ... ) — rastreio no extrato. */
+    zone?: string;
 }
 
-export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
+export function BillModal({ table, onClose, onBillClosed, zone = 'SNACK_BAR' }: BillModalProps) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [notice, setNotice] = useState<{ tone: 'error' | 'success' | 'warn'; text: string } | null>(null);
     const [paymentType, setPaymentType] = useState<'IMMEDIATE' | 'ROOM' | null>(null);
@@ -37,19 +39,15 @@ export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
                     }));
                     setActiveGuests(formatted);
                 } else {
-                    // Fallback de demonstração caso o banco de dados local esteja sem hóspedes
-                    setActiveGuests([
-                        { id: 'b2222222-2222-4222-8222-000000000002', fullName: 'Maria da Conceição', documentId: '54321098', email: 'm.conceicao@email.com', status: 'ACTIVE', roomId: '202' },
-                        { id: 'b2222222-2222-4222-8222-000000000004', fullName: 'Ana Paula Silva', documentId: '98765432', email: 'ana.silva@gmail.com', status: 'ACTIVE', roomId: '104' },
-                        { id: 'b2222222-2222-4222-8222-000000000001', fullName: 'Hermenegildo Ricardo', documentId: '12345678', email: 'h.ricardo@email.com', status: 'ACTIVE', roomId: '101' }
-                    ]);
+                    // Sem hóspedes reais: lista vazia. Nunca dados fictícios.
+                    setActiveGuests([]);
+                    setNotice({ tone: 'warn', text: 'Sem hóspedes com check-in activo — lance a conta em Numerário, TPA ou Transferência.' });
                 }
             } catch (err) {
                 console.error('[HOSPITALITY/BillModal] Falha ao ler hóspedes ativos:', err);
-                // Fallback de segurança
-                setActiveGuests([
-                    { id: 'b2222222-2222-4222-8222-000000000002', fullName: 'Maria da Conceição', documentId: '54321098', email: 'm.conceicao@email.com', status: 'ACTIVE', roomId: '202' }
-                ]);
+                // Sem fallback fictício: apenas lista vazia + aviso.
+                setActiveGuests([]);
+                setNotice({ tone: 'error', text: 'Não foi possível carregar os hóspedes activos.' });
             }
         }
 
@@ -78,7 +76,10 @@ export function BillModal({ table, onClose, onBillClosed }: BillModalProps) {
                     description,
                     unitPrice: billAmount,
                     totalPrice: billAmount,
-                    category: 'restaurante'
+                    category: 'restaurante',
+                    // Rastreabilidade no extrato do quarto: zona de consumo e mesa de origem.
+                    sourceZone: zone,
+                    sourceTable: `Mesa ${table.number}`,
                 });
 
                 setNotice({ tone: 'success', text: `Conta de ${billAmount.toFixed(2)}Kz lançada com sucesso no Quarto do hóspede!` });

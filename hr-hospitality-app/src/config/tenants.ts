@@ -11,6 +11,10 @@ export interface TenantConfig {
     };
     slogan: string;
     logoUrl?: string;
+    /** NIF e morada oficiais - obrigatorios em faturas e extratos de conta. */
+    nif?: string;
+    address?: string;
+    city?: string;
 }
 
 export const tenants: Record<string, TenantConfig> = {
@@ -26,6 +30,9 @@ export const tenants: Record<string, TenantConfig> = {
             background: '#111827' // Mantem Cinza-Ardosia Profundo
         },
         slogan: 'Da nossa terra para o seu coração!',
+        nif: '5484045614',
+        address: 'Avenida 21 de Janeiro, Benfica',
+        city: 'Luanda',
     }
 };
 

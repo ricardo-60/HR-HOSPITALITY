@@ -20,11 +20,7 @@ interface Transfer {
 }
 
 const seedTransfers: Transfer[] = [
-    { id: 'TRF-001', guest: 'Carlos Mendes', room: '101', from: 'Hotel Lukweku', to: 'Aeroporto Internacional', time: '06:30', driver: 'António Silva', vehicle: 'Toyota Land Cruiser', status: 'CONCLUÍDO', type: 'AEROPORTO' },
-    { id: 'TRF-002', guest: 'Maria Santos', room: '205', from: 'Aeroporto Internacional', to: 'Hotel Lukweku', time: '10:15', driver: 'José Ferreira', vehicle: 'Mercedes E-Class', status: 'EM CURSO', type: 'AEROPORTO' },
-    { id: 'TRF-003', guest: 'João Baptista', room: '312', from: 'Hotel Lukweku', to: 'Mausoléo António Agostinho Neto', time: '14:00', driver: 'Carlos Gomes', vehicle: 'Land Rover Defender', status: 'AGENDADO', type: 'CITY TOUR' },
-    { id: 'TRF-004', guest: 'Ana Rodrigues', room: '108', from: 'Hotel Lukweku', to: 'Talatona Convention Center', time: '15:30', driver: 'Miguel Sousa', vehicle: 'Mercedes S-Class', status: 'AGENDADO', type: 'EXECUTIVO' },
-    { id: 'TRF-005', guest: 'Pedro Alves', room: '401', from: 'Hotel Lukweku', to: 'Shopping Belas Mall', time: '16:00', driver: 'Rafael Costa', vehicle: 'Toyota Land Cruiser', status: 'AGENDADO', type: 'CITY TOUR' },
+    // Sem dados de demonstracao: os transferes sao criados pelo utilizador e o hospede deve existir na base de clientes KYC.
 ];
 
 const statusConfig = {
@@ -144,6 +140,12 @@ export default function TransferPage() {
 
                 {/* Transfer Cards */}
                 <div className="space-y-4">
+                    {filtered.length === 0 && (
+                        <div className="glass-panel rounded-[28px] border border-dashed border-white/10 p-10 text-center">
+                            <p className="text-xs font-black text-white/40 uppercase tracking-[0.3em]">Sem transferes registados</p>
+                            <p className="text-[11px] text-white/25 mt-2">Use &quot;Novo Transfer&quot; para agendar uma viagem — sem dados de demonstração.</p>
+                        </div>
+                    )}
                     <AnimatePresence mode="popLayout">
                         {filtered.map((t, i) => {
                             const scfg = statusConfig[t.status];

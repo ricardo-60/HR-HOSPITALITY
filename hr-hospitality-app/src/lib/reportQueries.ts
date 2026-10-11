@@ -9,6 +9,7 @@
 
 import { isMissingRelation, toNumber } from '@/lib/productCatalog';
 import { isSupabaseConfigured, supabaseClient } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabase';
 
 /* ── Sessões horárias ──────────────────────────────────────────────────── */
 
@@ -86,8 +87,10 @@ export async function fetchHourlyBilling(from: string, to: string): Promise<Hour
     }
 
     // Números de quarto: melhor esforço, nunca bloqueia o relatório.
+    // Local-First: lê o registo operacional do hotel (SQLite local) em vez da
+    // nuvem, para que os números apresentados casem com o mapa de quartos.
     const rooms = new Map<string, string>();
-    const quartos = await supabaseClient.from('hotel_rooms').select('id,room_number');
+    const quartos = await supabase.from('hotel_rooms').select('id,room_number');
     if (!quartos.error) {
       for (const quarto of (quartos.data ?? []) as { id: string; room_number: string }[]) {
         rooms.set(String(quarto.id), String(quarto.room_number));

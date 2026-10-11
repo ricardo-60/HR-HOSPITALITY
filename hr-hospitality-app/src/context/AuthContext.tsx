@@ -37,7 +37,7 @@ const MASTER_ONLY_PATHS = ['/master'];
 export const PERMISSION_MODULES = [
   { key: 'pos_cashier', name: 'Caixa (POS)', description: 'Comandas, mesas e liquidação do ponto de venda.', paths: ['/pos'] },
   { key: 'bar_snack', name: 'Bar / Snack-Bar', description: 'Snack-bar, esplanada e piscina.', paths: ['/snack-bar'] },
-  { key: 'reception', name: 'Recepção / Quartos', description: 'Alojamento, check-in, KYC e comprovativos.', paths: ['/alojamento', '/comprovativos', '/kyc'] },
+  { key: 'reception', name: 'Recepção / Quartos', description: 'Alojamento, check-in, KYC e comprovativos.', paths: ['/alojamento', '/comprovativos', '/kyc', '/clientes'] },
   { key: 'financial', name: 'Financeiro / Despesas', description: 'Despesas diárias, razão e IBANs.', paths: ['/financeiro'] },
   { key: 'housekeeping', name: 'Governança / Limpeza', description: 'Limpeza, manutenção e áreas comuns.', paths: ['/facilities'] },
   { key: 'reports', name: 'Relatórios', description: 'Suite de relatórios gerenciais.', paths: ['/relatorios'] },

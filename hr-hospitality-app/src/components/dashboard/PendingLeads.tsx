@@ -1,11 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle, CreditCard, User, Calendar, Home, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, Ban, CreditCard, User, Calendar, Home, ArrowRight, CheckCircle2, Loader2 } from 'lucide-react';
 import { DEFAULT_TENANT } from '@/config/tenants';
 import { supabase } from '@/lib/supabase';
+import { localQuery } from '@/lib/db/localDB';
+import { emitRoomEvent, useRoomSync } from '@/lib/roomEvents';
 
 interface MapRoom {
     id: string;
@@ -18,9 +20,10 @@ interface MapRoom {
 interface Lead {
     id: string;
     guest_name: string;
-    room_id: string;
+    room_id: string | null;
+    room_number: string | null;
     service_type: string;
-    status: 'PENDENTE_PAGAMENTO' | 'CONFIRMADA';
+    status: 'PENDENTE_PAGAMENTO' | 'CONFIRMADA' | 'CHECKED_IN';
     created_at: string;
 }
 
@@ -51,11 +54,15 @@ export function PendingLeads() {
 
     const fetchLeads = async () => {
         try {
+            // Só reservas activas: canceladas/check-out saem do painel
+            // (ficam consultáveis no ecrã /alojamento/reservas).
             const { data: leadsData, error: leadsError } = await supabase
                 .from('hotel_reservations')
-                .select('id, guest_name, room_id, service_type, status, created_at')
-                .order('created_at', { ascending: false });
-                
+                .select('id, guest_name, room_id, room_number, service_type, status, created_at')
+                .in('status', ['PENDENTE_PAGAMENTO', 'CONFIRMADA', 'CHECKED_IN'])
+                .order('created_at', { ascending: false })
+                .limit(100);
+
             if (!leadsData || leadsError) {
                 console.warn("Erro ao carregar reservas:", leadsError);
             } else {
@@ -66,27 +73,21 @@ export function PendingLeads() {
         }
     };
 
+    const syncAll = useCallback(async () => {
+        await Promise.all([fetchRooms(), fetchLeads()]);
+    }, []);
+
     useEffect(() => {
         fetchRooms();
         fetchLeads();
-
-        // Realtime Subscription (compatível offline via stub)
-        // Sufixo próprio: o supabase-js reutiliza o canal do mesmo tópico e,
-        // se o anterior ainda está a fechar, o `.on()` lança e parte a página.
-        const channel = (supabase as any)
-            .channel(`pending-leads-updates#${Date.now().toString(36)}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'hotel_rooms' }, () => {
-                fetchRooms();
-            })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'hotel_reservations' }, () => {
-                fetchLeads();
-            })
-            .subscribe();
-
-        return () => {
-            (supabase as any).removeChannel(channel);
-        };
+        // Local-First: sem subscrição realtime à nuvem. A reactividade instantânea
+        // vem do barramento local (useRoomSync, abaixo) e da sondagem periódica,
+        // pelo que este módulo lê sempre o registo operacional do hotel.
     }, []);
+
+    // Reactividade instantânea vinda de qualquer módulo (check-in, mapa de
+    // quartos, ecrã de reservas) — sem recarregar a página.
+    useRoomSync(syncAll, { intervalMs: 20000 });
 
     const efetivarReserva = async (leadId: string, roomId: string) => {
         const targetRoom = rooms.find(r => r.id === roomId);
@@ -128,6 +129,36 @@ export function PendingLeads() {
                 room.id === roomId ? { ...room, status: 'OCUPADO' } : room
             )
         );
+
+        emitRoomEvent({ type: 'reservation', reservationId: leadId, roomId, roomNumber: targetRoom.room_number });
+    };
+
+    const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+    /**
+     * Cancela / desmarca a reserva. A operação é atómica no servidor:
+     * marca CANCELADA e, se deixou de haver hóspede activo, liberta o quarto.
+     */
+    const cancelarReserva = async (lead: Lead) => {
+        setCancellingId(lead.id);
+        setErrorMsg(null);
+        try {
+            await localQuery('hotel_reservations.cancel', { id: lead.id });
+            setLeads(current => current.filter(item => item.id !== lead.id));
+            if (lead.room_id) {
+                setRooms(current => current.map(room => (room.id === lead.room_id && room.status === 'OCUPADO' ? { ...room, status: 'DISPONIVEL' } : room)));
+            }
+            emitRoomEvent({
+                type: 'reservation',
+                reservationId: lead.id,
+                ...(lead.room_id ? { roomId: lead.room_id } : {}),
+                ...(lead.room_number ? { roomNumber: lead.room_number } : {}),
+            });
+        } catch (err) {
+            setErrorMsg(`Erro ao cancelar a reserva de ${lead.guest_name}: ${(err as any)?.message ?? err}`);
+        } finally {
+            setCancellingId(null);
+        }
     };
 
     if (leads.length === 0) return null;
@@ -205,7 +236,7 @@ export function PendingLeads() {
                                             <div className="flex flex-col sm:flex-row gap-3 sm:gap-6">
                                                 <div className="flex items-center gap-2">
                                                     <Home className="w-4 h-4 md:w-5 md:h-5 text-white/20" />
-                                                    <span className="text-xs md:text-sm font-black text-white/60">{lead.service_type} • Quarto {rooms.find(r => r.id === lead.room_id)?.room_number || '–'}</span>
+                                                    <span className="text-xs md:text-sm font-black text-white/60">{lead.service_type} • Quarto {rooms.find(r => r.id === lead.room_id)?.room_number || lead.room_number || '–'}</span>
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <Calendar className="w-4 h-4 md:w-5 md:h-5 text-white/20" />
@@ -252,21 +283,47 @@ export function PendingLeads() {
                                                             >
                                                                 Efetivar <ArrowRight className="w-3 h-3 opacity-50 group-hover/btn:opacity-100" />
                                                             </motion.button>
+                                                            <button
+                                                                type="button"
+                                                                key="btn-cancelar"
+                                                                disabled={cancellingId === lead.id}
+                                                                onClick={() => void cancelarReserva(lead)}
+                                                                className="w-auto px-4 py-1.5 md:py-2 rounded-md text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all duration-300 border border-rose-400/40 text-rose-300 bg-rose-400/5 hover:bg-rose-400 hover:text-black active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                                                            >
+                                                                {cancellingId === lead.id
+                                                                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                                                                    : <Ban className="w-3 h-3" />}
+                                                                Cancelar
+                                                            </button>
                                                         </div>
                                                     ) : (
-                                                        <motion.div 
-                                                            key="lbl-alocado"
-                                                            initial={{ opacity: 0, scale: 0.95 }}
-                                                            animate={{ opacity: 1, scale: 1 }}
-                                                            transition={{ duration: 0.4, ease: "easeOut" }}
-                                                            className="w-auto ml-auto px-4 py-1.5 md:py-2 text-[var(--brand-accent)] bg-[var(--brand-accent)]/5 border border-[var(--brand-accent)]/20 rounded-md text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] flex items-center opacity-90 transition-all hover:bg-[var(--brand-accent)]/10"
-                                                        >
-                                                            <div className="flex items-center gap-2">
-                                                                <CheckCircle2 className="w-3 h-3 md:w-4 md:h-4 text-[var(--brand-accent)]/70" />
-                                                                <span className="truncate drop-shadow-[0_0_8px_var(--brand-accent)] mr-2">VINCULADO AO MAPA</span>
-                                                            </div>
-                                                            <ArrowRight className="w-3 h-3 md:w-4 md:h-4 opacity-40 animate-pulse" />
-                                                        </motion.div>
+                                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 w-full sm:w-auto ml-auto">
+                                                            <motion.div
+                                                                key="lbl-alocado"
+                                                                initial={{ opacity: 0, scale: 0.95 }}
+                                                                animate={{ opacity: 1, scale: 1 }}
+                                                                transition={{ duration: 0.4, ease: "easeOut" }}
+                                                                className="w-auto px-4 py-1.5 md:py-2 text-[var(--brand-accent)] bg-[var(--brand-accent)]/5 border border-[var(--brand-accent)]/20 rounded-md text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] flex items-center opacity-90 transition-all hover:bg-[var(--brand-accent)]/10"
+                                                            >
+                                                                <div className="flex items-center gap-2">
+                                                                    <CheckCircle2 className="w-3 h-3 md:w-4 md:h-4 text-[var(--brand-accent)]/70" />
+                                                                    <span className="truncate drop-shadow-[0_0_8px_var(--brand-accent)] mr-2">VINCULADO AO MAPA</span>
+                                                                </div>
+                                                                <ArrowRight className="w-3 h-3 md:w-4 md:h-4 opacity-40 animate-pulse" />
+                                                            </motion.div>
+                                                            <button
+                                                                type="button"
+                                                                key="btn-cancelar-alocado"
+                                                                disabled={cancellingId === lead.id}
+                                                                onClick={() => void cancelarReserva(lead)}
+                                                                className="w-auto px-4 py-1.5 md:py-2 rounded-md text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-2 transition-all duration-300 border border-rose-400/40 text-rose-300 bg-rose-400/5 hover:bg-rose-400 hover:text-black active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                                                            >
+                                                                {cancellingId === lead.id
+                                                                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                                                                    : <Ban className="w-3 h-3" />}
+                                                                Cancelar
+                                                            </button>
+                                                        </div>
                                                     )}
                                                 </AnimatePresence>
                                             </div>

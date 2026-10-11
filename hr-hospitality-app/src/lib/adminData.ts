@@ -8,6 +8,7 @@
  */
 
 import { supabaseClient, isSupabaseConfigured } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabase';
 
 /* ── Tipos ──────────────────────────────────────────────────────────────── */
 
@@ -511,7 +512,9 @@ export async function decidePaymentProof(
         .maybeSingle();
 
       if (proof?.reservation_id) {
-        const { error: confirmError } = await db()
+        // Local-First: confirma a reserva no registo operacional do hotel
+        // (SQLite local) — a mesma fonte que o Dashboard e o Alojamento leem.
+        const { error: confirmError } = await supabase
           .from('hotel_reservations')
           .update({ status: 'CONFIRMADA' })
           .eq('id', proof.reservation_id)
@@ -646,14 +649,18 @@ export async function listOccupancy(): Promise<Result<OccupancyRow[]>> {
     // devolvia PGRST200 -> HTTP 400 e a página /kyc ficava sem quartos.
     // Lê-se as duas tabelas e junta-se em memória: funciona quer a 015 já
     // tenha sido aplicada quer ainda não, e evita depender do embed.
+    // Local-First: a ocupação do KYC lê o registo operacional do hotel (SQLite
+    // local), a mesma fonte que o Dashboard e o Alojamento usam. A coluna
+    // `reference` só existia na nuvem — o SQLite local nunca a teve —, por isso
+    // é omitida aqui e a página /kyc passa a mostrar "—" nesse campo.
     const [quartosRes, reservasRes] = await Promise.all([
-      db()
+      supabase
         .from('hotel_rooms')
         .select('id,room_number,room_type,status,price_per_night')
         .order('room_number'),
-      db()
+      supabase
         .from('hotel_reservations')
-        .select('room_id,reference,guest_name,check_in_date,check_out_date,status')
+        .select('room_id,guest_name,check_in_date,check_out_date,status')
         .order('created_at', { ascending: false })
         .limit(1000),
     ]);

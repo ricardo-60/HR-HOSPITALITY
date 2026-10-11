@@ -22,6 +22,7 @@
 
 import { supabaseClient } from './supabaseClient';
 import { localOperation, checkServerHealth } from './db/localDB';
+import { isLocalAuthoritativeTable } from './localAuthoritativeTables';
 
 export interface SyncEvent {
     id: string;
@@ -54,7 +55,17 @@ let lastError: string | null = null;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 
 const MAX_ATTEMPTS_PER_CYCLE = 50;
-const SYNC_TABLES = new Set(['hotel_rooms', 'hotel_reservations', 'hotel_consumptions']);
+// Local-First: nenhuma tabela do registo operacional é empurrada para a nuvem
+// enquanto o esquema remoto não tiver as colunas de associação ao cliente
+// (client_id/client_number) nem as tabelas do CRM/KYC. Reproduzir aqui as
+// escritas só recriaria o split-brain: o Supabase rejeitaria o INSERT (400) e o
+// estado local e remoto voltaria a divergir. A lista é derivada da fonte única
+// para não sair de sincronia — se uma tabela deixar de ser local, o flush
+// volta a ativar-se sozinho. Ver localAuthoritativeTables.ts.
+const SYNC_TABLES = new Set(
+    ['hotel_rooms', 'hotel_reservations', 'hotel_consumptions']
+        .filter(table => !isLocalAuthoritativeTable(table))
+);
 const SYNC_ACTIONS = new Set(['INSERT', 'UPDATE', 'DELETE']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -193,7 +204,18 @@ export async function flushSyncQueue(): Promise<SyncStats> {
             console.warn(`[HOSPITALITY/Sync] ${superseded.length} eventos colapsados em ${coalesced.length} operações finais.`);
         }
 
-        for (const ev of coalesced.slice(0, MAX_ATTEMPTS_PER_CYCLE)) {
+        // Local-First: as tabelas do registo operacional não são replicadas
+        // para a nuvem (ver localAuthoritativeTables.ts), logo os seus eventos
+        // estão, por definição, resolvidos — o SQLite local é a fonte de
+        // verdade. Resolve-se-os aqui para que a fila não cresça sem limite.
+        const locais = coalesced.filter(ev => isLocalAuthoritativeTable(ev.table_name));
+        for (const ev of locais) {
+            await localOperation('sync.completeEvent', { id: ev.id });
+            lastFlushSynced++;
+        }
+        const paraNuvem = coalesced.filter(ev => !isLocalAuthoritativeTable(ev.table_name));
+
+        for (const ev of paraNuvem.slice(0, MAX_ATTEMPTS_PER_CYCLE)) {
             const result = await applyEventToSupabase(ev);
 
             if (result.ok) {

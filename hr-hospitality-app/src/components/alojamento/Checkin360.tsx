@@ -3,13 +3,24 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { User, Car, CreditCard, CheckCircle2, Shield, Dumbbell, Zap, ArrowRight, ArrowLeft } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import VoiceInput from '@/components/voice/VoiceInput';
-import { supabase } from '@/lib/supabase';
+import { localQuery, localOperation } from '@/lib/db/localDB';
+import { emitRoomEvent } from '@/lib/roomEvents';
+import { ClientSearch } from './ClientSearch';
+import type { ClientSearchResult } from './ClientSearch';
 
 interface Checkin360Props {
     roomId?: string;
     onComplete: () => void;
+}
+
+interface RoomType {
+    id: string;
+    room_number?: string;
+    room_type?: string;
+    status: string;
+    price_per_night: number;
 }
 
 export function Checkin360({ roomId, onComplete }: Checkin360Props) {
@@ -18,7 +29,15 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
     const [isSuccess, setIsSuccess] = useState(false);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [selectedRoomId, setSelectedRoomId] = useState(roomId || '');
-    const [availableRooms, setAvailableRooms] = useState<{ id: string; room_number?: string; room_type?: string; status: string }[]>([]);
+    const [availableRooms, setAvailableRooms] = useState<RoomType[]>([]);
+
+    // Persist selectedClient across re-renders using useRef as backup
+    const [selectedClient, setSelectedClient] = useState<ClientSearchResult | null>(null);
+    const selectedClientRef = useRef<ClientSearchResult | null>(null);
+
+    const getSelectedClient = useCallback(() => {
+        return selectedClientRef.current ?? selectedClient;
+    }, []);
 
     useEffect(() => {
         if (roomId) {
@@ -29,34 +48,20 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
     useEffect(() => {
         const fetchAvailableRooms = async () => {
             try {
-                const { data, error } = await supabase
-                    .from('hotel_rooms')
-                    .select('id, room_number, room_type, status')
-                    .eq('status', 'DISPONIVEL')
-                    .order('room_number', { ascending: true });
-                if (!error && data) {
+                // Com roomId pré-definido, carrega todos os quartos (para resolver
+                // room_number/price do quarto escolhido); sem roomId, só livres.
+                const data = await localQuery<RoomType[]>(
+                    'hotel_rooms.list',
+                    roomId ? { limit: 500 } : { status: 'DISPONIVEL', limit: 100 }
+                );
+                if (data) {
                     setAvailableRooms(data);
                 }
             } catch (err) {
                 console.error("Falha ao buscar quartos livres:", err);
             }
         };
-        if (!roomId) {
-            fetchAvailableRooms();
-        }
-
-        // Sufixo próprio: o supabase-js reutiliza o canal do mesmo tópico e,
-        // se o anterior ainda está a fechar, o `.on()` lança e parte a página.
-        const channel = (supabase as any)
-            .channel(`public:hotel_rooms#${Date.now().toString(36)}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'hotel_rooms' }, () => {
-                if (!roomId) fetchAvailableRooms();
-            })
-            .subscribe();
-
-        return () => {
-            (supabase as any).removeChannel(channel);
-        };
+        fetchAvailableRooms();
     }, [roomId]);
 
 
@@ -64,49 +69,113 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
     const [formData, setFormData] = useState({
         name: '',
         document: '',
-        nationality: 'Portugal',
+        nationality: 'Angola',
         plate: '',
         gymAccess: false,
         creditLimit: 500,
         notes: ''
     });
 
+    const handleClientSelect = useCallback((client: ClientSearchResult | null) => {
+        setSelectedClient(client);
+        selectedClientRef.current = client;
+        if (client) {
+            setFormData(prev => ({
+                ...prev,
+                name: client.full_name,
+                document: client.document_number,
+            }));
+        } else {
+            setFormData(prev => ({ ...prev, name: '', document: '' }));
+        }
+    }, []);
+
+    const handleCreateNewClient = () => {
+        // Could open a modal or redirect to /clientes
+        alert('Redirecionar para cadastro de cliente KYC...');
+    };
+
     const handleFinalize = async () => {
+        const currentClient = getSelectedClient();
         if (!selectedRoomId) {
             setErrorMessage("Por favor, selecione um quarto!");
             return;
         }
+        if (!currentClient) {
+            setErrorMessage("Por favor, selecione um cliente!");
+            return;
+        }
+
+        // Resolver dados do quarto (fallback: buscar novamente da BD)
+        let room = availableRooms.find(r => r.id === selectedRoomId);
+        if (!room) {
+            try {
+                const allRooms = await localQuery<RoomType[]>('hotel_rooms.list', { limit: 500 });
+                room = allRooms?.find(r => r.id === selectedRoomId);
+            } catch { /* ignora — tratado abaixo */ }
+        }
+        if (!room || !room.room_number) {
+            setErrorMessage("Quarto não encontrado. Actualize e tente novamente.");
+            return;
+        }
+
         setIsScanning(true);
         setErrorMessage(null);
         try {
-            // 1. Criar a reserva confirmada
-            const { error: resError } = await supabase
-                .from('hotel_reservations')
-                .insert([
-                    {
-                        guest_name: formData.name + " (Doc: " + formData.document + ")",
-                        email: formData.document + "@checkin.local",
-                        room_id: selectedRoomId,
-                        status: 'CONFIRMADA',
-                        service_type: 'quarto',
-                        tenant_id: '11111111-1111-1111-1111-111111111111',
-                        check_in_date: new Date().toISOString().split('T')[0],
-                        reservation_date: new Date().toISOString().split('T')[0]
-                    }
-                ]);
+            // 1. Criar a reserva confirmada usando localOperation
+            const today = new Date().toISOString().split('T')[0];
 
-            if (resError) throw resError;
+            // localQuery normaliza o envelope (IPC/HTTP) e devolve directamente
+            // a linha criada em hotel_reservations.create.
+            const created = await localQuery<{ id?: string } | null>('hotel_reservations.create', {
+                guest_name: currentClient.full_name,
+                email: currentClient.email || `${currentClient.document_number}@checkin.local`,
+                service_type: 'quarto',
+                room_id: selectedRoomId,
+                room_number: room.room_number,
+                check_in_date: today,
+                check_out_date: today, // same day checkout by default, will be updated on actual checkout
+                status: 'CHECKED_IN',
+                total_amount: room.price_per_night || 0,
+                // Ligação estrita da estadia ao cliente KYC cadastrado
+                client_id: currentClient.id,
+                client_number: currentClient.client_number,
+                notes: `Check-in via Checkin360 - Cliente: ${currentClient.client_number}`
+            });
 
             // 2. Atualizar o estado do quarto para OCUPADO
-            const { error: roomError } = await supabase
-                .from('hotel_rooms')
-                .update({ status: 'OCUPADO' })
-                .eq('id', selectedRoomId);
+            await localOperation('hotel_rooms.update', {
+                id: selectedRoomId,
+                status: 'OCUPADO'
+            });
 
-            if (roomError) throw roomError;
+            // 3. Registar a visita (actualiza estatísticas, pontos e faz
+            //    upgrade automático de tier de fidelidade no servidor)
+            const reservationId = created?.id;
+            const pointsEarned = Math.floor((room.price_per_night || 0) / 100);
+            await localOperation('client_visits.create', {
+                client_id: currentClient.id,
+                visit_type: 'HOSPEDAGEM',
+                check_in_date: today,
+                room_number: room.room_number,
+                room_type: room.room_type || '',
+                amount_spent: room.price_per_night || 0,
+                loyalty_points_earned: pointsEarned,
+                ...(reservationId ? { reservation_id: reservationId } : {}),
+                notes: 'Check-in via Checkin360'
+            });
 
             setIsScanning(false);
             setIsSuccess(true);
+            // Reactividade: o Mapa de Quartos, o Dashboard e as reservas
+            // reagem imediatamente, sem recarregar a página.
+            emitRoomEvent({
+                type: 'check-in',
+                roomId: selectedRoomId,
+                roomNumber: room.room_number,
+                ...(created?.id ? { reservationId: created.id } : {}),
+                clientId: currentClient.id,
+            });
             setTimeout(() => {
                 onComplete();
             }, 3000);
@@ -125,17 +194,39 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
             content: (
                 <div className="space-y-8">
                     <div className="space-y-2">
-                        <label className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">Nome Completo</label>
-                        <div className="relative group">
-                            <input
-                                type="text"
-                                value={formData.name}
-                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                placeholder="EX: RICARDO FERREIRA"
-                                className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white font-black text-sm uppercase tracking-widest focus:border-cyber-cyan outline-none transition-all placeholder:text-white/10"
-                            />
-                            <User className="absolute right-6 top-1/2 -translate-y-1/2 w-4 h-4 text-white/10 group-focus-within:text-cyber-cyan transition-colors" />
-                        </div>
+                        <label className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">Nome Completo / Selecionar Cliente</label>
+                        <ClientSearch
+                            value={formData.name}
+                            onChange={(name) => setFormData(prev => ({ ...prev, name }))}
+                            onSelect={handleClientSelect}
+                            onCreateNew={handleCreateNewClient}
+                            placeholder="Digite nome ou nº cliente (ex: HR-2026-00001)..."
+                            label="Cliente"
+                            required={true}
+                        />
+                        {selectedClient && (
+                            <div className="mt-3 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+                                <p className="text-[10px] font-black text-emerald-300 uppercase tracking-wider mb-2">Cliente Selecionado</p>
+                                <div className="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                        <p className="text-white/40 text-[9px] uppercase tracking-wider">Nº Cliente</p>
+                                        <p className="font-mono text-cyber-cyan">{selectedClient.client_number}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-white/40 text-[9px] uppercase tracking-wider">Tier</p>
+                                        <p className="font-black text-emerald-300">{selectedClient.loyalty_tier}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-white/40 text-[9px] uppercase tracking-wider">Documento</p>
+                                        <p className="font-black">{selectedClient.document_type}: {selectedClient.document_number}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-white/40 text-[9px] uppercase tracking-wider">Pontos</p>
+                                        <p className="font-black text-amber-300">{selectedClient.loyalty_points}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <div className="grid grid-cols-2 gap-6">
                         <div className="space-y-2">
@@ -145,6 +236,7 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
                                 value={formData.document}
                                 onChange={(e) => setFormData({ ...formData, document: e.target.value })}
                                 placeholder="00000000"
+                                readOnly={!!selectedClient}
                                 className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white font-black text-sm uppercase tracking-widest focus:border-cyber-cyan outline-none transition-all placeholder:text-white/10"
                             />
                         </div>
@@ -155,8 +247,8 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
                                 onChange={(e) => setFormData({ ...formData, nationality: e.target.value })}
                                 className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white font-black text-sm uppercase tracking-widest focus:border-cyber-cyan outline-none transition-all"
                             >
-                                <option className="bg-[#111827]">Portugal</option>
                                 <option className="bg-[#111827]">Angola</option>
+                                <option className="bg-[#111827]">Portugal</option>
                                 <option className="bg-[#111827]">Brasil</option>
                             </select>
                         </div>
@@ -183,7 +275,11 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
                         {roomId ? (
                             <input
                                 type="text"
-                                value={selectedRoomId}
+                                value={
+                                    availableRooms.find(r => r.id === selectedRoomId)?.room_number
+                                        ? `Quarto ${availableRooms.find(r => r.id === selectedRoomId)?.room_number} (${availableRooms.find(r => r.id === selectedRoomId)?.room_type || 'Standard'})`
+                                        : selectedRoomId
+                                }
                                 readOnly
                                 className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white/50 font-black text-sm uppercase tracking-widest outline-none cursor-not-allowed"
                             />
@@ -305,7 +401,7 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
                         <div className="mt-20 flex gap-12">
                             <div className="text-center">
                                 <p className="text-[10px] font-black text-white/20 uppercase tracking-widest mb-2">QUARTO</p>
-                                <p className="text-4xl font-black text-white tracking-widest">{selectedRoomId}</p>
+                                <p className="text-4xl font-black text-white tracking-widest">{availableRooms.find(r => r.id === selectedRoomId)?.room_number || selectedRoomId}</p>
                             </div>
                             <div className="w-[1px] h-16 bg-white/10" />
                             <div className="text-center">
@@ -326,7 +422,7 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
                             <div className="w-1.5 h-8 bg-cyber-purple shadow-[0_0_15px_#A78BFA]" />
                             <h3 className="text-4xl font-black text-white tracking-tighter uppercase">CHECK-IN <span className="text-cyber-purple">360</span></h3>
                         </div>
-                        <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.6em] ml-6">Secure Smart Boarding • Unit {selectedRoomId || 'Nenhum'}</p>
+                        <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.6em] ml-6">Secure Smart Boarding • Unit {availableRooms.find(r => r.id === selectedRoomId)?.room_number || selectedRoomId || 'Nenhum'}</p>
                     </div>
                     <div className="hidden md:flex gap-1">
                         {[1, 2, 3].map(i => (
@@ -366,6 +462,18 @@ export function Checkin360({ roomId, onComplete }: Checkin360Props) {
                             </div>
                         </motion.div>
                     ))}
+
+                    {/* Selected Client Display - persists across all steps */}
+                    {selectedClient && (
+                        <div className="col-span-full mt-8 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl">
+                            <p className="text-[10px] font-black text-emerald-300 uppercase tracking-wider mb-2">Cliente Selecionado: {selectedClient.full_name} ({selectedClient.client_number})</p>
+                            <div className="flex flex-wrap gap-4 text-sm text-white/70">
+                                <span>Tier: <span className="font-black text-emerald-300">{selectedClient.loyalty_tier}</span></span>
+                                <span>Documento: <span className="font-mono">{selectedClient.document_type}: {selectedClient.document_number}</span></span>
+                                <span>Pontos: <span className="font-black text-amber-300">{selectedClient.loyalty_points}</span></span>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer Controls */}

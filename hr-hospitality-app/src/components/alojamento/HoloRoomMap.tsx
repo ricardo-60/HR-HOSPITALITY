@@ -2,9 +2,10 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Home } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useRoomSync } from '@/lib/roomEvents';
 
 interface Room {
     id: string;
@@ -26,38 +27,30 @@ export function HoloRoomMap({ onSelectRoom }: HoloRoomMapProps) {
     const [startX, setStartX] = useState(0);
     const [scrollLeft, setScrollLeft] = useState(0);
 
-    useEffect(() => {
-        const fetchRooms = async () => {
-            setLoading(true);
-            const { data, error } = await supabase
-                .from('hotel_rooms')
-                .select('id, room_number, room_type, status')
-                .order('room_number', { ascending: true });
+    const fetchRooms = useCallback(async (silent = false) => {
+        if (!silent) setLoading(true);
+        const { data, error } = await supabase
+            .from('hotel_rooms')
+            .select('id, room_number, room_type, status')
+            .order('room_number', { ascending: true });
 
-            if (!error && data) {
-                setRooms(data as Room[]);
-            } else {
-                console.warn('[HoloRoomMap] Erro ao carregar quartos:', error);
-            }
-            setLoading(false);
-        };
-
-        fetchRooms();
-
-        // Realtime Subscription (compatível offline via stub)
-        // Sufixo próprio: o supabase-js reutiliza o canal do mesmo tópico e,
-        // se o anterior ainda está a fechar, o `.on()` lança e parte a página.
-        const channel = (supabase as any)
-            .channel(`room-updates#${Date.now().toString(36)}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'hotel_rooms' }, () => {
-                fetchRooms();
-            })
-            .subscribe();
-
-        return () => {
-            (supabase as any).removeChannel(channel);
-        };
+        if (!error && data) {
+            setRooms(data as Room[]);
+        } else {
+            console.warn('[HoloRoomMap] Erro ao carregar quartos:', error);
+        }
+        setLoading(false);
     }, []);
+
+    useEffect(() => {
+        void fetchRooms();
+    }, [fetchRooms]);
+
+    // Local-First: a reactividade instantânea vem do barramento local do hotel
+    // (check-in, check-out, cancelamentos) em vez de um websocket para a nuvem,
+    // pelo que o mapa reflecte sempre o registo operacional da casa.
+    const silentRefresh = useCallback(() => { void fetchRooms(true); }, [fetchRooms]);
+    useRoomSync(silentRefresh, { intervalMs: 20000 });
 
     const startDragging = (e: React.MouseEvent | React.TouchEvent) => {
         setIsDragging(true);

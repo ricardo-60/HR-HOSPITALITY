@@ -85,7 +85,11 @@ function QrBox({ path, label }: { path: string; label: string }) {
             ref={boxRef}
             role="img"
             aria-label={label}
-            className="w-44 h-44 sm:w-48 sm:h-48 bg-white p-3 rounded-2xl shrink-0"
+            /* O SVG injectado traz width/height fixos (320px): sem restrições,
+               estourava por cima do cartão. Aqui o contentor faz overflow
+               hidden, centra o SVG e obriga-o a caber (viewBox preserva o
+               aspecto quadrado). */
+            className="relative flex h-44 w-44 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white p-3 sm:h-48 sm:w-48 [&>svg]:block [&>svg]:h-full [&>svg]:max-h-full [&>svg]:w-full [&>svg]:max-w-full"
         />
     );
 }

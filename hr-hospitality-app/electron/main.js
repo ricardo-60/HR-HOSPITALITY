@@ -306,6 +306,7 @@ function getIconPath(mode) {
 }
 
 function createWindow(config) {
+  console.log('[ElectronMain] Creating window for mode:', config.mode);
   const title = config.mode === 'server'
     ? 'HR Hospitality — Servidor'
     : 'HR Hospitality — Cliente';
@@ -327,6 +328,7 @@ function createWindow(config) {
     show: false
   });
 
+  console.log('[ElectronMain] BrowserWindow created');
   mainWindow = win;
   win.setMenuBarVisibility(false);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -353,6 +355,7 @@ function createWindow(config) {
   } else if (uiServer) {
     // Servida por HTTP local: sob file:// os absolutos /_next/* viravam
     // C:\_next\* (ERR_FILE_NOT_FOUND) e a janela ficava preta.
+    console.log('[ElectronMain] Loading UI from:', uiServer.url);
     win.loadURL(uiServer.url);
   } else {
     win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(
@@ -362,8 +365,16 @@ function createWindow(config) {
     ));
   }
 
-  win.once('ready-to-show', () => { win.show(); win.focus(); });
-  win.on('closed', () => { if (mainWindow === win) mainWindow = null; });
+  win.once('ready-to-show', () => { 
+    console.log('[ElectronMain] Window ready to show');
+    win.show(); 
+    win.focus(); 
+  });
+  win.on('closed', () => { 
+    console.log('[ElectronMain] Window closed');
+    if (mainWindow === win) mainWindow = null; 
+  });
+  console.log('[ElectronMain] Window creation complete');
   return win;
 }
 
@@ -389,6 +400,105 @@ function createServerTray(win) {
 }
 
 let tray = null;
+let serverHealthCheckInterval = null;
+const SERVER_HEALTH_CHECK_INTERVAL_MS = 10000; // 10 seconds
+const MAX_SERVER_RESTART_ATTEMPTS = 3;
+let serverRestartAttempts = 0;
+
+// Global error handlers
+process.on('uncaughtException', (error) => {
+  console.error('[ElectronMain] Uncaught exception:', error);
+  // Don't quit on uncaught exceptions in server mode - try to recover
+  if (readBuildConfig().mode === 'server') {
+    console.log('[ElectronMain] Server mode - attempting to recover...');
+  }
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[ElectronMain] Unhandled rejection:', reason);
+});
+
+function startServerHealthCheck() {
+  if (serverHealthCheckInterval) return;
+  console.log('[ElectronMain] Starting server health check watchdog...');
+  serverHealthCheckInterval = setInterval(async () => {
+    if (config.mode !== 'server') return;
+    
+    try {
+      const http = require('http');
+      const options = {
+        hostname: '127.0.0.1',
+        port: 3002,
+        path: '/api/health',
+        method: 'GET',
+        timeout: 3000
+      };
+      
+      const req = http.request(options, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.status === 'ok') {
+                serverRestartAttempts = 0; // Reset on success
+                return;
+              }
+            } catch {}
+          }
+          handleServerUnhealthy();
+        });
+      });
+      
+      req.on('error', () => handleServerUnhealthy());
+      req.on('timeout', () => { req.destroy(); handleServerUnhealthy(); });
+      req.end();
+    } catch (error) {
+      console.error('[ElectronMain] Health check error:', error);
+      handleServerUnhealthy();
+    }
+  }, SERVER_HEALTH_CHECK_INTERVAL_MS);
+}
+
+function handleServerUnhealthy() {
+  serverRestartAttempts++;
+  console.warn(`[ElectronMain] Server health check failed (attempt ${serverRestartAttempts}/${MAX_SERVER_RESTART_ATTEMPTS})`);
+  
+  if (serverRestartAttempts >= MAX_SERVER_RESTART_ATTEMPTS) {
+    console.error('[ElectronMain] Max server restart attempts reached. Quitting app.');
+    if (serverHealthCheckInterval) {
+      clearInterval(serverHealthCheckInterval);
+      serverHealthCheckInterval = null;
+    }
+    app.quit();
+    return;
+  }
+  
+  restartLocalServer();
+}
+
+function restartLocalServer() {
+  console.log('[ElectronMain] Attempting to restart local server...');
+  try {
+    if (localServer) {
+      try { localServer.close(); } catch {}
+      localServer = null;
+    }
+    if (localRuntime) {
+      try { localRuntime.close(); } catch {}
+      localRuntime = null;
+    }
+    
+    const { createRuntime, startServer } = require('./server');
+    localRuntime = createRuntime({ userDataPath: app.getPath('userData') });
+    const crypto = require('node:crypto');
+    const apiToken = process.env.HOSPITALITY_API_TOKEN || crypto.randomBytes(32).toString('base64url');
+    localServer = startServer({ runtime: localRuntime, apiToken });
+    console.log('[ElectronMain] Local server restarted successfully');
+  } catch (error) {
+    console.error('[ElectronMain] Failed to restart local server:', error);
+  }
+}
 
 app.whenReady().then(async () => {
   process.env.USER_DATA_PATH = app.getPath('userData');
@@ -402,8 +512,11 @@ app.whenReady().then(async () => {
       const crypto = require('node:crypto');
       const apiToken = process.env.HOSPITALITY_API_TOKEN || crypto.randomBytes(32).toString('base64url');
       localServer = startServer({ runtime: localRuntime, apiToken });
+      
+      // Start health check watchdog for server mode
+      startServerHealthCheck();
     } catch (error) {
-      console.error('[ElectronMain] Secure local server failed to start:', error.message);
+      console.error('[ElectronMain] Secure local server failed to start:', error);
       app.quit();
       return;
     }
@@ -414,23 +527,33 @@ app.whenReady().then(async () => {
     uiServer = await startStaticServer({ root: path.join(__dirname, '..', 'out') });
     console.log(`[ElectronMain] UI local em ${uiServer.url}`);
   } catch (error) {
-    console.error('[ElectronMain] Falha ao iniciar o servidor local da UI:', error.message);
+    console.error('[ElectronMain] Falha ao iniciar o servidor local da UI:', error);
     uiServer = null;
   }
 
-  const win = createWindow(config);
-  if (config.mode === 'server') tray = createServerTray(win);
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(loadConfig());
-  });
+  try {
+    const win = createWindow(config);
+    if (config.mode === 'server') tray = createServerTray(win);
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(loadConfig());
+    });
+  } catch (error) {
+    console.error('[ElectronMain] Failed to create window:', error);
+    app.quit();
+  }
 });
 
 app.on('before-quit', () => {
+  if (serverHealthCheckInterval) {
+    clearInterval(serverHealthCheckInterval);
+    serverHealthCheckInterval = null;
+  }
   try { if (localServer) localServer.close(); } catch { /* ignore */ }
   try { if (localRuntime) localRuntime.close(); } catch { /* ignore */ }
   try { if (uiServer) uiServer.close(); } catch { /* ignore */ }
 });
 
 app.on('window-all-closed', () => {
+  console.log('[ElectronMain] window-all-closed event triggered');
   if (process.platform !== 'darwin') app.quit();
 });

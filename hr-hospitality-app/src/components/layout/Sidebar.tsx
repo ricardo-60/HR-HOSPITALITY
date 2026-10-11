@@ -2,7 +2,6 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useState } from 'react';
 import {
     BarChart3,
     Home,
@@ -25,11 +24,15 @@ import {
     ChevronRight,
     ChevronDown,
     BookOpen,
+    Smartphone,
+    IdCard,
+    CalendarCheck,
     LucideIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { SubMenuItem } from './SidebarSubItem';
+import { useState } from 'react';
 
 interface SubMenuItem {
     name: string;
@@ -51,11 +54,18 @@ interface MenuItem {
     subItems?: SubMenuItem[];
 }
 
+interface SidebarProps {
+    isCompact?: boolean;
+}
+
 const menuItems: MenuItem[] = [
     { name: 'DASHBOARD', icon: BarChart3, path: '/', category: 'CORE' },
     { name: 'ALOJAMENTO', icon: Home, path: '/alojamento', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-primary)' },
+    { name: 'RESERVAS', icon: CalendarCheck, path: '/alojamento/reservas', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-secondary)' },
     { name: 'RESTAURAÇÃO', icon: Store, path: '/pos', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-secondary)' },
+    { name: 'POS TABLET', icon: Smartphone, path: '/pos/tablet', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-secondary)' },
     { name: 'SNACK BAR', icon: Store, path: '/snack-bar', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-accent)' },
+    { name: 'CLIENTES', icon: IdCard, path: '/clientes', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-accent)' },
     { name: 'EVENTOS', icon: Building2, path: '/eventos', category: 'HOSPITALITY', isReady: true, brandColor: 'var(--brand-accent)' },
     { name: 'BEM-ESTAR E LAZER', icon: Heart, path: '/spa', category: 'WELLNESS', isReady: true, brandColor: 'var(--brand-accent)' },
     { name: 'LAVANDARIA', icon: Package, path: '/lavandaria', category: 'OPERATIONS', isReady: true, brandColor: 'var(--brand-primary)' },
@@ -100,10 +110,6 @@ const menuItems: MenuItem[] = [
     { name: 'CONFIGURAÇÕES', icon: Settings, path: '/configuracoes', category: 'CORE' },
 ];
 
-interface SidebarProps {
-    isCompact?: boolean;
-}
-
 export function Sidebar({ isCompact = false }: SidebarProps) {
     const pathname = usePathname();
     const router = useRouter();
@@ -127,6 +133,7 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
 
     if (!user) return null;
 
+    // Filter items to hide AdminOnly menus for non-admins
     const visibleMenuItems = menuItems.filter(item => {
         if (item.adminOnly && user.role !== 'ADMINISTRATOR') {
             return false;
@@ -137,15 +144,17 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
         return true;
     });
 
+    // Pre-computed class names
+    const sidebarBaseClass = `h-full glass-panel flex flex-col py-8 md:py-10 border-r border-white/5 shadow-2xl overflow-y-auto no-scrollbar transition-all duration-500`;
+    const sidebarWidthClass = isCompact ? 'w-24 px-3 md:px-4' : 'w-72 md:w-80 px-6 md:px-8';
+    const brandHeaderClass = `mb-12 md:mb-16 flex items-center ${isCompact ? 'justify-center' : 'px-2 md:px-4 gap-4'}`;
+    const brandIndicatorClass = `bg-[var(--brand-primary)] shadow-[0_0_20px_var(--brand-primary)] rounded-full animate-pulse transition-all ${isCompact ? 'w-2 h-10 md:h-12' : 'w-2 h-10 md:h-12'}`;
+
     return (
-        <div className={`h-full glass-panel flex flex-col py-8 md:py-10 border-r border-white/5 shadow-2xl overflow-y-auto no-scrollbar transition-all duration-500 ${
-            isCompact ? 'w-24 px-3 md:px-4' : 'w-72 md:w-80 px-6 md:px-8'
-        }`}>
+        <div className={`${sidebarBaseClass} ${sidebarWidthClass}`}>
             {/* Brand Header */}
-            <div className={`mb-12 md:mb-16 flex items-center ${isCompact ? 'justify-center' : 'px-2 md:px-4 gap-4'}`}>
-                <div className={`bg-[var(--brand-primary)] shadow-[0_0_20px_var(--brand-primary)] rounded-full animate-pulse transition-all ${
-                    isCompact ? 'w-2 h-10 md:h-12' : 'w-2 h-10 md:h-12'
-                }`} />
+            <div className={brandHeaderClass}>
+                <div className={brandIndicatorClass} />
                 {!isCompact && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                         <h1 className="text-xl md:text-2xl font-black text-white tracking-widest drop-shadow-[0_0_8px_var(--brand-primary)]" style={{ color: 'var(--brand-primary)' }}>
@@ -173,159 +182,14 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
                                     const isExpanded = expandedSections.has(item.name);
 
                                     if (isSection) {
-                                        return (
-                                            <div key={item.name} className="relative group">
-                                                <div className="group">
-                                                    {!hasAccess ? (
-                                                        <div className={`flex items-center rounded-xl md:rounded-2xl border border-dashed border-red-500/10 bg-red-500/5 opacity-40 cursor-not-allowed ${
-                                                            isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'
-                                                        }`}>
-                                                            <Lock className="w-5 h-5 md:w-6 md:h-6 text-red-500" />
-                                                            {!isCompact && (
-                                                                <div className="flex items-center gap-2 md:gap-3 w-full">
-                                                                    <span className="text-xs md:text-sm font-black tracking-widest text-red-400 line-through">
-                                                                        {item.name}
-                                                                    </span>
-                                                                    <span className="ml-auto px-2 py-1 md:px-3 md:py-1.5 rounded-md bg-red-500/10 border border-red-500/20 text-[8px] md:text-[9px] text-red-400 font-black uppercase tracking-widest leading-none">
-                                                                        Bloqueado
-                                                                    </span>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <button
-                                                            onClick={() => toggleSection(item.name)}
-                                                            className={`flex items-center w-full rounded-xl md:rounded-2xl transition-all duration-300 ${
-                                                                isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'
-                                                            } ${
-                                                                isActive
-                                                                    ? 'bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 shadow-[0_0_20px_rgba(0,71,171,0.2)]'
-                                                                    : 'hover:bg-[var(--brand-primary)]/5 border border-transparent hover:border-[var(--brand-primary)]/25'
-                                                            }`}
-                                                            aria-expanded={isExpanded}
-                                                            aria-controls={`${item.name}-submenu`}
-                                                        >
-                                                            {isActive && !isCompact && (
-                                                                <motion.div
-                                                                    layoutId="activeBar"
-                                                                    className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 md:h-10 bg-[var(--brand-primary)] rounded-r-full shadow-[0_0_15px_var(--brand-primary)]"
-                                                                />
-                                                            )}
-                                                            <item.icon
-                                                                className={`w-5 h-5 md:w-6 md:h-6 transition-all z-10 ${isActive ? 'animate-pulse' : 'opacity-80 group-hover:opacity-100 group-hover:scale-110'}`}
-                                                                style={{ color: isActive ? 'var(--brand-primary)' : (item.brandColor || 'white') }}
-                                                            />
-                                                            {!isCompact && (
-                                                                <div className="flex items-center gap-2 md:gap-3 z-10 w-full">
-                                                                    <span className={`text-xs md:text-sm font-black tracking-widest transition-all ${
-                                                                        isActive ? 'text-white drop-shadow-[0_0_8px_var(--brand-primary)]' : 'text-white/50 group-hover:text-white'
-                                                                    }`}>
-                                                                        {item.name}
-                                                                    </span>
-                                                                    <ChevronRight
-                                                                        className={`ml-auto w-4 h-4 md:w-5 md:h-5 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
-                                                                        style={{ color: isActive ? 'var(--brand-primary)' : 'white' }}
-                                                                    />
-                                                                </div>
-                                                            )}
-                                                        </button>
-                                                    )}
+                                        return renderSectionItem({ 
+                                            item, isActive, hasAccess, isCompact, isExpanded, pathname, checkAccess, 
+                                            expandedSections, setExpandedSections, toggleSection 
+                                        });
+                                    }
 
-                                                    <AnimatePresence>
-                                                        {isExpanded && item.subItems && item.subItems.length > 0 && (
-                                                            <motion.div
-                                                                id={`${item.name}-submenu`}
-                                                                initial={{ opacity: 0, height: 0, x: isCompact ? 0 : -10 }}
-                                                                animate={{ opacity: 1, height: 'auto', x: 0 }}
-                                                                exit={{ opacity: 0, height: 0, x: isCompact ? 0 : -10 }}
-                                                                transition={{ duration: 0.2 }}
-                                                                className="overflow-hidden pl-2 md:pl-8"
-                                                            >
-                                                                <div className="space-y-1 md:space-y-2 pt-1 pb-2">
-                                                                    {item.subItems.map((subItem) => (
-                                                                        <SubMenuItem
-                                                                            key={subItem.path}
-                                                                            subItem={subItem}
-                                                                            item={item}
-                                                                            isCompact={isCompact}
-                                                                            pathname={pathname}
-                                                                            checkAccess={checkAccess}
-                                                                        />
-                                                                    ))}
-                                                                </div>
-                                                            </motion.div>
-                                                        )}
-                                                    </AnimatePresence>
-                                                </div>
-                                            </div>
-                                        )
-                                    : (
-                                        <div key={item.path} className="relative group">
-                                            {hasAccess ? (
-                                                <Link href={item.path} className="block">
-                                                    <motion.div
-                                                        whileHover={{ x: isCompact ? 0 : 8, scale: 1.02 }}
-                                                        whileTap={{ scale: 0.98 }}
-                                                        className={`flex items-center rounded-xl md:rounded-2xl transition-all duration-300 ${
-                                                            isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'
-                                                        } ${
-                                                            isActive
-                                                                ? 'bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 shadow-[0_0_20px_rgba(0,71,171,0.2)]'
-                                                                : 'hover:bg-[var(--brand-primary)]/5 border border-transparent hover:border-[var(--brand-primary)]/25'
-                                                        }`}
-                                                    >
-                                                        {isActive && !isCompact && (
-                                                            <motion.div
-                                                                layoutId="activeBar"
-                                                                className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 md:h-10 bg-[var(--brand-primary)] rounded-r-full shadow-[0_0_15px_var(--brand-primary)]"
-                                                            />
-                                                        )}
-                                                        <item.icon
-                                                            className={`w-5 h-5 md:w-6 md:h-6 transition-all z-10 ${isActive ? 'animate-pulse' : 'opacity-80 group-hover:opacity-100 group-hover:scale-110'}`}
-                                                            style={{ color: isActive ? 'var(--brand-primary)' : (item.brandColor || 'white') }}
-                                                        />
-                                                        {!isCompact && (
-                                                            <div className="flex items-center gap-2 md:gap-3 z-10 w-full">
-                                                                <span className={`text-xs md:text-sm font-black tracking-widest transition-all ${
-                                                                    isActive ? 'text-white drop-shadow-[0_0_8px_var(--brand-primary)]' : 'text-white/50 group-hover:text-white'
-                                                                }`}>
-                                                                    {item.name}
-                                                                </span>
-                                                                {item.isReady && (
-                                                                    <span className="ml-auto px-2 py-1 md:px-3 md:py-1.5 rounded-md bg-[var(--brand-accent)]/10 border border-[var(--brand-accent)]/30 text-[9px] md:text-[10px] text-[var(--brand-accent)] font-black uppercase tracking-widest leading-none">
-                                                                        OK
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </motion.div>
-                                                </Link>
-                                            ) : (
-                                                <div className={`flex items-center rounded-xl md:rounded-2xl border border-dashed border-red-500/10 bg-red-500/5 opacity-40 cursor-not-allowed ${
-                                                    isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'
-                                                }`}>
-                                                    <Lock className="w-5 h-5 md:w-6 md:h-6 text-red-500" />
-                                                    {!isCompact && (
-                                                        <div className="flex items-center gap-2 md:gap-3 w-full">
-                                                            <span className="text-xs md:text-sm font-black tracking-widest text-red-400 line-through">
-                                                                {item.name}
-                                                            </span>
-                                                            <span className="ml-auto px-2 py-1 md:px-3 md:py-1.5 rounded-md bg-red-500/10 border border-red-500/20 text-[8px] md:text-[9px] text-red-400 font-black uppercase tracking-widest leading-none">
-                                                                Bloqueado
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {isCompact && (
-                                                <div className="sidebar-tooltip hidden md:block text-xs">
-                                                    {item.name} {!hasAccess && ' (Bloqueado)'}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )
-                                )}
+                                    return renderMenuItem({ item, isActive, hasAccess, isCompact, pathname });
+                                })}
                             </div>
                         </div>
                     );
@@ -334,9 +198,7 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
 
             {/* Operator Status & Logout Button */}
             <div className={`mt-12 md:mt-20 pt-8 md:pt-10 border-t border-white/5 ${isCompact ? 'flex flex-col items-center gap-4' : 'px-4 md:px-6'}`}>
-                <div className={`bg-white/5 rounded-xl md:rounded-2xl border border-white/5 flex items-center justify-between ${
-                    isCompact ? 'p-2 md:p-3' : 'p-3 md:p-4 gap-3 md:gap-4'
-                }`}>
+                <div className={`bg-white/5 rounded-xl md:rounded-2xl border border-white/5 flex items-center justify-between ${isCompact ? 'p-2 md:p-3' : 'p-3 md:p-4 gap-3 md:gap-4'}`}>
                     <div className="flex items-center gap-3">
                         <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 flex items-center justify-center">
                             <UserCheck className="w-5 h-5 md:w-6 md:h-6 text-[var(--brand-primary)]" />
@@ -372,6 +234,209 @@ export function Sidebar({ isCompact = false }: SidebarProps) {
                     </button>
                 )}
             </div>
+        </div>
+    );
+}
+
+function renderSectionItem({ 
+    item, isActive, hasAccess, isCompact, isExpanded, pathname, checkAccess, 
+    expandedSections, setExpandedSections, toggleSection 
+}: {
+    item: MenuItem;
+    isActive: boolean;
+    hasAccess: boolean;
+    isCompact: boolean;
+    isExpanded: boolean;
+    pathname: string;
+    checkAccess: (path: string) => boolean;
+    expandedSections: Set<string>;
+    setExpandedSections: React.Dispatch<React.SetStateAction<Set<string>>>;
+    toggleSection: (sectionName: string) => void;
+}) {
+    // Pre-computed class names
+    const lockContainerClass = `flex items-center rounded-xl md:rounded-2xl border border-dashed border-red-500/10 bg-red-500/5 opacity-40 cursor-not-allowed ${isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'}`;
+    const buttonBaseClass = `flex items-center w-full rounded-xl md:rounded-2xl transition-all duration-300 ${isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'}`;
+    const activeButtonClass = 'bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 shadow-[0_0_20px_rgba(0,71,171,0.2)]';
+    const inactiveButtonClass = 'hover:bg-[var(--brand-primary)]/5 border border-transparent hover:border-[var(--brand-primary)]/25';
+    const iconClass = `w-5 h-5 md:w-6 md:h-6 transition-all z-10 ${isActive ? 'animate-pulse' : 'opacity-80 group-hover:opacity-100 group-hover:scale-110'}`;
+    const nameClass = `text-xs md:text-sm font-black tracking-widest transition-all ${isActive ? 'text-white drop-shadow-[0_0_8px_var(--brand-primary)]' : 'text-white/50 group-hover:text-white'}`;
+    const chevronClass = `ml-auto w-4 h-4 md:w-5 md:h-5 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`;
+    const lockedNameClass = 'text-xs md:text-sm font-black tracking-widest text-red-400 line-through';
+    const lockedBadgeClass = 'ml-auto px-2 py-1 md:px-3 md:py-1.5 rounded-md bg-red-500/10 border border-red-500/20 text-[8px] md:text-[9px] text-red-400 font-black uppercase tracking-widest leading-none';
+
+    if (!hasAccess) {
+        return (
+            <div key={item.name} className="relative group">
+                <div className="group">
+                    <div className={lockContainerClass}>
+                        <Lock className="w-5 h-5 md:w-6 md:h-6 text-red-500" />
+                        {!isCompact && (
+                            <div className="flex items-center gap-2 md:gap-3 w-full">
+                                <span className={lockedNameClass}>
+                                    {item.name}
+                                </span>
+                                <span className={lockedBadgeClass}>
+                                    Bloqueado
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div key={item.name} className="relative group">
+            <div className="group">
+                <button
+                    onClick={() => toggleSection(item.name)}
+                    className={`${buttonBaseClass} ${isActive ? activeButtonClass : inactiveButtonClass}`}
+                    aria-expanded={isExpanded}
+                    aria-controls={`${item.name}-submenu`}
+                >
+                    {isActive && !isCompact && (
+                        <motion.div
+                            layoutId="activeBar"
+                            className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 md:h-10 bg-[var(--brand-primary)] rounded-r-full shadow-[0_0_15px_var(--brand-primary)]"
+                        />
+                    )}
+                    <item.icon
+                        className={iconClass}
+                        style={{ color: isActive ? 'var(--brand-primary)' : (item.brandColor || 'white') }}
+                    />
+                    {!isCompact && (
+                        <div className="flex items-center gap-2 md:gap-3 z-10 w-full">
+                            <span className={nameClass}>
+                                {item.name}
+                            </span>
+                            <ChevronRight
+                                className={chevronClass}
+                                style={{ color: isActive ? 'var(--brand-primary)' : 'white' }}
+                            />
+                        </div>
+                    )}
+                </button>
+
+                <AnimatePresence>
+                    {isExpanded && item.subItems && item.subItems.length > 0 && (
+                        <motion.div
+                            id={`${item.name}-submenu`}
+                            initial={{ opacity: 0, height: 0, x: isCompact ? 0 : -10 }}
+                            animate={{ opacity: 1, height: 'auto', x: 0 }}
+                            exit={{ opacity: 0, height: 0, x: isCompact ? 0 : -10 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden pl-2 md:pl-8"
+                        >
+                            <div className="space-y-1 md:space-y-2 pt-1 pb-2">
+                                {item.subItems.map((subItem) => (
+                                    <SubMenuItem
+                                        key={subItem.path}
+                                        subItem={subItem}
+                                        item={item}
+                                        isCompact={isCompact}
+                                        pathname={pathname}
+                                        checkAccess={checkAccess}
+                                    />
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+        </div>
+    );
+}
+
+function renderMenuItem({ item, isActive, hasAccess, isCompact, pathname }: {
+    item: MenuItem;
+    isActive: boolean;
+    hasAccess: boolean;
+    isCompact: boolean;
+    pathname: string;
+}) {
+    // Pre-computed class names
+    const compactClass = isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4';
+    const activeClass = 'bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 shadow-[0_0_20px_rgba(0,71,171,0.2)]';
+    const inactiveClass = 'hover:bg-[var(--brand-primary)]/5 border border-transparent hover:border-[var(--brand-primary)]/25';
+    const baseClass = `flex items-center rounded-xl md:rounded-2xl transition-all duration-300 ${compactClass}`;
+    const stateClass = isActive ? activeClass : inactiveClass;
+    const className = `${baseClass} ${stateClass}`;
+    const iconClass = `w-5 h-5 md:w-6 md:h-6 transition-all z-10 ${isActive ? 'animate-pulse' : 'opacity-80 group-hover:opacity-100 group-hover:scale-110'}`;
+    const nameClass = `text-xs md:text-sm font-black tracking-widest transition-all ${isActive ? 'text-white drop-shadow-[0_0_8px_var(--brand-primary)]' : 'text-white/50 group-hover:text-white'}`;
+    const readyBadgeClass = 'ml-auto px-2 py-1 md:px-3 md:py-1.5 rounded-md bg-[var(--brand-accent)]/10 border border-[var(--brand-accent)]/30 text-[9px] md:text-[10px] text-[var(--brand-accent)] font-black uppercase tracking-widest leading-none';
+    const lockContainerClass = `flex items-center rounded-xl md:rounded-2xl border border-dashed border-red-500/10 bg-red-500/5 opacity-40 cursor-not-allowed ${isCompact ? 'justify-center p-3 md:p-4' : 'gap-4 md:gap-5 px-5 md:px-6 py-3 md:py-4'}`;
+    const lockedNameClass = 'text-xs md:text-sm font-black tracking-widest text-red-400 line-through';
+    const lockedBadgeClass = 'ml-auto px-2 py-1 md:px-3 md:py-1.5 rounded-md bg-red-500/10 border border-red-500/20 text-[8px] md:text-[9px] text-red-400 font-black uppercase tracking-widest leading-none';
+
+    if (!hasAccess) {
+        return (
+            <div key={item.path} className="relative group">
+                <div className={lockContainerClass}>
+                    <Lock className="w-5 h-5 md:w-6 md:h-6 text-red-500" />
+                    {!isCompact && (
+                        <div className="flex items-center gap-2 md:gap-3 w-full">
+                            <span className={lockedNameClass}>
+                                {item.name}
+                            </span>
+                            <span className={lockedBadgeClass}>
+                                Bloqueado
+                            </span>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div key={item.path} className="relative group">
+            {hasAccess ? (
+                <Link href={item.path} className="block">
+                    <motion.div
+                        whileHover={{ x: isCompact ? 0 : 8, scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className={className}
+                    >
+                        {isActive && !isCompact && (
+                            <motion.div
+                                layoutId="activeBar"
+                                className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 md:h-10 bg-[var(--brand-primary)] rounded-r-full shadow-[0_0_15px_var(--brand-primary)]"
+                            />
+                        )}
+                        <item.icon
+                            className={iconClass}
+                            style={{ color: isActive ? 'var(--brand-primary)' : (item.brandColor || 'white') }}
+                        />
+                        {!isCompact && (
+                            <div className="flex items-center gap-2 md:gap-3 z-10 w-full">
+                                <span className={nameClass}>
+                                    {item.name}
+                                </span>
+                                {item.isReady && (
+                                    <span className={readyBadgeClass}>
+                                        OK
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                    </motion.div>
+                </Link>
+            ) : (
+                <div className={lockContainerClass}>
+                    <Lock className="w-5 h-5 md:w-6 md:h-6 text-red-500" />
+                    {!isCompact && (
+                        <div className="flex items-center gap-2 md:gap-3 w-full">
+                            <span className={lockedNameClass}>
+                                {item.name}
+                            </span>
+                            <span className={lockedBadgeClass}>
+                                Bloqueado
+                            </span>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

@@ -68,6 +68,7 @@ import {
     type PreBillRow,
 } from '@/lib/reportQueries';
 import { isSupabaseConfigured, supabaseClient } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabase';
 
 /* ── Formatação ──────────────────────────────────────────────────────────── */
 
@@ -892,9 +893,14 @@ function OcupacaoReport({ from, to }: { from: string; to: string }) {
             return;
         }
         try {
+            // Local-First: quartos e reservas vêm do registo operacional do
+            // hotel (SQLite local), a mesma fonte do Dashboard e do Alojamento.
+            // As colunas passam a ser as do registo: `room_type`/`price_per_night`
+            // (a nuvem antiga usava `type`/`price`), remapeadas para o shape
+            // local do componente.
             const [roomsResult, reservasResult] = await Promise.all([
-                supabaseClient.from('hotel_rooms').select('id,room_number,type,status,price'),
-                supabaseClient.from('hotel_reservations')
+                supabase.from('hotel_rooms').select('id,room_number,room_type,status,price_per_night'),
+                supabase.from('hotel_reservations')
                     .select('id,guest_name,service_type,room_number,status,reservation_date,total_amount')
                     .gte('reservation_date', from)
                     .lte('reservation_date', to),
@@ -903,7 +909,12 @@ function OcupacaoReport({ from, to }: { from: string; to: string }) {
             if (reservasResult.error) throw new Error(reservasResult.error.message);
 
             setRooms(
-                ((roomsResult.data ?? []) as RoomRow[]).map(row => ({ ...row, price: toNumber(row.price) })),
+                ((roomsResult.data ?? []) as Array<Omit<RoomRow, 'type' | 'price'> & { room_type: string; price_per_night: number | string }>)
+                    .map(row => ({
+                        ...row,
+                        type: row.room_type,
+                        price: toNumber(row.price_per_night),
+                    })),
             );
             setReservas(
                 ((reservasResult.data ?? []) as ReservationRow[]).map(row => ({ ...row, total_amount: toNumber(row.total_amount) })),
@@ -1448,8 +1459,11 @@ function HorasDiariasReport({ from, to }: { from: string; to: string }) {
         setIndisponivel(resultado.unavailable);
 
         // Reservas com diária no período — melhor esforço, nunca bloqueia.
-        if (supabaseClient) {
-            const { data, error: reservasError } = await supabaseClient
+        // Reservas com diária no período — melhor esforço, nunca bloqueia.
+        // Local-First: lê o registo operacional do hotel (SQLite local), não a
+        // nuvem, e funciona mesmo sem Supabase configurado.
+        {
+            const { data, error: reservasError } = await supabase
                 .from('hotel_reservations')
                 .select('id,reservation_date,status')
                 .gte('reservation_date', from)

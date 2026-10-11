@@ -18,12 +18,7 @@ interface LaundryOrder {
 }
 
 const seedOrders: LaundryOrder[] = [
-    { id: 'LAV-001', room: '101', guest: 'Carlos Mendes', items: 4, type: 'NORMAL', status: 'ENTREGUE', submittedAt: '08:00', readyAt: '14:00' },
-    { id: 'LAV-002', room: '205', guest: 'Ana Silva', items: 2, type: 'EXPRESS', status: 'PRONTO', submittedAt: '09:30', readyAt: '12:30' },
-    { id: 'LAV-003', room: '312', guest: 'João Baptista', items: 6, type: 'NORMAL', status: 'EM LAVAGEM', submittedAt: '10:15' },
-    { id: 'LAV-004', room: '108', guest: 'Maria Santos', items: 3, type: 'DELICADO', status: 'RECOLHIDO', submittedAt: '11:00' },
-    { id: 'LAV-005', room: '401', guest: 'Pedro Alves', items: 5, type: 'EXPRESS', status: 'EM LAVAGEM', submittedAt: '11:45' },
-    { id: 'LAV-006', room: '220', guest: 'Sofia Nunes', items: 2, type: 'NORMAL', status: 'PRONTO', submittedAt: '07:30', readyAt: '13:30' },
+    // Sem dados de demonstracao: as encomendas sao registadas pela equipa e o hospede deve existir na base de clientes KYC.
 ];
 
 const statusConfig = {
@@ -139,6 +134,12 @@ export default function LavandariaPage() {
 
                 {/* Orders List */}
                 <div className="space-y-4">
+                    {filtered.length === 0 && (
+                        <div className="glass-panel rounded-[24px] border border-dashed border-white/10 p-10 text-center">
+                            <p className="text-xs font-black text-white/40 uppercase tracking-[0.3em]">Sem encomendas de lavandaria</p>
+                            <p className="text-[11px] text-white/25 mt-2">Registe uma nova encomenda — sem dados de demonstração.</p>
+                        </div>
+                    )}
                     <AnimatePresence mode="popLayout">
                         {filtered.map((order, i) => {
                             const cfg = statusConfig[order.status];

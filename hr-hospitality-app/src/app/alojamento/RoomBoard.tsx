@@ -12,6 +12,11 @@ import {
     TriangleAlert,
     Wallet,
     X,
+    Settings,
+    Wrench,
+    Sparkles,
+    Key,
+    Zap,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -35,6 +40,7 @@ import {
     type StartHourlyResult,
 } from '@/lib/roomRates';
 import { supabase } from '@/lib/supabase';
+import { emitRoomEvent, useRoomSync } from '@/lib/roomEvents';
 
 /* ── Mapa de cores obrigatório do quadro de quartos ───────────────────────── */
 /* Verde (`green`) = disponível, vermelho (`red`) = ocupado, amarelo (`yellow`)
@@ -198,6 +204,11 @@ export function RoomBoard({ onSelectRoom }: RoomBoardProps) {
     const [hourlyUnavailable, setHourlyUnavailable] = useState(false);
     const [notice, setNotice] = useState<Notice | null>(null);
 
+    // Room Actions Modal State
+    const [roomActionModal, setRoomActionModal] = useState<{ room: RoomRow; state: string } | null>(null);
+    const [roomActionBusy, setRoomActionBusy] = useState(false);
+    const [roomActionError, setRoomActionError] = useState<string | null>(null);
+
     // Relógio local: a contagem decrescente nunca volta a tocar na base de dados.
     const [now, setNow] = useState(() => Date.now());
     const hasActiveSession = sessions.length > 0;
@@ -262,13 +273,22 @@ export function RoomBoard({ onSelectRoom }: RoomBoardProps) {
         return () => window.clearTimeout(timer);
     }, [refresh]);
 
+    // Reactividade instantânea: check-in/check-out/cancelações feitos neste
+    // separador (ou noutro módulo) reactualizam o quadro sem recarregar a
+    // página. O foco do separador e o polling cobrem os restantes postos.
+    useRoomSync(refresh);
+
     const todayReservations = useMemo(() => {
         const today = localToday();
         const map = new Map<string, ReservationRow>();
         for (const reservation of reservations) {
+            // Uma estadia activa (CHECKED_IN) mostra o hóspede mesmo que a
+            // reserva tenha começado ontem — o quadro nunca pode "esquecer"
+            // quem está dentro do quarto.
+            const isActive = reservation.status === 'CHECKED_IN';
             const matchesToday =
                 reservation.reservation_date === today || reservation.check_in_date === today;
-            if (!matchesToday) continue;
+            if (!isActive && !matchesToday) continue;
             if (reservation.room_id) map.set(`id:${reservation.room_id}`, reservation);
             if (reservation.room_number) map.set(`num:${reservation.room_number}`, reservation);
         }
@@ -282,6 +302,43 @@ export function RoomBoard({ onSelectRoom }: RoomBoardProps) {
         }
         return map;
     }, [sessions]);
+
+    /* ── Acções rápidas de estado do quarto ────────────────────────────────── */
+
+    const updateRoomState = async (roomId: string, newState: string) => {
+        if (!canWrite) return;
+        setRoomActionBusy(true);
+        setRoomActionError(null);
+        try {
+            const { error } = await supabase
+                .from('hotel_rooms')
+                .update({ status: newState })
+                .eq('id', roomId);
+            if (error) throw error;
+            // Actualização optimista imediata
+            setRooms(previous =>
+                previous.map(item =>
+                    item.id === roomId ? { ...item, status: newState } : item
+                )
+            );
+            setNotice({ kind: 'ok', text: `Quarto actualizado para ${newState}.` });
+            const roomNumber = rooms.find(item => item.id === roomId)?.room_number;
+            emitRoomEvent({ type: 'room-status', roomId, ...(roomNumber ? { roomNumber } : {}) });
+        } catch (err: unknown) {
+            setRoomActionError(err instanceof Error ? err.message : 'Falha ao actualizar estado do quarto.');
+        } finally {
+            setRoomActionBusy(false);
+        }
+    };
+
+    const openRoomActions = (room: RoomRow, state: string) => {
+        setRoomActionModal({ room, state });
+    };
+
+    const closeRoomActions = () => {
+        setRoomActionModal(null);
+        setRoomActionError(null);
+    };
 
     /* ── Acções horárias ─────────────────────────────────────────────────── */
 
@@ -573,10 +630,26 @@ export function RoomBoard({ onSelectRoom }: RoomBoardProps) {
                                             {room.room_number || room.id.slice(0, 6)}
                                         </p>
                                     </div>
-                                    <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest ${style.badge}`}>
-                                        <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                                        {style.label}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-black uppercase tracking-widest ${style.badge}`}>
+                                            <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                                            {style.label}
+                                        </span>
+                                        {canWrite && (
+                                            <button
+                                                type="button"
+                                                onClick={event => {
+                                                    event.stopPropagation();
+                                                    openRoomActions(room, state);
+                                                }}
+                                                className="p-2 rounded-lg bg-white/5 border border-white/10 text-white/60 text-[10px] hover:bg-white/10 hover:text-white hover:border-white/30 transition-colors"
+                                                title="Ações rápidas"
+                                                aria-label="Ações rápidas do quarto"
+                                            >
+                                                <Settings className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {session ? (
@@ -924,6 +997,159 @@ export function RoomBoard({ onSelectRoom }: RoomBoardProps) {
                                 </button>
                             </div>
                         </motion.div>
+                    </div>
+                ) : null}
+            </AnimatePresence>
+
+            {/* Room Actions Modal */}
+            <AnimatePresence>
+                {roomActionModal ? (
+                    <div className="fixed inset-0 z-[250] flex justify-center items-center px-4">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={closeRoomActions}
+                            className="absolute inset-0 bg-black/90 backdrop-blur-md"
+                        />
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0, y: 16 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.95, opacity: 0, y: 16 }}
+                            className="relative w-full max-w-[480px] max-h-[88vh] overflow-y-auto glass-panel rounded-[28px] border border-white/10 p-6 md:p-8 space-y-5"
+                        >
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-[9px] font-black text-cyan-300 uppercase tracking-[0.4em]">
+                                        Ações Rápidas
+                                    </p>
+                                    <h4 className="text-2xl font-black text-white uppercase tracking-tight mt-1">
+                                        {roomActionModal.room.room_number || roomActionModal.room.id.slice(0, 6)}
+                                        <span className="text-white/30 text-base ml-3 normal-case tracking-normal">
+                                            {roomActionModal.room.room_type || 'Quarto'}
+                                        </span>
+                                    </h4>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={closeRoomActions}
+                                    disabled={roomActionBusy}
+                                    className="text-white/40 hover:text-white disabled:opacity-40"
+                                    aria-label="Fechar"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            {roomActionError ? (
+                                <div className="flex items-start gap-3 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3">
+                                    <TriangleAlert className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+                                    <p className="text-xs text-rose-200 leading-relaxed">{roomActionError}</p>
+                                </div>
+                            ) : null}
+
+                            <div className="space-y-3">
+                                <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em]">
+                                    Estado actual: <span className="text-white/70">{roomActionModal.state}</span>
+                                </p>
+                                
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => updateRoomState(roomActionModal.room.id, 'DISPONIVEL')}
+                                        disabled={roomActionBusy || roomActionModal.state === 'DISPONIVEL'}
+                                        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-green-500/10 border border-green-400/30 text-green-300 text-[11px] font-black uppercase tracking-wider hover:bg-green-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <Home className="w-4 h-4" />
+                                        <span>Disponível</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => updateRoomState(roomActionModal.room.id, 'LIMPEZA')}
+                                        disabled={roomActionBusy || roomActionModal.state === 'LIMPEZA'}
+                                        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-blue-500/10 border border-blue-400/30 text-blue-300 text-[11px] font-black uppercase tracking-wider hover:bg-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <Sparkles className="w-4 h-4" />
+                                        <span>Limpeza</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => updateRoomState(roomActionModal.room.id, 'MANUTENCAO')}
+                                        disabled={roomActionBusy || roomActionModal.state === 'MANUTENCAO'}
+                                        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-gray-500/10 border border-gray-400/30 text-gray-300 text-[11px] font-black uppercase tracking-wider hover:bg-gray-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <Wrench className="w-4 h-4" />
+                                        <span>Manutenção</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => updateRoomState(roomActionModal.room.id, 'OCUPADO')}
+                                        disabled={roomActionBusy || roomActionModal.state === 'OCUPADO'}
+                                        className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-400/30 text-red-300 text-[11px] font-black uppercase tracking-wider hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <Key className="w-4 h-4" />
+                                        <span>Ocupado</span>
+                                    </button>
+                                </div>
+
+                                <div className="pt-2 border-t border-white/10 space-y-3">
+                                    <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em]">
+                                        Acções Operacionais
+                                    </p>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                closeRoomActions();
+                                                onSelectRoom(roomActionModal.room.id, roomActionModal.state);
+                                            }}
+                                            disabled={roomActionBusy || roomActionModal.state !== 'DISPONIVEL' && roomActionModal.state !== 'RESERVADO'}
+                                            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-cyan-400/10 border border-cyan-400/30 text-cyan-300 text-[11px] font-black uppercase tracking-wider hover:bg-cyan-400/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <Zap className="w-4 h-4" />
+                                            <span>Check-In</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                closeRoomActions();
+                                                onSelectRoom(roomActionModal.room.id, roomActionModal.state);
+                                            }}
+                                            disabled={roomActionBusy || roomActionModal.state !== 'OCUPADO'}
+                                            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-400/10 border border-amber-400/30 text-amber-300 text-[11px] font-black uppercase tracking-wider hover:bg-amber-400/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <Wallet className="w-4 h-4" />
+                                            <span>Check-Out</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                closeRoomActions();
+                                                if (!hourlyUnavailable) {
+                                                    openAction({ kind: 'start', room: roomActionModal.room });
+                                                }
+                                            }}
+                                            disabled={roomActionBusy || hourlyUnavailable || Boolean(startReason(stateStyle(roomActionModal.state).label))}
+                                            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-purple-400/10 border border-purple-400/30 text-purple-300 text-[11px] font-black uppercase tracking-wider hover:bg-purple-400/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <Clock className="w-4 h-4" />
+                                            <span>Sessão Horária</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                            <div className="flex flex-wrap gap-3 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={closeRoomActions}
+                                    disabled={roomActionBusy}
+                                    className="flex items-center gap-2 px-6 py-3 rounded-xl bg-white/5 border border-white/10 text-white/60 text-xs font-black uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    Fechar
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
                     </div>
                 ) : null}
             </AnimatePresence>

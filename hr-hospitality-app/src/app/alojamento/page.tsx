@@ -3,107 +3,206 @@
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { CheckoutConsolidated } from '@/components/finance/CheckoutConsolidated';
+import { FaturaPrintSheet } from '@/components/finance/FaturaPrintSheet';
+import {
+    ClienteFatura,
+    DadosFatura,
+    FormatoFatura,
+    LinhaFatura,
+    MetodoPagamento,
+    PagamentoFatura,
+    gerarNumeroFatura,
+    origemConsumo,
+    resumoFatura,
+} from '@/lib/fatura';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Home, Users, Key, Calendar, ArrowRight, Zap, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Home, Users, Key, Calendar, ArrowRight, Zap, Loader2, AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import { RoomBoard } from '@/app/alojamento/RoomBoard';
+import { ReservationsPanel } from '@/components/alojamento/ReservationsPanel';
 import { supabase } from '@/lib/supabase';
+import { localQuery } from '@/lib/db/localDB';
+import { emitRoomEvent, useRoomSync } from '@/lib/roomEvents';
+
+// Estados terminais: não contam para "a chegar" nem para check-ins do dia.
+const INACTIVE_RESERVATION_STATUSES = ['CHECKED_OUT', 'CANCELADA'];
+
+function nightsBetween(start: string | null, end: string): number {
+    if (!start) return 1;
+    const startDate = new Date(`${start}T00:00:00`);
+    const endDate = new Date(`${end}T00:00:00`);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 1;
+    const diff = Math.round((endDate.getTime() - startDate.getTime()) / 86400000);
+    return Math.max(1, diff);
+}
 
 export default function AlojamentoPage() {
     const [showCheckout, setShowCheckout] = useState(false);
     const [loadingCheckout, setLoadingCheckout] = useState(false);
     const [checkoutHint, setCheckoutHint] = useState(false);
+    const [checkoutError, setCheckoutError] = useState<string | null>(null);
     const [checkoutData, setCheckoutData] = useState<{
         guestName: string;
-        roomNumber: string;
-        items: { description: string, value: number, category: string }[];
+        roomNumber: string;   // número legível (ex: "101"), usado no extrato
+        roomId: string;       // id canónico do quarto
+        linhas: LinhaFatura[];
         taxes: number;
         reservationId: string;
+        periodo: { entrada: string | null; saida: string | null };
+        cliente: ClienteFatura;
+        invoiceNumber: string;
+        auditToken: string;
     } | null>(null);
+    // Folha preparada para `window.print()` — vive fora do `print:hidden` do modal.
+    const [fatura, setFatura] = useState<{ formato: FormatoFatura; dados: DadosFatura; impresso: string } | null>(null);
 
     const [kpis, setKpis] = useState<{ checkins: string; livres: string; aChegar: string; chaves: string } | null>(null);
 
-    useEffect(() => {
-        let cancelled = false;
+    const loadKpis = useCallback(async () => {
         const fallback = { checkins: '—', livres: '—', aChegar: '—', chaves: '—' };
-        (async () => {
-            try {
-                const hoje = new Date().toISOString().split('T')[0];
-                const [roomsRes, resRes] = await Promise.all([
-                    supabase.from('hotel_rooms').select('status'),
-                    supabase.from('hotel_reservations').select('check_in_date, status'),
-                ]);
-                if (cancelled) return;
-                if (roomsRes.error || !roomsRes.data) { setKpis(fallback); return; }
-                const rooms = roomsRes.data as { status: string }[];
-                const reservas = resRes.error ? [] : ((resRes.data || []) as { check_in_date: string | null; status: string }[]);
-                setKpis({
-                    checkins: String(reservas.filter(r => r.check_in_date === hoje).length),
-                    livres: String(rooms.filter(r => r.status === 'DISPONIVEL').length),
-                    aChegar: String(reservas.filter(r => (r.check_in_date || '') > hoje && r.status !== 'CHECKED_OUT').length),
-                    chaves: String(rooms.filter(r => r.status === 'OCUPADO').length),
-                });
-            } catch {
-                if (!cancelled) setKpis(fallback);
-            }
-        })();
-        return () => { cancelled = true; };
+        try {
+            const hoje = new Date().toISOString().split('T')[0];
+            const [roomsRes, resRes] = await Promise.all([
+                supabase.from('hotel_rooms').select('status'),
+                supabase.from('hotel_reservations').select('check_in_date, status'),
+            ]);
+            if (roomsRes.error || !roomsRes.data) { setKpis(fallback); return; }
+            const rooms = roomsRes.data as { status: string }[];
+            const reservas = resRes.error ? [] : ((resRes.data || []) as { check_in_date: string | null; status: string }[]);
+            setKpis({
+                // Reservas canceladas nunca contam como check-in.
+                checkins: String(reservas.filter(r => r.check_in_date === hoje && r.status !== 'CANCELADA').length),
+                livres: String(rooms.filter(r => r.status === 'DISPONIVEL').length),
+                aChegar: String(reservas.filter(r => (r.check_in_date || '') > hoje && !INACTIVE_RESERVATION_STATUSES.includes(r.status)).length),
+                chaves: String(rooms.filter(r => r.status === 'OCUPADO').length),
+            });
+        } catch {
+            setKpis(fallback);
+        }
     }, []);
+
+    useEffect(() => {
+        void loadKpis();
+    }, [loadKpis]);
+
+    // Actualização instantânea dos KPIs: eventos + foco + polling de segurança.
+    useRoomSync(loadKpis);
 
     const handleSelectRoom = async (roomId: string, status: string) => {
         // Um quarto reservado para hoje ainda sem check-in comporta-se como
         // livre no fluxo: leva directamente ao check-in com o quarto pré-seleccionado.
         if (status === 'DISPONIVEL' || status === 'RESERVADO') {
             window.location.href = `/alojamento/checkin?room=${roomId}`;
-        } else if (status === 'OCUPADO') {
-            setLoadingCheckout(true);
-            try {
-                const { data: reservation, error: resError } = await supabase
-                    .from('hotel_reservations')
-                    .select('id, guest_name')
-                    .eq('room_id', roomId)
-                    .eq('status', 'CONFIRMADA')
-                    .maybeSingle();
+            return;
+        }
+        if (status !== 'OCUPADO') return;
 
-                if (resError || !reservation) {
-                    console.warn("Nenhuma reserva confirmada ativa para o quarto:", roomId);
-                    setLoadingCheckout(false);
-                    return;
-                }
+        setLoadingCheckout(true);
+        setCheckoutError(null);
+        try {
+            // A estadia activa pode ser CHECKED_IN (entrada já feita) ou
+            // CONFIRMADA (reserva do portal ainda sem entrada). Antes só se
+            // procurava CONFIRMADA e o check-out falhava em silêncio.
+            const { data: activeReservations, error: resError } = await supabase
+                .from('hotel_reservations')
+                .select('id, guest_name, room_number, check_in_date, status, total_amount, client_id, client_number')
+                .eq('room_id', roomId)
+                .in('status', ['CHECKED_IN', 'CONFIRMADA'])
+                .order('created_at', { ascending: false })
+                .limit(1);
 
-                const { data: consumptions } = await supabase
-                    .from('hotel_consumptions')
-                    .select('description, total_price, category')
-                    .eq('reservation_id', reservation.id);
+            const reservation = !resError && activeReservations && activeReservations.length > 0
+                ? activeReservations[0] as { id: string; guest_name: string; room_number: string | null; check_in_date: string | null; status: string; total_amount: number | string | null; client_id: string | null; client_number: string | null }
+                : null;
 
-                const itemsList = [
-                    { description: 'Hospedagem - Estadia Acumulada', value: 25000.00, category: 'ALOJAMENTO' }
-                ];
-
-                if (consumptions && consumptions.length > 0) {
-                    consumptions.forEach((c: any) => {
-                        itemsList.push({
-                            description: c.description,
-                            value: Number(c.total_price || c.amount || 0),
-                            category: c.category || 'EXTRA'
-                        });
-                    });
-                }
-
-                setCheckoutData({
-                    guestName: reservation.guest_name,
-                    roomNumber: roomId,
-                    items: itemsList,
-                    taxes: 3500.00,
-                    reservationId: reservation.id
-                });
-                setShowCheckout(true);
-            } catch (err) {
-                console.error("Erro ao preparar checkout:", err);
-            } finally {
+            if (!reservation) {
+                setCheckoutError('Nenhuma estadia activa associada a este quarto.');
                 setLoadingCheckout(false);
+                return;
             }
+
+            const agora = new Date();
+            const hoje = agora.toISOString().split('T')[0];
+            // Débitos com rastreabilidade total: data/hora exacta, zona de
+            // consumo e mesa/dispositivo de origem de cada lançamento (SQLite local).
+            const [{ data: room }, { data: consumptions }, { data: client }] = await Promise.all([
+                supabase.from('hotel_rooms').select('id, room_number, price_per_night').eq('id', roomId).maybeSingle(),
+                supabase
+                    .from('hotel_consumptions')
+                    .select('description, quantity, unit_price, total_price, category, registered_at, source_zone, source_table')
+                    .eq('reservation_id', reservation.id)
+                    .order('registered_at', { ascending: true }),
+                reservation.client_id
+                    ? supabase.from('clients').select('full_name, client_number, document_type, document_number, email').eq('id', reservation.client_id).maybeSingle()
+                    : Promise.resolve({ data: null, error: null } as { data: any; error: any }),
+            ]);
+
+            const roomNumber = room?.room_number || reservation.room_number || roomId;
+            const pricePerNight = Number(room?.price_per_night ?? reservation.total_amount ?? 0);
+            const nights = nightsBetween(reservation.check_in_date, hoje);
+
+            // Extrato calculado a partir da tarifa real do quarto × noites —
+            // nunca valores fixos de demonstração.
+            const linhas: LinhaFatura[] = [
+                {
+                    kind: 'ALOJAMENTO',
+                    description: `Hospedagem — ${nights} noite(s) × ${pricePerNight.toFixed(2)}Kz`,
+                    quantity: nights,
+                    unitPrice: pricePerNight,
+                    value: pricePerNight * nights,
+                    category: 'ALOJAMENTO',
+                    registeredAt: agora.toISOString(),
+                    zone: 'RECEPCAO',
+                    origin: `Check-in ${reservation.check_in_date ? reservation.check_in_date.split('-').reverse().join('/') : '—'} · Quarto ${roomNumber}`,
+                },
+            ];
+
+            if (consumptions && consumptions.length > 0) {
+                (consumptions as any[]).forEach(c => {
+                    linhas.push({
+                        kind: 'EXTRA',
+                        description: c.description,
+                        quantity: Number(c.quantity ?? 1),
+                        unitPrice: Number(c.unit_price ?? 0),
+                        value: Number(c.total_price || 0),
+                        category: c.category || 'EXTRA',
+                        registeredAt: c.registered_at ?? null,
+                        zone: c.source_zone ?? null,
+                        // "Mesa 03 (Restaurante Principal) → Transferido p/ Quarto 102"
+                        origin: origemConsumo(c.source_zone, c.source_table, roomNumber),
+                    });
+                });
+            }
+
+            const documento = client
+                ? [client.document_type, client.document_number].filter(Boolean).join(' ') || null
+                : null;
+
+            setCheckoutData({
+                guestName: reservation.guest_name,
+                roomNumber,
+                roomId,
+                linhas,
+                taxes: 0,
+                reservationId: reservation.id,
+                periodo: { entrada: reservation.check_in_date, saida: hoje },
+                cliente: {
+                    nome: client?.full_name ?? reservation.guest_name,
+                    numero: client?.client_number ?? reservation.client_number ?? null,
+                    documento,
+                    email: client?.email ?? null,
+                },
+                invoiceNumber: gerarNumeroFatura(agora),
+                auditToken: `AUDIT-${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
+            });
+            setFatura(null);
+            setShowCheckout(true);
+        } catch (err) {
+            console.error("Erro ao preparar checkout:", err);
+            setCheckoutError(err instanceof Error ? err.message : 'Erro ao preparar o check-out.');
+        } finally {
+            setLoadingCheckout(false);
         }
     };
 
@@ -120,29 +219,92 @@ export default function AlojamentoPage() {
         setTimeout(() => setCheckoutHint(false), 5000);
     };
 
-    const handleFinalizeCheckout = async () => {
+    const handleFinalizeCheckout = async (pagamento: {
+        method: MetodoPagamento;
+        received: number;
+        paid: number;
+        change: number;
+        pending: number;
+        invoice: string;
+    }) => {
         if (!checkoutData) return;
+        setCheckoutError(null);
         try {
-            await supabase
-                .from('hotel_rooms')
-                .update({ status: 'DISPONIVEL' })
-                .eq('id', checkoutData.roomNumber);
+            // Lance atómico no servidor: reserva → CHECKED_OUT e quarto →
+            // DISPONIVEL, com validação de estado, libertação do quarto e
+            // registo do pagamento (método, pago, pendente, troco, fatura)
+            // nas notas da reserva para auditoria.
+            const updated = await localQuery<{ id?: string; status?: string } | null>(
+                'hotel_reservations.checkOut',
+                {
+                    id: checkoutData.reservationId,
+                    room_status: 'DISPONIVEL',
+                    payment: {
+                        method: pagamento.method,
+                        paid: pagamento.paid,
+                        pending: pagamento.pending,
+                        change: pagamento.change,
+                        invoice: pagamento.invoice,
+                        received: pagamento.received,
+                    },
+                }
+            );
+            if (!updated || updated.status !== 'CHECKED_OUT') {
+                throw new Error('O servidor não confirmou a transição de check-out.');
+            }
 
-            await supabase
-                .from('hotel_reservations')
-                .update({ status: 'CHECKED_OUT' } as any)
-                .eq('id', checkoutData.reservationId);
-
+            const { roomId, roomNumber, reservationId } = checkoutData;
             setShowCheckout(false);
             setCheckoutData(null);
+            setFatura(null);
+
+            // Reactividade: o mapa, os KPIs e o Dashboard actualizam no acto.
+            emitRoomEvent({ type: 'check-out', roomId, roomNumber, reservationId });
         } catch (err) {
             console.error("Falha ao finalizar checkout:", err);
+            setCheckoutError(err instanceof Error ? err.message : 'Falha ao finalizar o check-out.');
+            setShowCheckout(false);
         }
+    };
+
+    /**
+     * Prepara a folha da fatura/extrato (A4 ou bobina térmica de 80 mm) e abre
+     * a caixa de impressão do navegador. A folha tem de estar no DOM antes de
+     * `window.print()`, por isso o estado muda primeiro e o pedido vai no tick
+     * seguinte — mesmo padrão das escalas de RH.
+     */
+    const imprimirFatura = (formato: FormatoFatura, pagamento: PagamentoFatura) => {
+        if (!checkoutData) return;
+        const agora = new Date();
+        const resumo = resumoFatura(checkoutData.linhas, checkoutData.taxes);
+        const dados: DadosFatura = {
+            numero: checkoutData.invoiceNumber,
+            emitidoEm: agora.toISOString(),
+            guestName: checkoutData.guestName,
+            roomNumber: checkoutData.roomNumber,
+            periodo: checkoutData.periodo,
+            cliente: checkoutData.cliente,
+            linhas: checkoutData.linhas,
+            alojamento: resumo.alojamento,
+            extras: resumo.extras,
+            taxas: resumo.taxas,
+            total: resumo.total,
+            pagamento,
+            auditToken: checkoutData.auditToken,
+        };
+        setFatura({ formato, dados, impresso: agora.toLocaleString('pt-PT') });
+        window.setTimeout(() => { window.print(); }, 80);
+    };
+
+    const fecharCheckout = () => {
+        setShowCheckout(false);
+        setCheckoutData(null);
+        setFatura(null);
     };
 
     return (
         <DashboardLayout>
-            <div className="max-w-[1500px] mx-auto space-y-10 md:space-y-16 pb-20 px-4">
+            <div className="max-w-[1500px] mx-auto space-y-10 md:space-y-16 pb-20 px-4 print:hidden">
                 {/* Header */}
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
@@ -201,6 +363,30 @@ export default function AlojamentoPage() {
                     </div>
                 </motion.div>
 
+                {/* Erro do fluxo de check-out (visível, nunca só em consola) */}
+                <AnimatePresence>
+                    {checkoutError && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="p-4 md:p-5 bg-rose-500/10 border border-rose-400/30 rounded-2xl flex items-start justify-between gap-4"
+                        >
+                            <div className="flex items-start gap-3">
+                                <AlertTriangle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+                                <p className="text-xs text-rose-100/85 leading-relaxed">{checkoutError}</p>
+                            </div>
+                            <button
+                                onClick={() => setCheckoutError(null)}
+                                className="text-rose-300/60 hover:text-rose-200 text-sm font-bold leading-none"
+                                aria-label="Fechar erro"
+                            >
+                                &times;
+                            </button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8 lg:gap-10">
                     {[
@@ -224,6 +410,9 @@ export default function AlojamentoPage() {
                 <div id="room-map">
                     <RoomBoard onSelectRoom={handleSelectRoom} />
                 </div>
+
+                {/* Central de reservas: visualização, cancelamento e reativação */}
+                <ReservationsPanel />
 
                 {/* Feedback inline do CHECK-OUT (sem extrato carregado) */}
                 <AnimatePresence>
@@ -260,39 +449,47 @@ export default function AlojamentoPage() {
 
                 <AnimatePresence>
                     {showCheckout && checkoutData && (
-                        <div className="fixed inset-0 z-[200] flex justify-center items-center px-4">
+                        <div className="fixed inset-0 z-[200] flex justify-center items-center px-4 print:hidden">
                             <motion.div
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
-                                onClick={() => {
-                                    setShowCheckout(false);
-                                    setCheckoutData(null);
-                                }}
+                                onClick={fecharCheckout}
                                 className="absolute inset-0 bg-black/95 backdrop-blur-md"
                             />
                             <motion.div
                                 initial={{ scale: 0.9, opacity: 0, y: 20 }}
                                 animate={{ scale: 1, opacity: 1, y: 0 }}
                                 exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                                className="relative w-full max-w-[1200px] max-h-[90vh] overflow-hidden"
+                                className="relative w-full max-w-[960px] max-h-[88vh]"
                             >
                                 <CheckoutConsolidated
                                     guestName={checkoutData.guestName}
                                     roomNumber={checkoutData.roomNumber}
-                                    items={checkoutData.items}
+                                    periodo={checkoutData.periodo}
+                                    cliente={checkoutData.cliente}
+                                    invoiceNumber={checkoutData.invoiceNumber}
+                                    auditToken={checkoutData.auditToken}
+                                    items={checkoutData.linhas}
                                     taxes={checkoutData.taxes}
                                     onFinalize={handleFinalizeCheckout}
-                                    onClose={() => {
-                                        setShowCheckout(false);
-                                        setCheckoutData(null);
-                                    }}
+                                    onPrint={imprimirFatura}
+                                    onClose={fecharCheckout}
                                 />
                             </motion.div>
                         </div>
                     )}
                 </AnimatePresence>
             </div>
+
+            {/* Folha da fatura/extrato — só existe para o papel (`hidden print:block`). */}
+            {showCheckout && fatura && (
+                <FaturaPrintSheet
+                    formato={fatura.formato}
+                    dados={fatura.dados}
+                    impresso={fatura.impresso}
+                />
+            )}
         </DashboardLayout>
     );
 }

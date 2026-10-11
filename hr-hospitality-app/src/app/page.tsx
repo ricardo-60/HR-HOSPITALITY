@@ -2,38 +2,23 @@
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { GestroCard } from '@/components/dashboard/GestroCard';
-import { Users, Zap, Shield, Activity, Globe, ChevronRight, AlertTriangle, Package, ListTodo } from 'lucide-react';
+import { ActivityFeed } from '@/components/dashboard/ActivityFeed';
+import { OccupancyPanel } from '@/components/dashboard/OccupancyPanel';
+import { Users, Zap, Shield, Globe, AlertTriangle, Package } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { DEFAULT_TENANT } from '@/config/tenants';
 import { PendingLeads } from '@/components/dashboard/PendingLeads';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { useRoomSync } from '@/lib/roomEvents';
 import { inventoryItems } from '@/app/logistica/page';
 import { parkingSlots } from '@/app/parque/page';
 
-const logItems = [
-  { id: 'LOG-8842', action: 'CHECK-IN CONCLUÍDO', location: 'QUARTO 101', time: '09:42:01', status: 'SUCCESS', operator: 'R. Ferreira' },
-  { id: 'LOG-8841', action: 'PEDIDO BAR TRANSMITIDO', location: 'SNACK BAR', time: '09:38:15', status: 'ACTIVE', operator: 'J. Manuel' },
-  { id: 'LOG-8840', action: 'ACESSO GINÁSIO VALIDADO', location: 'GENTLEMAN GYM', time: '09:35:00', status: 'SUCCESS', operator: 'System' },
-  { id: 'LOG-8839', action: 'SAÍDA VIATURA (HB-42-TR)', location: 'PARKING A-01', time: '09:30:12', status: 'ARCHIVED', operator: 'Guard_01' },
-  { id: 'LOG-8838', action: 'ALERTA STOCK: GIN PREMIUM', location: 'ECONOMATO', time: '09:25:44', status: 'WARNING', operator: 'Logistics' },
-];
-
-// Logs adicionais — revelados pelo botão "Global Logs Access"
-const extraLogItems = [
-  { id: 'LOG-8837', action: 'TRANSFER CONCLUÍDO (TRF-001)', location: 'AEROPORTO', time: '09:18:33', status: 'SUCCESS', operator: 'A. Silva' },
-  { id: 'LOG-8836', action: 'ORDEM LAVANDARIA ENTREGUE', location: 'LAVANDARIA', time: '09:12:07', status: 'SUCCESS', operator: 'Housekeeping' },
-  { id: 'LOG-8835', action: 'CHECK-OUT FATURADO', location: 'QUARTO 205', time: '09:05:41', status: 'SUCCESS', operator: 'R. Ferreira' },
-  { id: 'LOG-8834', action: 'TENTATIVA ACESSO NEGADO', location: 'BACKOFFICE', time: '08:58:19', status: 'WARNING', operator: 'Security' },
-  { id: 'LOG-8833', action: 'BACKUP LOCAL CONCLUÍDO', location: 'SERVER-01', time: '08:45:00', status: 'ARCHIVED', operator: 'System' },
-];
-
 export default function DashboardPage() {
   const { user } = useAuth();
-  const [showAllLogs, setShowAllLogs] = useState(false);
-  const logsRef = useRef<HTMLDivElement>(null);
   const [hospedesAtivos, setHospedesAtivos] = useState<string | null>(null);
+  const [reservasActivas, setReservasActivas] = useState<string | null>(null);
 
   // Valores reais derivados dos dados da aplicação (nunca fixos)
   const alertasEconomato = inventoryItems.filter(i => i.status !== 'OK').length;
@@ -41,28 +26,33 @@ export default function DashboardPage() {
     ? Math.round((parkingSlots.filter(s => s.status === 'OCUPADO').length / parkingSlots.length) * 100)
     : 0;
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data, error } = await supabase.from('hotel_rooms').select('status');
-        if (cancelled || error || !data) return;
-        setHospedesAtivos(String(data.filter((r: { status: string }) => r.status === 'OCUPADO').length));
-      } catch { /* offline: manter '—' */ }
-    })();
-    return () => { cancelled = true; };
+  const loadHeadcount = useCallback(async () => {
+    try {
+      const [roomsRes, reservasRes] = await Promise.all([
+        supabase.from('hotel_rooms').select('status'),
+        supabase.from('hotel_reservations').select('status'),
+      ]);
+      if (roomsRes.error || !roomsRes.data) return;
+      const rooms = roomsRes.data as { status: string }[];
+      const reservas = reservasRes.error ? [] : ((reservasRes.data ?? []) as { status: string }[]);
+      setHospedesAtivos(String(rooms.filter(r => r.status === 'OCUPADO').length));
+      setReservasActivas(String(
+        reservas.filter(r => ['PENDENTE_PAGAMENTO', 'CONFIRMADA', 'CHECKED_IN'].includes(r.status)).length
+      ));
+    } catch {
+      /* offline: manter '—' */
+    }
   }, []);
 
-  const toggleLogs = () => {
-    const next = !showAllLogs;
-    setShowAllLogs(next);
-    // Efeito visual imediato: garante que a secção fica visível no ecrã
-    if (next) {
-      setTimeout(() => logsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-    }
-  };
+  useEffect(() => {
+    // Carregamento diferido (mesmo padrão das outras páginas) para não
+    // encadear renders síncronos no effect.
+    const timer = window.setTimeout(() => { void loadHeadcount(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadHeadcount]);
 
-  const visibleLogs = showAllLogs ? [...logItems, ...extraLogItems] : logItems;
+  // Check-in / check-out / cancelações actualizam os KPIs sem reload.
+  useRoomSync(loadHeadcount);
 
   return (
     <DashboardLayout>
@@ -107,104 +97,22 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* Manual Approval Leads Stream (Lukweku Core Logic) */}
+        {/* Resumo de ocupação: quartos ocupados (com hóspede) e livres */}
+        <OccupancyPanel />
+
+        {/* Aprovação manual de reservas vindas do portal + mapa do edifício */}
         <PendingLeads />
 
         {/* Adaptive Grid: 1 col (mobile), 2 cols (tablet), 4 cols (desktop) */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 md:gap-8 lg:gap-10">
           <GestroCard label="HÓSPEDES ATIVOS" value={hospedesAtivos ?? '—'} icon={Users} trend="Quartos Ocupados" color="var(--brand-primary)" />
-          <GestroCard label="ALERTA ECONOMATO" value={String(alertasEconomato).padStart(2, '0')} icon={Package} trend="Crítico/Validade" color="var(--brand-secondary)" />
-          <GestroCard label="RADAR PARQUE" value={`${ocupacaoParque}%`} icon={Shield} trend="Taxa de Ocupação" color="#10B981" />
-          <GestroCard label="TERMINAIS" value="ONLINE" icon={Zap} trend="Security Mesh" color="var(--brand-accent)" />
+          <GestroCard label="RESERVAS ACTIVAS" value={reservasActivas ?? '—'} icon={Zap} trend="Portal + Recepção" color="var(--brand-secondary)" />
+          <GestroCard label="ALERTA ECONOMATO" value={String(alertasEconomato).padStart(2, '0')} icon={Package} trend="Crítico/Validade" color="#10B981" />
+          <GestroCard label="RADAR PARQUE" value={`${ocupacaoParque}%`} icon={Shield} trend="Taxa de Ocupação" color="var(--brand-accent)" />
         </div>
 
-        {/* Responsive Operational Logs Table/Cards */}
-        <motion.div
-          ref={logsRef}
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="glass-panel rounded-[32px] md:rounded-[40px] overflow-hidden shadow-2xl border border-white/10"
-        >
-          <div className="p-6 md:p-8 border-b border-white/10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white/[0.02]">
-            <div className="flex items-center gap-4 md:gap-5">
-              <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl md:rounded-2xl bg-[var(--brand-primary)]/10 border border-[var(--brand-primary)]/30 flex items-center justify-center">
-                <ListTodo className="w-6 h-6 md:w-7 md:h-7 text-[var(--brand-primary)]" />
-              </div>
-              <div>
-                <h3 className="text-xl md:text-2xl font-black text-white uppercase tracking-tight">Operational Streams</h3>
-                <p className="text-xs md:text-sm font-black text-white/30 uppercase tracking-[0.3em] md:tracking-[0.4em] mt-1 md:mt-2">Real-time Intelligence Flow</p>
-              </div>
-            </div>
-            <button
-              onClick={toggleLogs}
-              aria-expanded={showAllLogs}
-              className={`w-full md:w-auto px-6 py-3 md:px-8 md:py-4 border rounded-2xl md:rounded-[20px] text-xs md:text-sm font-black uppercase tracking-widest transition-all duration-300 flex items-center justify-center gap-3 lg:gap-4 group shadow-lg ${
-                showAllLogs
-                  ? 'bg-[var(--brand-primary)] text-black border-[var(--brand-primary)]'
-                  : 'bg-white/5 border-white/10 text-white/70 hover:bg-[var(--brand-primary)] hover:text-black hover:border-[var(--brand-primary)]'
-              }`}
-            >
-              {showAllLogs ? 'Recolher Logs' : 'Global Logs Access'}
-              <ChevronRight className={`w-4 h-4 md:w-5 md:h-5 transition-transform ${showAllLogs ? 'rotate-90' : 'group-hover:translate-x-1 sm:group-hover:translate-x-2'}`} />
-            </button>
-          </div>
-
-          <div className="overflow-x-auto min-w-full pb-2 md:pb-0">
-            <table className="w-full text-left responsive-table">
-              <thead>
-                <tr className="bg-white/[0.01]">
-                  <th className="px-6 py-4 md:px-6 md:py-8 text-[10px] md:text-xs font-black text-white/40 uppercase tracking-[0.2em] md:tracking-[0.15em] whitespace-nowrap">Event ID</th>
-                  <th className="px-6 py-4 md:px-6 md:py-8 text-[10px] md:text-xs font-black text-white/40 uppercase tracking-[0.2em] md:tracking-[0.15em]">Activity</th>
-                  <th className="px-6 py-4 md:px-6 md:py-8 text-[10px] md:text-xs font-black text-white/40 uppercase tracking-[0.2em] md:tracking-[0.15em] whitespace-nowrap">Operational Point</th>
-                  <th className="px-6 py-4 md:px-6 md:py-8 text-[10px] md:text-xs font-black text-white/40 uppercase tracking-[0.2em] md:tracking-[0.15em]">Operator</th>
-                  <th className="px-6 py-4 md:px-6 md:py-8 text-[10px] md:text-xs font-black text-white/40 uppercase tracking-[0.2em] md:tracking-[0.15em]">Timeline</th>
-                  <th className="px-6 py-4 md:px-6 md:py-8 text-[10px] md:text-xs font-black text-white/40 uppercase tracking-[0.2em] md:tracking-[0.15em] whitespace-nowrap">Security Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.05]">
-                {visibleLogs.map((log) => (
-                  <tr key={log.id} className="group hover:bg-white/[0.03] transition-colors">
-                    <td data-label="Event ID" className="px-6 py-4 md:px-6 md:py-6">
-                      <span className="text-white/40 font-black text-xs md:text-sm tracking-widest font-mono group-hover:text-white/60">{log.id}</span>
-                    </td>
-                    <td data-label="Activity" className="px-6 py-4 md:px-6 md:py-6 min-w-[200px]">
-                      <p className="font-black text-xs md:text-sm uppercase tracking-widest text-white/90 group-hover:text-[var(--brand-primary)] transition-all">
-                        {log.action}
-                      </p>
-                    </td>
-                    <td data-label="Operational Point" className="px-6 py-4 md:px-6 md:py-6">
-                      <div className="flex items-center gap-3 md:gap-4">
-                        <Activity className="w-5 h-5 text-white/20" />
-                        <span className="text-white/60 font-black text-xs md:text-sm tracking-widest uppercase truncate">{log.location}</span>
-                      </div>
-                    </td>
-                    <td data-label="Operator" className="px-6 py-4 md:px-6 md:py-6">
-                      <span className="text-[var(--brand-primary)]/80 font-black text-[10px] md:text-xs tracking-widest uppercase">{log.operator}</span>
-                    </td>
-                    <td data-label="Timeline" className="px-6 py-3 md:px-8 md:py-5">
-                      <span className="text-white/50 font-black text-xs md:text-sm tracking-widest tabular-nums">{log.time}</span>
-                    </td>
-                    <td data-label="Security Status" className="px-6 py-4 md:px-6 md:py-6">
-                      <div className={`px-4 md:px-5 py-2 md:py-2.5 rounded-full border text-[9px] md:text-[10px] font-black uppercase tracking-widest inline-flex items-center justify-center ${log.status === 'SUCCESS' ? 'text-emerald-400 border-emerald-400/30 bg-emerald-400/10' :
-                        log.status === 'WARNING' ? 'text-[var(--brand-secondary)] border-[var(--brand-secondary)]/30 bg-[var(--brand-secondary)]/10' :
-                          'text-[var(--brand-primary)] border-[var(--brand-primary)]/30 bg-[var(--brand-primary)]/10'
-                        }`}>
-                        {log.status}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
- 
-          <div className="p-8 md:p-10 bg-black/20 flex justify-center text-center">
-            <p className="text-[9px] md:text-xs font-black text-white/20 uppercase tracking-[0.5em] md:tracking-[0.8em] animate-pulse">
-              {showAllLogs ? `Arquivo Desencriptado — ${visibleLogs.length} Registos Exibidos` : 'End of Encrypted Content Stream'}
-            </p>
-          </div>
-        </motion.div>
+        {/* Central de pedidos online e reservas (actividade real) */}
+        <ActivityFeed />
       </div>
     </DashboardLayout>
   );

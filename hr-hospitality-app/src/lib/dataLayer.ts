@@ -7,6 +7,7 @@
 import { supabaseClient } from './supabaseClient';
 import { localOperation, localQuery, checkServerHealth } from './db/localDB';
 import { startAutoSync, scheduleFlushAfterWrite } from './syncEngine';
+import { isLocalAuthoritativeTable } from './localAuthoritativeTables';
 
 // Estado global de conectividade
 let onlineStatus: boolean | null = null;
@@ -260,6 +261,12 @@ class HybridQueryBuilder {
   }
 
   private canTryCloud(): boolean {
+    // Local-First: o registo operacional fechado (reservas, quartos, consumos,
+    // POS e CRM/KYC) é a fonte de verdade do hotel e vive no SQLite local.
+    // Nunca se pergunta à nuvem, para que Dashboard, Alojamento, POS e Clientes
+    // leiam e escrevam sempre na mesma base de dados — ver
+    // localAuthoritativeTables.ts para o porquê do split-brain corrigido aqui.
+    if (isLocalAuthoritativeTable(this.tableName)) return false;
     return (
       isOnline() &&
       !!supabaseClient &&

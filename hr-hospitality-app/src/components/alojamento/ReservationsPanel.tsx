@@ -6,6 +6,7 @@ import {
     Ban,
     Calendar,
     CheckCircle2,
+    CloudDownload,
     Home,
     Loader2,
     LogIn,
@@ -17,6 +18,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '@/context/AuthContext';
+import { pullCloudReservations } from '@/lib/cloudInboundSync';
 import { localQuery } from '@/lib/db/localDB';
 import { emitRoomEvent, useRoomSync } from '@/lib/roomEvents';
 import { supabase } from '@/lib/supabase';
@@ -105,6 +107,7 @@ export function ReservationsPanel({ title = 'Reservas & Marcações' }: Reservat
     const [busyId, setBusyId] = useState<string | null>(null);
     const [filter, setFilter] = useState<Filter>('ACTIVAS');
     const [showNova, setShowNova] = useState(false);
+    const [syncing, setSyncing] = useState(false);
 
     const load = useCallback(async () => {
         try {
@@ -135,6 +138,36 @@ export function ReservationsPanel({ title = 'Reservas & Marcações' }: Reservat
 
     // Reactividade instantânea (evento local + foco + polling de segurança).
     useRoomSync(load, { intervalMs: 20000 });
+
+    /**
+     * "Sincronizar Nuvem / Puxar Reservas da Web".
+     * Força uma leitura imediata de `hotel_reservations` no Supabase (sessão
+     * autenticada) e injeta os registos novos no SQLite local — é o caminho
+     * cloud → local que recebe as reservas feitas na Landing Page (Vercel).
+     */
+    const sincronizarNuvem = async () => {
+        if (syncing) return;
+        setSyncing(true);
+        setError(null);
+        try {
+            const summary = await pullCloudReservations('manual');
+            if (summary.error) {
+                setError(`Sincronização com a nuvem falhou: ${summary.error}`);
+            } else if (summary.inserted + summary.updated > 0) {
+                setNotice(
+                    `Nuvem sincronizada: ${summary.inserted} reserva(s) nova(s) e ` +
+                    `${summary.updated} atualizada(s) puxada(s) da Landing Page.`
+                );
+            } else {
+                setNotice(`Nuvem consultada: nada de novo (${summary.fetched} registo(s) na nuvem).`);
+            }
+            await load();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Não foi possível sincronizar com a nuvem.');
+        } finally {
+            setSyncing(false);
+        }
+    };
 
     useEffect(() => {
         if (!notice) return;
@@ -234,6 +267,7 @@ export function ReservationsPanel({ title = 'Reservas & Marcações' }: Reservat
         restore: 'px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border border-emerald-400/40 text-emerald-300 bg-emerald-400/5 hover:bg-emerald-400 hover:text-black transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 justify-center',
         checkin: 'px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border border-cyan-400/40 text-cyan-300 bg-cyan-400/5 hover:bg-cyan-400 hover:text-black transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 justify-center',
         nova: 'px-4 md:px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-[#00F2FF] text-black shadow-[0_0_20px_rgba(0,242,255,0.3)] hover:scale-[1.02] transition-all flex items-center gap-2',
+        syncCloud: 'px-4 md:px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-violet-400/50 text-violet-200 bg-violet-400/10 hover:bg-violet-400 hover:text-black transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed',
     };
 
     return (
@@ -246,6 +280,16 @@ export function ReservationsPanel({ title = 'Reservas & Marcações' }: Reservat
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => { void sincronizarNuvem(); }}
+                        disabled={syncing}
+                        title="Puxar as reservas feitas na Landing Page (Supabase) para este Servidor Local"
+                        className={preComputedClasses.syncCloud}
+                    >
+                        <CloudDownload className={`w-3.5 h-3.5 ${syncing ? 'animate-pulse' : ''}`} />
+                        {syncing ? 'A Sincronizar…' : 'Sincronizar Nuvem'}
+                    </button>
                     {canWrite && (
                         <button
                             type="button"

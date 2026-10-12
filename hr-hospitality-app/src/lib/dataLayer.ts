@@ -542,15 +542,41 @@ export const dataLayer = {
   },
 
   // Canais de Realtime (compatível offline)
-  channel(name: string): any {
+  //
+  // CORREÇÃO (bug de sincronização): o 1.º parâmetro é o *nome do canal*
+  // (ex.: `hr_hospitality_room_changes`), mas o código antigo fazia
+  // `allowedTables.includes(name)` — comparação que nunca era verdadeira, pelo
+  // que o handler `postgres_changes` **nunca** era registado e o barramento
+  // interno (`roomEvents`) nunca recebia eventos da nuvem.
+  //
+  // Agora resolve-se a tabela a partir do nome do canal (ou do 2.º argumento
+  // explícito) e loga-se o ciclo de vida de cada canal.
+  channel(name: string, table?: string): any {
+    const CHANNEL_TABLES: Record<string, string> = {
+      hr_hospitality_room_changes: 'hotel_rooms',
+      hr_hospitality_reservation_changes: 'hotel_reservations',
+      hr_inbound_reservations: 'hotel_reservations'
+    };
+    const allowedTables = ['hotel_rooms', 'hotel_reservations', 'hotel_consumptions'];
+    const resolvedTable = table
+      || (allowedTables.includes(name) ? name : CHANNEL_TABLES[name])
+      || null;
+
     if (isOnline() && supabaseClient) {
+      console.log(
+        `[dataLayer] a criar canal Realtime "${name}"` +
+        (resolvedTable ? ` para a tabela "${resolvedTable}"` : ' (sem tabela associada)')
+      );
       const ch = supabaseClient.channel(name);
       // Subscribe to changes on hotel_rooms and hotel_reservations tables
       // via postgres_changes — este padrão funciona no Supabase e também no
       // Vercel quando a mesma instância Supabase é partilhada (anon key partilhada).
-      const allowedTables = ['hotel_rooms', 'hotel_reservations', 'hotel_consumptions'];
-      if (allowedTables.includes(name)) {
-        ch.on('postgres_changes', { event: '*', schema: 'public', table: name }, (payload: any) => {
+      if (resolvedTable && allowedTables.includes(resolvedTable)) {
+        ch.on('postgres_changes', { event: '*', schema: 'public', table: resolvedTable }, (payload: any) => {
+          console.log(
+            `[dataLayer] postgres_changes em "${resolvedTable}" ` +
+            `(eventType=${payload?.eventType}, id=${payload?.new?.id ?? payload?.old?.id ?? '?'})`
+          );
           // Reemitimos o evento para o barramento interno do app
           // (roomEvents.emitRoomEvent) para que Dashboard, Mapa de Quartos, etc.
           // reajam instantaneamente sem recarregar a página.
@@ -580,9 +606,15 @@ export const dataLayer = {
             console.warn('[dataLayer] erros ao processar payload Realtime:', err);
           }
         });
+      } else {
+        console.warn(
+          `[dataLayer] canal "${name}" sem handler postgres_changes — ` +
+          `a tabela "${resolvedTable ?? name}" não está na lista permitida.`
+        );
       }
       return ch;
     }
+    console.warn(`[dataLayer] offline — canal "${name}" devolvido como stub (sem eventos da nuvem)`);
     // Stub offline — aceita qualquer tipo de evento (presence, broadcast, postgres_changes)
     const stub = {
       on(_event: any, _filter: any, _callback: any) { return stub; },

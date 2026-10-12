@@ -16,48 +16,138 @@
 import React from 'react';
 import { supabase } from './supabase';
 
+/**
+ * Prefixo de log de diagnóstico da sincronização.
+ * Visível no DevTools do Servidor (Electron) para rastrear cada etapa.
+ */
+const LOG = '[landingPageSync]';
+
+function logInfo(...args: unknown[]): void {
+  console.log(LOG, ...args);
+}
+
+function logWarn(...args: unknown[]): void {
+  console.warn(LOG, ...args);
+}
+
+function logError(...args: unknown[]): void {
+  console.error(LOG, ...args);
+}
+
+/** Formata um erro de PostgREST/RLS de forma legível. */
+function describe(error: { code?: string; message?: string } | null): string {
+  if (!error) return 'erro desconhecido';
+  return `${error.code || 'sem código'}: ${error.message || 'sem mensagem'}`;
+}
+
 // --- 1. Dados de leitura (mirror read-only do Supabase) ---
 
 /** Busca todas as salas com o seu status atual. */
 export async function fetchRoomStatus() {
-  if (!supabase) throw new Error('Supabase client não inicializado');
-  const { data, error } = await supabase.from('hotel_rooms').select('*');
-  if (error) throw error;
-  return data || [];
+  if (!supabase) {
+    logError('fetchRoomStatus: Supabase client não inicializado');
+    throw new Error('Supabase client não inicializado');
+  }
+  logInfo('fetchRoomStatus: a ler hotel_rooms na nuvem…');
+  try {
+    const { data, error } = await supabase.from('hotel_rooms').select('*');
+    if (error) {
+      logError('fetchRoomStatus: FALHOU →', describe(error));
+      throw error;
+    }
+    logInfo(`fetchRoomStatus: OK — ${(data || []).length} quarto(s)`);
+    return data || [];
+  } catch (err) {
+    logError('fetchRoomStatus: exceção →', err instanceof Error ? err.message : err);
+    throw err;
+  }
 }
 
 /** Busca todas as reservas ativas (CHECKED_IN + CONFIRMADA + PENDENTE_PAGAMENTO). */
 export async function fetchActiveReservations() {
-  if (!supabase) throw new Error('Supabase client não inicializado');
-  const { data, error } = await supabase
-    .from('hotel_reservations')
-    .select('*')
-    .in('status', ['CHECKED_IN', 'CONFIRMADA', 'PENDENTE_PAGAMENTO']);
-  if (error) throw error;
-  return data || [];
+  if (!supabase) {
+    logError('fetchActiveReservations: Supabase client não inicializado');
+    throw new Error('Supabase client não inicializado');
+  }
+  logInfo('fetchActiveReservations: a ler hotel_reservations na nuvem…');
+  try {
+    const { data, error } = await supabase
+      .from('hotel_reservations')
+      .select('*')
+      .in('status', ['CHECKED_IN', 'CONFIRMADA', 'PENDENTE_PAGAMENTO']);
+    if (error) {
+      logError('fetchActiveReservations: FALHOU →', describe(error));
+      if (String(error.code) === '42501' || /permission denied/i.test(error.message || '')) {
+        logError('  → RLS: o `anon` não tem SELECT em hotel_reservations.',
+          'A app local deve usar a sessão autenticada (ver cloudInboundSync.ts).');
+      }
+      throw error;
+    }
+    logInfo(`fetchActiveReservations: OK — ${(data || []).length} reserva(s)`);
+    return data || [];
+  } catch (err) {
+    logError('fetchActiveReservations: exceção →', err instanceof Error ? err.message : err);
+    throw err;
+  }
 }
 
 /** Busca reservas que cobrem uma data específica. */
 export async function fetchReservationsForDate(dateISO: string) {
-  if (!supabase) throw new Error('Supabase client não inicializado');
-  const { data, error } = await supabase
-    .from('hotel_reservations')
-    .select('*')
-    .gte('check_in_date', dateISO)
-    .lte('check_out_date', dateISO)
-    .in('status', ['CHECKED_IN', 'CONFIRMADA', 'PENDENTE_PAGAMENTO']);
-  if (error) throw error;
-  return data || [];
+  if (!supabase) {
+    logError('fetchReservationsForDate: Supabase client não inicializado');
+    throw new Error('Supabase client não inicializado');
+  }
+  logInfo(`fetchReservationsForDate(${dateISO}): a ler na nuvem…`);
+  try {
+    const { data, error } = await supabase
+      .from('hotel_reservations')
+      .select('*')
+      .gte('check_in_date', dateISO)
+      .lte('check_out_date', dateISO)
+      .in('status', ['CHECKED_IN', 'CONFIRMADA', 'PENDENTE_PAGAMENTO']);
+    if (error) {
+      logError(`fetchReservationsForDate(${dateISO}): FALHOU →`, describe(error));
+      throw error;
+    }
+    logInfo(`fetchReservationsForDate(${dateISO}): OK — ${(data || []).length} reserva(s)`);
+    return data || [];
+  } catch (err) {
+    logError('fetchReservationsForDate: exceção →', err instanceof Error ? err.message : err);
+    throw err;
+  }
 }
 
 // --- 2. Subscription / Realtime (atualização instantânea) ---
+
+/**
+ * Regista o ciclo de vida de um canal Realtime com logs detalhados.
+ * `status` é um dos: `SUBSCRIBED`, `CHANNEL_ERROR`, `TIMED_OUT`, `CLOSED`.
+ */
+function logChannelStatus(channelName: string, status: string, err?: Error): void {
+  if (status === 'SUBSCRIBED') {
+    logInfo(`canal "${channelName}" → SUBSCRIBED (a escutar eventos)`);
+  } else if (status === 'CHANNEL_ERROR') {
+    logError(`canal "${channelName}" → CHANNEL_ERROR:`, err?.message ?? 'erro desconhecido');
+  } else if (status === 'TIMED_OUT') {
+    logError(`canal "${channelName}" → TIMED_OUT:`, err?.message ?? 'sem resposta do Realtime');
+  } else if (status === 'CLOSED') {
+    logWarn(`canal "${channelName}" → CLOSED`);
+  } else {
+    logInfo(`canal "${channelName}" → status: ${status}`);
+  }
+}
 
 /** Subscreve alterações de hotel_rooms via Supabase Realtime.
  * O callback é chamado sempre que um quarto muda de status (check-in, check-out, limpeza, manutenção).
  * Retorna a função de cancelamento (unsubscribe). */
 export function subscribeRoomChanges(callback: (room: any) => void) {
-  if (!supabase) return () => { };
-  const channel = supabase.channel('hr_hospitality_room_changes');
+  if (!supabase) {
+    logWarn('subscribeRoomChanges: Supabase client indisponível — sem Realtime');
+    return () => { };
+  }
+  const channelName = 'hr_hospitality_room_changes';
+  logInfo(`a subscrever "${channelName}" (postgres_changes em hotel_rooms)…`);
+  const channel = supabase.channel(channelName);
   channel
     .on(
       'postgres_changes',
@@ -65,31 +155,40 @@ export function subscribeRoomChanges(callback: (room: any) => void) {
       (payload: any) => {
         // A payload pode trazer New e/ou Old
         const room = payload?.New || payload?.Old;
+        logInfo(`postgres_changes hotel_rooms (eventType=${payload?.eventType}) id=${room?.id ?? '?'} status=${room?.status ?? '?'}`);
         if (room) callback(room);
       }
     )
-    .subscribe();
+    .subscribe((status: string, err?: Error) => logChannelStatus(channelName, status, err));
   // Devolve unsubscribe para quando o componente desmontar
   return () => {
+    logInfo(`a cancelar "${channelName}"`);
     try { channel.unsubscribe(); } catch { }
   };
 }
 
 /** Subscreve alterações de hotel_reservations via Supabase Realtime. */
 export function subscribeReservationChanges(callback: (reservation: any) => void) {
-  if (!supabase) return () => { };
-  const channel = supabase.channel('hr_hospitality_reservation_changes');
+  if (!supabase) {
+    logWarn('subscribeReservationChanges: Supabase client indisponível — sem Realtime');
+    return () => { };
+  }
+  const channelName = 'hr_hospitality_reservation_changes';
+  logInfo(`a subscrever "${channelName}" (postgres_changes em hotel_reservations)…`);
+  const channel = supabase.channel(channelName);
   channel
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'hotel_reservations' },
       (payload: any) => {
         const reservation = payload?.New || payload?.Old;
+        logInfo(`postgres_changes hotel_reservations (eventType=${payload?.eventType}) id=${reservation?.id ?? '?'} convidado=${reservation?.guest_name ?? '?'}`);
         if (reservation) callback(reservation);
       }
     )
-    .subscribe();
+    .subscribe((status: string, err?: Error) => logChannelStatus(channelName, status, err));
   return () => {
+    logInfo(`a cancelar "${channelName}"`);
     try { channel.unsubscribe(); } catch { }
   };
 }
@@ -104,20 +203,27 @@ export function useRoomStatusPolling(intervalMs = 15000) {
   const [lastUpdate, setLastUpdate] = React.useState<number>(0);
 
   const refresh = React.useCallback(async () => {
+    const cycle = Math.round(intervalMs / 1000);
+    logInfo(`ciclo de polling (a cada ${cycle}s) → fetchRoomStatus()`);
     try {
       const data = await fetchRoomStatus();
       setRooms(data);
       setLastUpdate(Date.now());
+      logInfo(`ciclo de polling: OK — ${data.length} quarto(s), última atualização ${new Date().toLocaleTimeString()}`);
     } catch (e) {
-      console.warn('[landingPageSync] polling falhou:', e);
+      logWarn('ciclo de polling falhou:', e instanceof Error ? e.message : e);
     }
   }, [intervalMs]);
 
   // Primeira carga + polling intervalado
   React.useEffect(() => {
+    logInfo(`polling iniciado (intervalo ${intervalMs}ms)`);
     refresh();
     const timer = setInterval(refresh, intervalMs);
-    return () => clearInterval(timer);
+    return () => {
+      logInfo('polling terminado');
+      clearInterval(timer);
+    };
   }, [refresh, intervalMs]);
 
   return { rooms, lastUpdate, refresh };

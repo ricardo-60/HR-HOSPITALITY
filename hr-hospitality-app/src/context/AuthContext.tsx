@@ -7,6 +7,7 @@ import { BootSplash } from '@/components/BootSplash';
 import { dataLayer } from '@/lib/dataLayer';
 import { startAutoSync, scheduleFlushAfterWrite } from '@/lib/syncEngine';
 import { subscribeRoomEvents, emitRoomEvent, RoomEventType } from '@/lib/roomEvents';
+import { startCloudInboundSync } from '@/lib/cloudInboundSync';
 
 /**
  * Perfis de staff.
@@ -283,6 +284,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthError(null);
     await loadUsers(profile);
     await refreshLicense();
+    // Sincronização inbound (Supabase → SQLite local): obriga à primeira
+    // pesquisa de reservas logo no arranque e liga Realtime + polling de 12s.
+    // Sem isto, uma reserva criada na Landing Page nunca chegava à Central de
+    // Reservas — ver src/lib/cloudInboundSync.ts.
+    startCloudInboundSync();
     return profile;
   };
 

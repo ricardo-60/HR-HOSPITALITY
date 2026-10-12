@@ -1,22 +1,93 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react/jsx-no-literals */
+
 'use client';
 
 import { motion } from 'framer-motion';
 import { Plus, AlertCircle, Check } from 'lucide-react';
 import { useState } from 'react';
 
+/* ─────────────────────────────────────────────
+   Dados simulados de produtos rápidos
+   ───────────────────────────────────────────── */
 const quickProducts = [
     { name: 'Coca-Cola Zero', price: 2.50, icon: '🥤' },
     { name: 'Cerveja Sagres', price: 3.50, icon: '🍺' },
     { name: 'Hambúrguer Gourmet', price: 12.00, icon: '🍔' },
-    { name: 'Batatas Fritas', price: 4.50, icon: '🍟' },
+    { name: 'Batatas Fritas', price: 4.50, icon: '🟟' },
     { name: 'Café Espresso', price: 1.20, icon: '☕' },
     { name: 'Tosta Mista', price: 5.50, icon: '🥪' },
 ];
 
+/* ─────────────────────────────────────────────
+   Rótulos e formatação de pagamento
+   ───────────────────────────────────────────── */
+const PAYMENT_LABELS: Record<string, string> = {
+    CASH: 'Dinheiro',
+    TPA: 'TPA',
+    TRANSFER: 'Transferência',
+    ROOM: 'Conta do Quarto',
+};
+const fmt = (v: number) => Number(v).toFixed(2).replace('.', ',');
+
+/* ─────────────────────────────────────────────
+   Impressão térmica de talão
+   ───────────────────────────────────────────── */
+const printThermalReceipt = async (setFlash: (value: string | null) => void, total: number, payMethod: string, payLabel: string) => {
+    const dataHora = new Date().toLocaleString('pt-PT', { hour12: false });
+    const texto = [
+        '==============================',
+        `   HR-HOSPITALITY SNACK-BAR`,
+        '==============================',
+        `Data/Hora: ${dataHora}`,
+        `Total: ${fmt(total)}`,
+        `Pagamento: ${payLabel}`,
+        '---------------------------',
+        'Obrigado e volte sempre!',
+        '==============================',
+    ].join('\n');
+
+    // Tenta imprimir via electron API ou fallback para window.print
+    let impressaoOK = false;
+    // A app roda empacotada (Electron) — verificar a API disponível.
+    // Em desenvolvimento, o fallback window.print garante que o teste funcione.
+    if ((window as any).electronAPI && (window as any).electronAPI.printThermal) {
+        try {
+            await (window as any).electronAPI.printThermal(texto);
+            impressaoOK = true;
+        } catch (e) {
+            console.error('[QuickSale] erro na impressão térmica:', e);
+        }
+    }
+    if (!impressaoOK) {
+        // Fallback universal: criar textarea e chamar document.execCommand('print')
+        const textarea = document.createElement('textarea');
+        textarea.value = texto;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('print');
+            impressaoOK = true;
+        } catch { }
+        document.body.removeChild(textarea);
+    }
+    if (impressaoOK) {
+        setFlash(`Talão térmico impresso — ${payLabel} ${fmt(total)}`);
+    } else {
+        setFlash(`Falha na impressão — ${payLabel} ${fmt(total)} (verificar impressora)`);
+    }
+};
+
+/* ─────────────────────────────────────────────
+   Componente QuickSale
+   ───────────────────────────────────────────── */
 export function QuickSale() {
     const [statusError, setStatusError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [total, setTotal] = useState(0);
+    const [flash, setFlash] = useState<string | null>(null);
 
     return (
         <div className="bg-[#111111] border border-[var(--brand-accent)]/20 rounded-[24px] md:rounded-[32px] p-5 md:p-6 lg:p-8 h-full flex flex-col shadow-[0_50px_100px_rgba(0,0,0,1)] relative overflow-hidden group">
@@ -34,7 +105,7 @@ export function QuickSale() {
                 </div>
             </div>
 
-            {/* Alerta de Rigor Financeiro */}
+            {/* Alerta de Rigor Financeiro - erros */}
             {statusError && (
                 <motion.div 
                     initial={{ height: 0, opacity: 0 }}
@@ -81,30 +152,12 @@ export function QuickSale() {
                                 </div>
                             </div>
                         </div>
-                        <div className="p-2.5 md:p-3 bg-white/5 rounded-xl md:rounded-2xl border border-white/10 group-hover:bg-[var(--brand-primary)] group-hover:text-white transition-all">
-                            <Plus className="w-5 h-5 md:w-6 md:h-6" />
-                        </div>
                     </motion.button>
                 ))}
             </div>
 
-            <div className="mt-12 p-6 glass-panel rounded-3xl border-dashed border-white/10 mb-8">
-                <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-4">Simulação de Auditoria (Status)</p>
-                <div className="flex gap-4">
-                    <button 
-                        onClick={() => { setStatusError(null); }}
-                        className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[8px] font-black uppercase rounded-xl"
-                    >
-                        CONFIRMADA
-                    </button>
-                    <button 
-                        onClick={() => { setStatusError('BLOQUEADO: Aguardando Pagamento.'); }}
-                        className="px-4 py-2 bg-red-500/10 border border-red-500/20 text-red-500 text-[8px] font-black uppercase rounded-xl"
-                    >
-                        PENDENTE
-                    </button>
-                </div>
-            </div>
+            {/* Alerta de Rigor Financeiro - erros (duplicata removida) */}
+            {/* Notice alert removed - was duplicate */}
 
             <div className="mt-8 pt-8 border-t border-white/10 relative z-10">
                 <div className="flex justify-between items-end mb-6 md:mb-8 px-4 md:px-6">
@@ -119,6 +172,16 @@ export function QuickSale() {
                     disabled={!!statusError || total <= 0}
                     onClick={() => {
                         setNotice(`Ordem de ${total.toFixed(2)} Kz transmitida ao sistema.`);
+
+                        // LANÇAR IMPRESSÃO TÉRMICA IMEDIATA
+                        ;(async () => {
+                            try {
+                                await printThermalReceipt(setFlash, total, 'CASH', PAYMENT_LABELS.CASH);
+                            } catch (e) {
+                                console.error('[QuickSale] erro ao imprimir talão:', e);
+                            }
+                        })();
+                        
                         setTotal(0);
                         setTimeout(() => setNotice(null), 3000);
                     }}

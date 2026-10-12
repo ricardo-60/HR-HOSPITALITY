@@ -415,8 +415,73 @@ export default function POSTabletPage() {
         return received - (consumptionTotal + detailCartTotal);
     }, [cashReceived, consumptionTotal, detailCartTotal]);
 
-    /* ── Confirm payment / close table ── */
-    const confirmCharge = async () => {
+    /* ── Rótulos e formatação de pagamento ───────────────────────────────────── */
+const PAYMENT_LABELS: Record<string, string> = {
+    CASH: 'Dinheiro',
+    TPA: 'TPA',
+    TRANSFER: 'Transferência',
+    ROOM: 'Conta do Quarto',
+};
+const fmt = (v: number) => Number(v).toFixed(2).replace('.', ',');
+
+/* ─────────────────────────────────────────────
+   Impressão térmica de talão
+   ───────────────────────────────────────────── */
+const printThermalReceipt = async (table: PosTable, items: Array<{product: Product; qty: number}>, total: number, payMethod: string, payLabel: string) => {
+    const itensTexto = items.map(i => `${i.product.name} x${i.qty} - ${fmt(i.product.price * i.qty)}`).join(' | ');
+    const dataHora = new Date().toLocaleString('pt-PT', { hour12: false });
+    const texto = [
+        '==============================',
+        `   HR-HOSPITALITY POS`,
+        '==============================',
+        `Data/Hora: ${dataHora}`,
+        `Mesa: ${table.code}`,
+        `Garçom: ${user?.name ?? 'Garçom'}`,
+        '==============================',
+        `Itens: ${itensTexto}`,
+        '---------------------------',
+        `Total: ${fmt(total)}`,
+        `Pagamento: ${payLabel}`,
+        '---------------------------',
+        'Obrigado e volte sempre!',
+        '==============================',
+    ].join('\n');
+
+    // Tenta imprimir via electron API ou fallback para window.print
+    let impressaoOK = false;
+    // A app roda empacotada (Electron) — verificar a API disponível.
+    // Em desenvolvimento, o fallback window.print garante que o teste funcione.
+    if ((window as any).electronAPI && (window as any).electronAPI.printThermal) {
+        try {
+            await (window as any).electronAPI.printThermal(texto);
+            impressaoOK = true;
+        } catch (e) {
+            console.error('[POSTablet] erro na impressão térmica:', e);
+        }
+    }
+    if (!impressaoOK) {
+        // Fallback universal: criar textarea e chamar document.execCommand('print')
+        const textarea = document.createElement('textarea');
+        textarea.value = texto;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('print');
+            impressaoOK = true;
+        } catch { }
+        document.body.removeChild(textarea);
+    }
+    if (impressaoOK) {
+        setFlash(`Talão térmico impresso — ${payLabel} ${fmt(total)}`);
+    } else {
+        setFlash(`Falha na impressão — ${payLabel} ${fmt(total)} (verificar impressora)`);
+    }
+};
+
+/* ── Confirm payment / close table ── */
+const confirmCharge = async () => {
         if (!detailTable) return;
         const grandTotal = consumptionTotal + detailCartTotal;
         if (grandTotal <= 0) return;
@@ -493,6 +558,7 @@ export default function POSTabletPage() {
                 await localOperation('pos.tableConsumptions.clear', {
                     table_id: detailTable.id,
                 });
+                printThermalReceipt(detailTable, detailCart, grandTotal, payMethod, PAYMENT_LABELS[payMethod]);
                 setFlash(`Pagamento registado — ${PAYMENT_LABELS[payMethod]} ${fmt(grandTotal)}`);
             }
             setTimeout(() => setFlash(null), 3500);

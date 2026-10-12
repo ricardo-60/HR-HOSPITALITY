@@ -14,5 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   voice: {
     transcribe: (audioBase64, language = 'pt') => ipcRenderer.invoke('voice-transcribe', { audioBase64, language })
-  }
+  },
+  /** Thermal receipt printing — opens the Windows print dialog. */
+  printThermal: (text) => ipcRenderer.invoke('print-thermal', { text })
 });

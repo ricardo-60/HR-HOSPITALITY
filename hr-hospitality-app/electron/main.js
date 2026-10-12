@@ -296,6 +296,64 @@ ipcMain.handle('voice-transcribe', async (event, request) => {
   return localRuntime.transcribe(audio, request.language || 'pt');
 });
 
+// ── Thermal receipt printing ─────────────────────────────────────────────
+// Opens the Windows print dialog with the receipt content so the operator
+// can select the thermal printer (or any printer) and print the receipt.
+ipcMain.handle('print-thermal', async (event, request) => {
+  assertTrustedSender(event);
+  if (!request || typeof request.text !== 'string' || request.text.length > 20_000) {
+    throw new Error('Invalid print payload.');
+  }
+
+  const esc = s => String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // Monospace receipt styled for 80mm thermal paper
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  @page { size: 80mm auto; margin: 2mm; }
+  html,body { margin:0; padding:0; background:#fff; }
+  pre {
+    font-family: "Courier New", Courier, monospace;
+    font-size: 12px; line-height: 1.25;
+    white-space: pre-wrap; word-break: break-all;
+    margin:0; padding:0; color:#000;
+  }
+</style></head><body><pre>${esc(request.text)}</pre></body></html>`;
+
+  const printWin = new BrowserWindow({
+    show: false,
+    width: 320,
+    height: 600,
+    webPreferences: { contextIsolation: true, nodeIntegration: false }
+  });
+
+  try {
+    await printWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+    // Show the Windows print dialog so the operator picks the printer.
+    // silent:false => dialog opens (required proof per QA protocol).
+    const printed = await new Promise((resolve, reject) => {
+      const wc = printWin.webContents;
+      wc.print(
+        {
+          silent: false,
+          printBackground: false,
+          margins: { marginType: 'none' }
+        },
+        (success, failureReason) => {
+          if (success) resolve(true);
+          else reject(new Error(failureReason || 'Print cancelled'));
+        }
+      );
+    });
+
+    return { ok: true, printed };
+  } finally {
+    if (!printWin.isDestroyed()) printWin.destroy();
+  }
+});
+
 function getIconPath(mode) {
   const iconFile = mode === 'server' ? 'icon-server.png' : 'icon-client.png';
   const prodPath = path.join(process.resourcesPath || __dirname, '..', 'public', iconFile);

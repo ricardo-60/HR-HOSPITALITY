@@ -63,7 +63,7 @@ export function subscribeRoomChanges(callback: (room: any) => void) {
       'postgres_changes',
       { event: '*', schema: 'public', table: 'hotel_rooms' },
       (payload: any) => {
-        // A payload pode trazer New e/or Old
+        // A payload pode trazer New e/ou Old
         const room = payload?.New || payload?.Old;
         if (room) callback(room);
       }
@@ -111,14 +111,14 @@ export function useRoomStatusPolling(intervalMs = 15000) {
     } catch (e) {
       console.warn('[landingPageSync] polling falhou:', e);
     }
-  }, []);
+  }, [intervalMs]);
 
   // Primeira carga + polling intervalado
   React.useEffect(() => {
     refresh();
     const timer = setInterval(refresh, intervalMs);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, intervalMs]);
 
   return { rooms, lastUpdate, refresh };
 }
@@ -139,7 +139,7 @@ export function useRoomStatusPolling(intervalMs = 15000) {
 export function triggerLandingPageRefresh(): Promise<{ success: boolean; error?: string }> {
   // Em produção, aqui seria chamado um Edge Function ou webhook que
   // dispara `npm run build` ou ISR revalidation no Vercel.
-  // Por enquanto, retornamos success para indicar que o polling/client‑side
+  // Por enquanto, retornamos success para indicar que o polling/client-side
   // é o mecanismo ativo.
   return Promise.resolve({ success: true });
 }

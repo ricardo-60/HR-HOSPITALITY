@@ -75,3 +75,6 @@ hr-hospitality-app/scripts/shots/
 # Artefactos PyInstaller de outro projeto (Ajente-60) que vazaram para a raiz â€” nunca versionar
 build_installer/
 server.spec
+
+# APKs sincronizados para public/ pelo build_setups.js (112 MB — vivem em dist/android)
+hr-hospitality-app/public/download/android/

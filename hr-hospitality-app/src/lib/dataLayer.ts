@@ -8,6 +8,7 @@ import { supabaseClient } from './supabaseClient';
 import { localOperation, localQuery, checkServerHealth } from './db/localDB';
 import { startAutoSync, scheduleFlushAfterWrite } from './syncEngine';
 import { isLocalAuthoritativeTable } from './localAuthoritativeTables';
+import { subscribeRoomEvents, emitRoomEvent, RoomEventType } from './roomEvents';
 
 // Estado global de conectividade
 let onlineStatus: boolean | null = null;
@@ -109,8 +110,6 @@ function warnCloudOnce(tableName: string, message: string, error: any) {
   console.warn(`[HOSPITALITY/DataLayer] Supabase retornou erro em '${tableName}', fallback local:`, message || error);
 }
 
-// Falha de rede (pedido abortado/indisponível): transitória, já coberta pelo
-// breaker de streak — registo como info para não poluir o console com avisos.
 function noteCloudNetworkFailure(tableName: string, error: any) {
   cloudFailureStreak++;
   if (cloudFailureStreak >= 2) {
@@ -368,7 +367,6 @@ class HybridQueryBuilder {
       else if (f.type === 'gt') query = query.gt(f.column, f.value);
       else if (f.type === 'lt') query = query.lt(f.column, f.value);
       else if (f.type === 'gte') query = query.gte(f.column, f.value);
-      else if (f.type === 'lte') query = query.lte(f.column, f.value);
       else if (f.type === 'like') query = query.like(f.column, f.value);
       else if (f.type === 'ilike') query = query.ilike(f.column, f.value);
       else if (f.type === 'in') query = query.in(f.column, f.value);
@@ -546,7 +544,44 @@ export const dataLayer = {
   // Canais de Realtime (compatível offline)
   channel(name: string): any {
     if (isOnline() && supabaseClient) {
-      return supabaseClient.channel(name);
+      const ch = supabaseClient.channel(name);
+      // Subscribe to changes on hotel_rooms and hotel_reservations tables
+      // via postgres_changes — este padrão funciona no Supabase e também no
+      // Vercel quando a mesma instância Supabase é partilhada (anon key partilhada).
+      const allowedTables = ['hotel_rooms', 'hotel_reservations', 'hotel_consumptions'];
+      if (allowedTables.includes(name)) {
+        ch.on('postgres_changes', { event: '*', schema: 'public', table: name }, (payload: any) => {
+          // Reemitimos o evento para o barramento interno do app
+          // (roomEvents.emitRoomEvent) para que Dashboard, Mapa de Quartos, etc.
+          // reajam instantaneamente sem recarregar a página.
+          // Note: this only works if the browser/app is still mounted.
+          try {
+            const { New, Old } = payload;
+            if (New) {
+              const eventType = New.status ? 'room-status' : 'reservation';
+              const roomId = New.id || New.room_id;
+              const roomNumber = New.room_number || (New.room_id ? String(New.room_id).slice(0,8) : undefined);
+              emitRoomEvent({
+                  type: eventType as RoomEventType,
+                  roomId: roomId as string,
+                  roomNumber: roomNumber as string,
+                  reservationId: New.id as string,
+                  clientId: New.client_id as string
+              });
+            }
+            if (Old) {
+              emitRoomEvent({
+                  type: 'room-status' as RoomEventType,
+                  roomId: Old.id as string,
+                  roomNumber: Old.room_number as string
+              });
+            }
+          } catch (err) {
+            console.warn('[dataLayer] erros ao processar payload Realtime:', err);
+          }
+        });
+      }
+      return ch;
     }
     // Stub offline — aceita qualquer tipo de evento (presence, broadcast, postgres_changes)
     const stub = {

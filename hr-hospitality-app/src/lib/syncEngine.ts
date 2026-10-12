@@ -62,10 +62,13 @@ const MAX_ATTEMPTS_PER_CYCLE = 50;
 // estado local e remoto voltaria a divergir. A lista é derivada da fonte única
 // para não sair de sincronia — se uma tabela deixar de ser local, o flush
 // volta a ativar-se sozinho. Ver localAuthoritativeTables.ts.
-const SYNC_TABLES = new Set(
-    ['hotel_rooms', 'hotel_reservations', 'hotel_consumptions']
-        .filter(table => !isLocalAuthoritativeTable(table))
-);
+const LOCAL_AUTHORITATIVE_CLOUD_SYNC = new Set([
+    // Estas tabelas são a fonte de verdade no SQLite local,
+    // MAS mantemos uma c cópia simplificada no Supabase para o Landing Page ler
+    // estado de disponibilidade em tempo real. A escrita na nuvem ainda é
+    // orientada pelo fluxo local; o Supabase serve apenas de "mirror read-only".
+    'hotel_rooms', 'hotel_reservations', 'hotel_consumptions'
+]);
 const SYNC_ACTIONS = new Set(['INSERT', 'UPDATE', 'DELETE']);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -121,9 +124,10 @@ function coalesceEvents(events: SyncEvent[]): SyncEvent[] {
     return events.filter((_, idx) => lastIndex.get(`${events[idx].table_name}::${events[idx].record_id}`) === idx);
 }
 
-async function applyEventToSupabase(ev: SyncEvent): Promise<{ ok: boolean; error?: string }> {
+export async function applyEventToSupabase(ev: SyncEvent): Promise<{ ok: boolean; error?: string }> {
     if (!supabaseClient) return { ok: false, error: 'Supabase client não inicializado' };
-    if (!SYNC_TABLES.has(ev.table_name)) return { ok: false, error: 'Tabela de sincronização não permitida' };
+    // Tabelas "authoritative" também são sincronizadas para o Supabase mirror-readonly
+    if (!LOCAL_AUTHORITATIVE_CLOUD_SYNC.has(ev.table_name)) return { ok: false, error: 'Tabela de sincronização não permitida' };
     if (!SYNC_ACTIONS.has(ev.action)) return { ok: false, error: 'Operação de sincronização não permitida' };
     if (!UUID_PATTERN.test(ev.record_id)) return { ok: false, error: 'Identificador local não é UUID' };
 
@@ -147,10 +151,13 @@ async function applyEventToSupabase(ev: SyncEvent): Promise<{ ok: boolean; error
         }
         delete payload.sync_status;
 
-        const { error } = await supabaseClient
-            .from(ev.table_name)
+        // Usamos upsert com onConflict=id para hotel_rooms e hotel_reservations;
+        // para consumos mantemos o comportamento original.
+        const table = ev.table_name;
+        const result = await supabaseClient
+            .from(table)
             .upsert(payload, { onConflict: 'id' });
-        return error ? { ok: false, error: error.message } : { ok: true };
+        return result.error ? { ok: false, error: result.error.message } : { ok: true };
     } catch (error: any) {
         return { ok: false, error: error?.message || String(error) };
     }
@@ -213,7 +220,7 @@ export async function flushSyncQueue(): Promise<SyncStats> {
             await localOperation('sync.completeEvent', { id: ev.id });
             lastFlushSynced++;
         }
-        const paraNuvem = coalesced.filter(ev => !isLocalAuthoritativeTable(ev.table_name));
+        const paraNuvem = coalesced.filter(ev => !isLocalAuthoritativeTable(ev.table_name) || LOCAL_AUTHORITATIVE_CLOUD_SYNC.has(ev.table_name));
 
         for (const ev of paraNuvem.slice(0, MAX_ATTEMPTS_PER_CYCLE)) {
             const result = await applyEventToSupabase(ev);

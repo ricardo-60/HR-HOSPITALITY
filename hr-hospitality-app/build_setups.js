@@ -96,8 +96,34 @@ function verifyAssets() {
   checkFile(path.join(ROOT, 'public/license.txt'),               'license.txt');
 }
 
+// ─── APKs da Central de Descargas ─────────────────────────────────────────────
+// Os cards de /admin/downloads desenham QR + links para /download/android/*.apk.
+// Como o Next usa `output: 'export'`, só o que viver em public/ chega ao /out e
+// ao instalador — sem este sincronismo os downloads davam 404 (o APK existe no
+// dist/android do repo raiz, construído pelos projectos Flutter, mas nunca era
+// copiado para o app).
+const APK_SOURCES = path.join(ROOT, '..', 'dist', 'android');
+const APK_TARGET = path.join(ROOT, 'public', 'download', 'android');
+const APK_FILES = ['hr-pos-app.apk', 'hr-executive-app.apk'];
+
+function syncPublicApks() {
+  console.log('\n  ══ Sincronizando APKs para public/download/android...');
+  fs.mkdirSync(APK_TARGET, { recursive: true });
+  for (const file of APK_FILES) {
+    const src = path.join(APK_SOURCES, file);
+    const dst = path.join(APK_TARGET, file);
+    if (!fs.existsSync(src)) {
+      log(`APK em falta: ${src} — o card respectivo ficará sem ficheiro (404).`, 'error');
+      continue;
+    }
+    fs.copyFileSync(src, dst);
+    log(`OK — ${file} (${(fs.statSync(dst).size / 1024 / 1024).toFixed(1)} MB)`);
+  }
+}
+
 // ─── Build Frontend Next.js ───────────────────────────────────────────────────
 function buildNextJs() {
+  syncPublicApks();
   if (skipBuild) {
     log('--skip-build ativo: a reutilizar pasta /out existente.', 'info');
     if (!fs.existsSync(path.join(ROOT, 'out', 'index.html'))) {

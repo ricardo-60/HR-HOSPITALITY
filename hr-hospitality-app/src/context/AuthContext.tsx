@@ -4,6 +4,9 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { isSupabaseConfigured, supabaseClient } from '@/lib/supabaseClient';
 import { BootSplash } from '@/components/BootSplash';
+import { dataLayer } from '@/lib/dataLayer';
+import { startAutoSync, scheduleFlushAfterWrite } from '@/lib/syncEngine';
+import { subscribeRoomEvents, emitRoomEvent, RoomEventType } from '@/lib/roomEvents';
 
 /**
  * Perfis de staff.

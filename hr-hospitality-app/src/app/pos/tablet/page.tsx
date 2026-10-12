@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { localQuery, localOperation } from '@/lib/db/localDB';
+import { printThermalReceipt as sendThermalReceipt } from '@/lib/thermalPrint';
 import { useAuth } from '@/context/AuthContext';
 
 /* ─────────────────────────────────────────────
@@ -428,51 +429,19 @@ const fmt = (v: number) => Number(v).toFixed(2).replace('.', ',');
    Impressão térmica de talão
    ───────────────────────────────────────────── */
 const printThermalReceipt = async (table: PosTable, items: Array<{product: Product; qty: number}>, total: number, payMethod: string, payLabel: string) => {
-    const itensTexto = items.map(i => `${i.product.name} x${i.qty} - ${fmt(i.product.price * i.qty)}`).join(' | ');
-    const dataHora = new Date().toLocaleString('pt-PT', { hour12: false });
-    const texto = [
-        '==============================',
-        `   HR-HOSPITALITY POS`,
-        '==============================',
-        `Data/Hora: ${dataHora}`,
-        `Mesa: ${table.code}`,
-        `Garçom: ${user?.name ?? 'Garçom'}`,
-        '==============================',
-        `Itens: ${itensTexto}`,
-        '---------------------------',
-        `Total: ${fmt(total)}`,
-        `Pagamento: ${payLabel}`,
-        '---------------------------',
-        'Obrigado e volte sempre!',
-        '==============================',
-    ].join('\n');
+    const impressaoOK = await sendThermalReceipt({
+        title: 'HR-HOSPITALITY POS',
+        headerLines: [
+            `Data/Hora: ${new Date().toLocaleString('pt-PT', { hour12: false })}`,
+            `Mesa: ${table.code}`,
+            `Garçom: ${user?.name ?? 'Garçom'}`,
+        ],
+        items: items.map(i => ({ name: i.product.name, qty: i.qty, total: i.product.price * i.qty })),
+        total: fmt(total),
+        payLabel,
+        footerLines: ['Obrigado e volte sempre!'],
+    });
 
-    // Tenta imprimir via electron API ou fallback para window.print
-    let impressaoOK = false;
-    // A app roda empacotada (Electron) — verificar a API disponível.
-    // Em desenvolvimento, o fallback window.print garante que o teste funcione.
-    if ((window as any).electronAPI && (window as any).electronAPI.printThermal) {
-        try {
-            await (window as any).electronAPI.printThermal(texto);
-            impressaoOK = true;
-        } catch (e) {
-            console.error('[POSTablet] erro na impressão térmica:', e);
-        }
-    }
-    if (!impressaoOK) {
-        // Fallback universal: criar textarea e chamar document.execCommand('print')
-        const textarea = document.createElement('textarea');
-        textarea.value = texto;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('print');
-            impressaoOK = true;
-        } catch { }
-        document.body.removeChild(textarea);
-    }
     if (impressaoOK) {
         setFlash(`Talão térmico impresso — ${payLabel} ${fmt(total)}`);
     } else {

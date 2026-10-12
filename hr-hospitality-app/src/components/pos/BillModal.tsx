@@ -5,6 +5,7 @@ import { Table, Guest } from '@/types';
 import { useState, useEffect } from 'react';
 import { CreditCard, Home, X } from 'lucide-react';
 import { localOperation, localQuery } from '@/lib/db/localDB';
+import { printThermalReceipt } from '@/lib/thermalPrint';
 
 interface BillModalProps {
     table: Table;
@@ -85,6 +86,21 @@ export function BillModal({ table, onClose, onBillClosed, zone = 'SNACK_BAR' }: 
                 setNotice({ tone: 'success', text: `Conta de ${billAmount.toFixed(2)}Kz lançada com sucesso no Quarto do hóspede!` });
             } else {
                 setNotice({ tone: 'success', text: `Conta da Mesa ${table.number} fechada com sucesso via Pagamento Imediato!` });
+
+                // ── Impressão térmica do fecho de mesa (pagamento imediato) ──
+                void printThermalReceipt({
+                    title: 'HR-HOSPITALITY',
+                    headerLines: [
+                        `Modulo: ${zone.replace('_', ' ')}`,
+                        `Data/Hora: ${new Date().toLocaleString('pt-PT', { hour12: false })}`,
+                        `Mesa: ${table.number}`,
+                    ],
+                    total: `${(table.currentBill || 0).toFixed(2)} Kz`,
+                    payLabel: 'Pagamento Imediato',
+                    footerLines: ['Conta fechada.', 'Obrigado e volte sempre!'],
+                }).then(ok => {
+                    if (!ok) console.warn('[BillModal] talão não impresso');
+                });
             }
 
             // Notificar o pai que a mesa foi liberada (após o utilizador ver o aviso inline)

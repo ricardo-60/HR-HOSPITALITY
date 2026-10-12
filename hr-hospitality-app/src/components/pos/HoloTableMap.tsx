@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { localQuery, localOperation } from '@/lib/db/localDB';
+import { printThermalReceipt } from '@/lib/thermalPrint';
 import {
     X, Table as TableIcon, Users, AlertCircle, CheckCircle, Loader2,
     Clock, Plus, Trash2, Banknote, BedDouble, CreditCard, Wallet, Home,
@@ -426,6 +427,45 @@ export function HoloTableMap({ onTableSelect, selectedTableId }: {
             } else {
                 await localOperation('pos.tableConsumptions.clear', {
                     table_id: detailTable.id,
+                });
+            }
+
+            // ── Impressão térmica IMEDIATA (Restaurante / Snack-Bar / Bar) ──
+            // Pagamento confirmado (CASH · TPA · TRANSFER) → talão 80mm.
+            if (chargeMode === 'IMMEDIATE') {
+                const itensCobrados = [
+                    ...consumptions
+                        .filter(c => c.status === 'PENDENTE' || c.status === 'ENVIADO')
+                        .map(c => ({ name: c.product_name, qty: c.quantity, total: c.subtotal })),
+                    ...detailCart.map(i => ({
+                        name: i.product.name,
+                        qty: i.qty,
+                        total: i.product.price * i.qty,
+                    })),
+                ];
+                const dataHora = new Date().toLocaleString('pt-PT', { hour12: false });
+                void printThermalReceipt({
+                    title: 'HR-HOSPITALITY',
+                    headerLines: [
+                        'Modulo: Restaurante / Snack-Bar',
+                        `Data/Hora: ${dataHora}`,
+                        `Mesa: ${detailTable.name}`,
+                        `Zona: ${detailTable.zone}`,
+                        `Operador: ${user?.name ?? 'Equipa'}`,
+                    ],
+                    items: itensCobrados,
+                    total: fmt(grandTotal),
+                    payLabel: PAYMENT_LABELS[payMethod],
+                    footerLines: [
+                        payMethod === 'CASH' && !Number.isNaN(Number(cashReceived.replace(',', '.')))
+                            ? `Recebido: ${fmt(Number(cashReceived.replace(',', '.')))}`
+                            : '',
+                        payMethod === 'CASH' && change !== null ? `Troco: ${fmt(change)}` : '',
+                        'Obrigado e volte sempre!',
+                    ].filter(Boolean),
+                }).then(ok => {
+                    if (ok) console.log('[HoloTableMap] talão térmico enviado para impressão');
+                    else console.warn('[HoloTableMap] talão não impresso (sem impressora/dialogo)');
                 });
             }
 

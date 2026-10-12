@@ -2,11 +2,10 @@
 
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { QuickSale } from '@/components/pos/QuickSale';
-import { BillModal } from '@/components/pos/BillModal';
 import { HoloTableMap } from '@/components/pos/HoloTableMap';
 import { Zap, Search, Filter, Table as TableIcon, AlertCircle, Loader2, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 
 const snackAreas = ['Interior Deck', 'Pool Area'];
 
@@ -138,6 +137,7 @@ export default function SnackBarPage() {
                                 <HoloTableMap 
                                     onTableSelect={(mesa) => { 
                                         console.log('[SnackBar] Mesa selecionada:', mesa?.name || 'nenhuma');
+                                        setMesaSelecionada(mesa ? { id: mesa.id, name: mesa.name } : null);
                                     }} 
                                 />
                             </div>
@@ -147,7 +147,18 @@ export default function SnackBarPage() {
                     {/* Lado Direito — QuickSale (SÓ APARECE COM MESA SELECIONADA) */}
                     <div className="w-full lg:col-span-5">
                         <AnimatePresence mode="wait">
-                            {/* Placeholder quando NÃO há mesa selecionada */}
+                            {/* QuickSale / Venda Rápida — SÓ APARECE COM MESA SELECIONADA */}
+                            {mesaSelecionada ? (
+                                <motion.div
+                                    key="quicksale"
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -20 }}
+                                    className="bg-[#111111] border border-[var(--brand-accent)]/20 rounded-[24px] md:rounded-[32px] p-5 md:p-6 lg:p-8 h-full flex flex-col shadow-[0_50px_100px_rgba(0,0,0,1)] relative overflow-hidden"
+                                >
+                                    <QuickSale />
+                                </motion.div>
+                            ) : (
                             <motion.div
                                 key="placeholder"
                                 initial={{ opacity: 0, y: 20 }}
@@ -177,6 +188,7 @@ export default function SnackBarPage() {
                                     </div>
                                 </div>
                             </motion.div>
+                            )}
                         </AnimatePresence>
                     </div>
                 </div>

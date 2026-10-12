@@ -155,6 +155,7 @@ export default function POSPage() {
                     <HoloTableMap 
                         onTableSelect={(mesa) => { 
                             console.log('[POSPage] Mesa selecionada:', mesa?.name || 'nenhuma');
+                            setMesaSelecionada(mesa ? { id: mesa.id, name: mesa.name } : null);
                         }} 
                     />
                     

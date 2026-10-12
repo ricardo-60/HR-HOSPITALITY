@@ -1,11 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable react/jsx-no-literals */
-
 'use client';
 
 import { motion } from 'framer-motion';
-import { Plus, AlertCircle, Check } from 'lucide-react';
+import { AlertCircle, Check } from 'lucide-react';
 import { useState } from 'react';
+import { printThermalReceipt as sendThermalReceipt } from '@/lib/thermalPrint';
 
 /* ─────────────────────────────────────────────
    Dados simulados de produtos rápidos
@@ -31,48 +29,26 @@ const PAYMENT_LABELS: Record<string, string> = {
 const fmt = (v: number) => Number(v).toFixed(2).replace('.', ',');
 
 /* ─────────────────────────────────────────────
-   Impressão térmica de talão
+   Impressão térmica de talão (padrão partilhado)
    ───────────────────────────────────────────── */
-const printThermalReceipt = async (setFlash: (value: string | null) => void, total: number, payMethod: string, payLabel: string) => {
-    const dataHora = new Date().toLocaleString('pt-PT', { hour12: false });
-    const texto = [
-        '==============================',
-        `   HR-HOSPITALITY SNACK-BAR`,
-        '==============================',
-        `Data/Hora: ${dataHora}`,
-        `Total: ${fmt(total)}`,
-        `Pagamento: ${payLabel}`,
-        '---------------------------',
-        'Obrigado e volte sempre!',
-        '==============================',
-    ].join('\n');
+const printThermalReceipt = async (
+    setFlash: (value: string | null) => void,
+    total: number,
+    payLabel: string,
+    items: Array<{ name: string; qty: number; total: number }>,
+) => {
+    const impressaoOK = await sendThermalReceipt({
+        title: 'HR-HOSPITALITY SNACK-BAR',
+        headerLines: [
+            `Data/Hora: ${new Date().toLocaleString('pt-PT', { hour12: false })}`,
+            `Operador: Venda Rápida`,
+        ],
+        items,
+        total: fmt(total),
+        payLabel,
+        footerLines: ['Obrigado e volte sempre!'],
+    });
 
-    // Tenta imprimir via electron API ou fallback para window.print
-    let impressaoOK = false;
-    // A app roda empacotada (Electron) — verificar a API disponível.
-    // Em desenvolvimento, o fallback window.print garante que o teste funcione.
-    if ((window as any).electronAPI && (window as any).electronAPI.printThermal) {
-        try {
-            await (window as any).electronAPI.printThermal(texto);
-            impressaoOK = true;
-        } catch (e) {
-            console.error('[QuickSale] erro na impressão térmica:', e);
-        }
-    }
-    if (!impressaoOK) {
-        // Fallback universal: criar textarea e chamar document.execCommand('print')
-        const textarea = document.createElement('textarea');
-        textarea.value = texto;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('print');
-            impressaoOK = true;
-        } catch { }
-        document.body.removeChild(textarea);
-    }
     if (impressaoOK) {
         setFlash(`Talão térmico impresso — ${payLabel} ${fmt(total)}`);
     } else {
@@ -87,6 +63,7 @@ export function QuickSale() {
     const [statusError, setStatusError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [total, setTotal] = useState(0);
+    const [cart, setCart] = useState<Array<{ name: string; qty: number; total: number }>>([]);
     const [flash, setFlash] = useState<string | null>(null);
 
     return (
@@ -128,6 +105,18 @@ export function QuickSale() {
                 </motion.div>
             )}
 
+            {/* Feedback da impressão térmica (talão) */}
+            {flash && (
+                <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    className="mb-8 p-4 bg-[#00F2FF]/10 border border-[#00F2FF]/20 rounded-2xl flex items-center gap-4 text-[#00F2FF]"
+                >
+                    <Check size={20} />
+                    <p className="text-[10px] font-black uppercase tracking-widest">{flash}</p>
+                </motion.div>
+            )}
+
             <div className="space-y-4 flex-1 overflow-y-auto pr-6 custom-scrollbar relative z-10">
                 {quickProducts.map((product, i) => (
                     <motion.button
@@ -138,6 +127,15 @@ export function QuickSale() {
                             // Simulação de bloqueio
                             if (statusError) return;
                             setTotal(t => t + product.price);
+                            setCart(c => {
+                                const idx = c.findIndex(i => i.name === product.name);
+                                if (idx >= 0) {
+                                    const next = [...c];
+                                    next[idx] = { ...next[idx], qty: next[idx].qty + 1, total: next[idx].total + product.price };
+                                    return next;
+                                }
+                                return [...c, { name: product.name, qty: 1, total: product.price }];
+                            });
                             setNotice(`${product.name} lançado (+${product.price.toFixed(2)} Kz).`);
                             setTimeout(() => setNotice(null), 2500);
                         }}
@@ -171,18 +169,20 @@ export function QuickSale() {
                 <button 
                     disabled={!!statusError || total <= 0}
                     onClick={() => {
+                        const itensVendidos = cart;
                         setNotice(`Ordem de ${total.toFixed(2)} Kz transmitida ao sistema.`);
 
-                        // LANÇAR IMPRESSÃO TÉRMICA IMEDIATA
+                        // LANÇAR IMPRESSÃO TÉRMICA IMEDIATA (padrão partilhado)
                         ;(async () => {
                             try {
-                                await printThermalReceipt(setFlash, total, 'CASH', PAYMENT_LABELS.CASH);
+                                await printThermalReceipt(setFlash, total, PAYMENT_LABELS.CASH, itensVendidos);
                             } catch (e) {
                                 console.error('[QuickSale] erro ao imprimir talão:', e);
                             }
                         })();
-                        
+
                         setTotal(0);
+                        setCart([]);
                         setTimeout(() => setNotice(null), 3000);
                     }}
                     className="btn-base btn-primary btn-md w-full disabled:opacity-40 disabled:cursor-not-allowed"

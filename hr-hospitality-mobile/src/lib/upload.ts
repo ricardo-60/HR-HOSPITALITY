@@ -110,6 +110,116 @@ function extensionFor(mimeType: string): string {
   return 'jpg';
 }
 
+// ---------------------------------------------------------------------------
+// Registo universal (migração 017) — documento, comprovativo e rosto
+// ---------------------------------------------------------------------------
+
+export type PublicMediaKind = 'document' | 'receipt' | 'face';
+
+const PUBLIC_BUCKETS: Record<PublicMediaKind, 'kyc-documents' | 'payment-proofs' | 'client-faces'> = {
+  document: 'kyc-documents',
+  receipt: 'payment-proofs',
+  face: 'client-faces',
+};
+
+export const PUBLIC_MEDIA_LABELS: Record<PublicMediaKind, string> = {
+  document: 'Documento de identidade',
+  receipt: 'Comprovativo de pagamento',
+  face: 'Fotografia do rosto',
+};
+
+/** Limites alinhados com `file_size_limit`/`allowed_mime_types` dos buckets. */
+const PUBLIC_MEDIA_RULES: Record<PublicMediaKind, { maxBytes: number; mime: string[] }> = {
+  document: { maxBytes: 10 * 1024 * 1024, mime: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] },
+  receipt: { maxBytes: 10 * 1024 * 1024, mime: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] },
+  face: { maxBytes: 5 * 1024 * 1024, mime: ['image/jpeg', 'image/png', 'image/webp'] },
+};
+
+/** Fotografia do rosto com a câmara da frente. */
+export async function captureFace(): Promise<CaptureResult> {
+  const permission = await ImagePicker.requestCameraPermissionsAsync();
+  if (!permission.granted) {
+    return { ok: false, cancelled: false, error: 'Permissão de câmara negada. Active-a nas definições do dispositivo.' };
+  }
+  const result = await ImagePicker.launchCameraAsync({
+    cameraType: ImagePicker.CameraType.front,
+    quality: 0.75,
+    allowsEditing: true,
+    aspect: [1, 1],
+  });
+  if (result.canceled) return { ok: false, cancelled: true };
+  const asset = result.assets[0];
+  if (!asset) return { ok: false, cancelled: false, error: 'Nenhuma fotografia capturada.' };
+  return {
+    ok: true,
+    cancelled: false,
+    file: {
+      uri: asset.uri,
+      name: asset.fileName ?? `rosto-${Date.now()}.jpg`,
+      mimeType: asset.mimeType ?? 'image/jpeg',
+      sizeBytes: asset.fileSize ?? null,
+    },
+  };
+}
+
+/**
+ * Valida localmente antes de submeter — evita três uploads a falharem a meio.
+ * Devolve `null` quando o ficheiro está aceite.
+ */
+export function validatePublicMedia(kind: PublicMediaKind, file: CapturedFile | null): string | null {
+  const label = PUBLIC_MEDIA_LABELS[kind].toLowerCase();
+  if (!file) return `Falta o ${label}.`;
+  const rules = PUBLIC_MEDIA_RULES[kind];
+  if (!rules.mime.includes(file.mimeType)) {
+    return `Formato do ${label} não permitido (JPG, PNG, WEBP${kind === 'face' ? '' : ' ou PDF'}).`;
+  }
+  if (file.sizeBytes !== null && file.sizeBytes > rules.maxBytes) {
+    return `O ${label} excede ${Math.round(rules.maxBytes / 1048576)} MB.`;
+  }
+  return null;
+}
+
+/**
+ * Carrega uma peça do registo universal SEM sessão.
+ *
+ * A policy `public_media_upload_anon` (migração 017) deixa o visitante subir
+ * ficheiros, mas só dentro do tenant e só com extensão conhecida; o `anon`
+ * não tem SELECT nem DELETE, portanto os ficheiros são privados e não podem
+ * ser removidos por quem os subiu.
+ *
+ * O caminho isolado não vale nada: só passa a referenciar a reserva quando a
+ * RPC `hr_create_public_reservation` o aceita e o grava nas colunas
+ * `document_path`/`receipt_path`/`face_path`.
+ */
+export async function uploadPublicMedia(
+  kind: PublicMediaKind,
+  ownerId: string,
+  file: CapturedFile,
+): Promise<UploadResult> {
+  if (!isSupabaseConfigured) return { ok: false, error: 'Supabase não configurado.' };
+
+  const invalid = validatePublicMedia(kind, file);
+  if (invalid) return { ok: false, error: invalid };
+
+  // Mesmo formato do resto do sistema: `<tenant>/<dono>/<ficheiro>` — três
+  // segmentos, exactamente o que a policy valida.
+  const path = `${TENANT_ID}/${ownerId}/${kind}-${Date.now()}-${safeName(file.name)}.${extensionFor(file.mimeType)}`;
+
+  try {
+    const response = await fetch(file.uri);
+    const blob = await response.blob();
+
+    const { error } = await getSupabase().storage.from(PUBLIC_BUCKETS[kind]).upload(path, blob, {
+      contentType: file.mimeType,
+      upsert: false,
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, path };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Falha ao carregar o ficheiro.' };
+  }
+}
+
 function safeName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-60);
 }
@@ -183,6 +293,12 @@ export async function uploadPaymentProof(input: {
   method: 'MULTICAIXA_EXPRESS' | 'TRANSFERENCIA';
   paymentReference: string;
   file: CapturedFile;
+  /**
+   * Caminho já carregado na reserva (registo universal, migração 017).
+   * Quando presente não se repete o upload — só se cria a linha de
+   * `payment_proofs`, que é o que dá ao hotel o valor e o método.
+   */
+  storagePath?: string;
 }): Promise<UploadResult> {
   if (!input.reservationId) {
     return { ok: false, error: 'Registe primeiro a reserva para associar o comprovativo.' };
@@ -191,8 +307,12 @@ export async function uploadPaymentProof(input: {
     return { ok: false, error: 'Indique o valor transferido.' };
   }
 
-  const uploaded = await upload('payment-proofs', input.reservationId, input.file);
-  if (!uploaded.ok) return uploaded;
+  let path = input.storagePath ?? null;
+  if (!path) {
+    const uploaded = await upload('payment-proofs', input.reservationId, input.file);
+    if (!uploaded.ok) return uploaded;
+    path = uploaded.path;
+  }
 
   try {
     const { error } = await getSupabase().from('payment_proofs').insert({
@@ -201,13 +321,13 @@ export async function uploadPaymentProof(input: {
       amount: input.amount,
       method: input.method,
       payment_reference: input.paymentReference.trim() || null,
-      storage_path: uploaded.path,
+      storage_path: path,
       mime_type: input.file.mimeType,
       size_bytes: input.file.sizeBytes,
       status: 'EM_ANALISE',
     });
     if (error) return { ok: false, error: error.message };
-    return { ok: true, path: uploaded.path };
+    return { ok: true, path };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Falha ao registar o comprovativo.' };
   }

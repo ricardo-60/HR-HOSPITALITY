@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS hotel_reservations (
     check_in_date TEXT,
     check_out_date TEXT,
     status TEXT DEFAULT 'PENDENTE_PAGAMENTO' CHECK (status IN ('PENDENTE_PAGAMENTO','CONFIRMADA','CHECKED_IN','CHECKED_OUT','CANCELADA')),
+    -- Registo universal do hóspede (migração 017): tipo/número do documento
+    -- de identidade e os caminhos no Supabase Storage do documento, do
+    -- comprovativo de pagamento e do rosto (client-faces).
+    guest_phone TEXT,
+    document_type TEXT CHECK (document_type IS NULL OR document_type IN ('BI','PASSAPORTE')),
+    document_number TEXT,
+    document_path TEXT,
+    receipt_path TEXT,
+    face_path TEXT,
     -- Ligação estrita ao cliente KYC cadastrado (clients.id / clients.client_number)
     client_id TEXT,
     client_number TEXT,

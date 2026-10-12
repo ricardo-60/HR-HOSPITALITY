@@ -1,6 +1,7 @@
 import { CACHE_TTL, ageLabel, freshness, readCache, writeCache, type CacheFreshness } from '@/lib/cache';
 import { FALLBACK_LAUNDRY } from '@/constants/hotel';
-import { getSupabase, isSupabaseConfigured } from '@/lib/supabase';
+import { addDaysIso } from '@/lib/format';
+import { getSupabase, isSupabaseConfigured, TENANT_ID } from '@/lib/supabase';
 import type {
   EventSpace,
   HotelRoom,
@@ -210,12 +211,14 @@ export async function fetchReservations(email: string): Promise<QueryResult<Rese
 }
 
 /**
- * Cria a reserva através da Edge Function `create-reservation`.
+ * Cria a reserva pela RPC `hr_create_public_reservation` (migração 017).
  *
- * Não é um `insert` directo: a RLS nega `INSERT` ao `anon` de propósito. Sem
- * isso, devolver a referência exigiria `SELECT`, e uma policy de `SELECT` não
- * consegue provar "esta linha é a que acabei de criar" — o `anon` leria todas
- * as reservas do hotel. Ver `supabase/functions/create-reservation/index.ts`.
+ * Não é um `insert` directo (a RLS nega `INSERT` ao `anon` de propósito) nem a
+ * Edge Function `create-reservation` (que não está implantada e respondia 404).
+ * A RPC corre como owner, valida os dados, verifica que os três ficheiros
+ * existem no Storage e devolve o `reference` gerado pelo trigger — coisa que
+ * um INSERT directo não consegue devolver, porque `INSERT ... RETURNING` exige
+ * `SELECT` sobre a tabela.
  */
 export async function createReservation(input: {
   guestName: string;
@@ -224,29 +227,45 @@ export async function createReservation(input: {
   date: string;
   totalAmount: number;
   notes: string;
+  /** Registo universal (migração 017) — os três são obrigatórios. */
+  documentType: 'BI' | 'PASSAPORTE';
+  documentNumber: string;
+  documentPath: string;
+  receiptPath: string;
+  facePath: string;
+  /** Noites — só faz sentido para `quarto` e define a data de saída. */
+  nights?: number;
 }): Promise<{ ok: true; reference: string } | { ok: false; error: string }> {
   if (!isSupabaseConfigured) return { ok: false, error: 'Supabase não configurado.' };
 
+  const isRoom = input.serviceType === 'quarto';
+  const nights = Math.max(1, Math.floor(input.nights ?? 1));
+
+  const payload: Record<string, unknown> = {
+    tenant_id: TENANT_ID,
+    guest_name: input.guestName.trim(),
+    email: input.email.trim().toLowerCase(),
+    service_type: input.serviceType,
+    check_in_date: input.date,
+    check_out_date: isRoom ? addDaysIso(input.date, nights) : null,
+    notes: input.notes.trim() || null,
+    total_amount: input.totalAmount,
+    document_type: input.documentType,
+    document_number: input.documentNumber.trim(),
+    document_path: input.documentPath,
+    receipt_path: input.receiptPath,
+    face_path: input.facePath,
+  };
+
   try {
-    const { data, error } = await getSupabase().functions.invoke<{
-      reference?: string;
-      error?: string;
-    }>('create-reservation', {
-      body: {
-        guestName: input.guestName.trim(),
-        email: input.email.trim().toLowerCase(),
-        serviceType: input.serviceType,
-        date: input.date,
-        totalAmount: input.totalAmount,
-        notes: input.notes,
-      },
+    const { data, error } = await getSupabase().rpc('hr_create_public_reservation', {
+      p_payload: payload,
     });
 
     if (error) return { ok: false, error: error.message };
-    if (!data?.reference) {
-      return { ok: false, error: data?.error ?? 'A reserva não foi aceite.' };
-    }
-    return { ok: true, reference: data.reference };
+    const reference = (data as { reference?: string } | null)?.reference;
+    if (!reference) return { ok: false, error: 'A reserva não foi aceite.' };
+    return { ok: true, reference };
   } catch (err) {
     return {
       ok: false,

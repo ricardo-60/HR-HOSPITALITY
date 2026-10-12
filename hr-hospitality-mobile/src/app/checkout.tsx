@@ -14,15 +14,73 @@ import { currentAccount } from '@/lib/guestAuth';
 import { addDaysIso, formatDay, formatKz } from '@/lib/format';
 import { createReservation } from '@/lib/queries';
 import { fetchBankAccounts, type BankAccount } from '@/lib/services';
-import { pickProofFile, uploadPaymentProof, type CapturedFile } from '@/lib/upload';
+import {
+  captureFace,
+  pickProofFile,
+  uploadPaymentProof,
+  uploadPublicMedia,
+  validatePublicMedia,
+  PUBLIC_MEDIA_LABELS,
+  type CapturedFile,
+  type PublicMediaKind,
+} from '@/lib/upload';
 import { sendReceiptToWhatsapp } from '@/lib/whatsapp';
 import { useBooking } from '@/providers/BookingProvider';
 import { draftTotal } from '@/types/hotel';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** UUID v4 — o Hermes não garante `crypto.randomUUID`. */
+function makeOwnerId(): string {
+  const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+    const value = (Math.random() * 16) | 0;
+    const digit = char === 'x' ? value : (value & 0x3) | 0x8;
+    return digit.toString(16);
+  });
+}
+
+function fileSizeLabel(file: CapturedFile): string {
+  if (file.sizeBytes === null) return file.mimeType;
+  const mb = file.sizeBytes / 1048576;
+  return `${mb < 1 ? `${Math.round(file.sizeBytes / 1024)} KB` : `${mb.toFixed(1)} MB`} · ${file.mimeType}`;
+}
+
 function prettyIban(iban: string): string {
   return iban.replace(/(.{4})/g, '$1 ').trim();
+}
+
+/** Uma peça do registo universal: mostra o que já foi capturado e permite repetir. */
+function CaptureRow({
+  label,
+  hint,
+  file,
+  onCapture,
+}: {
+  label: string;
+  hint: string;
+  file: CapturedFile | null;
+  onCapture: () => void;
+}) {
+  return (
+    <View className="rounded-2xl border border-white/10 bg-white/5 p-4 gap-2">
+      <View className="flex-row items-start justify-between gap-3">
+        <View className="flex-1">
+          <Text className="text-[11px] font-bold uppercase tracking-wider text-white/45">{label}</Text>
+          <Text className={`mt-1 text-xs ${file ? 'text-emerald-300' : 'text-white/40'}`}>
+            {file ? `${file.name} · ${fileSizeLabel(file)}` : 'Por capturar — obrigatório'}
+          </Text>
+          <Text className="mt-1 text-[11px] leading-relaxed text-white/30">{hint}</Text>
+        </View>
+        <View
+          className={`mt-0.5 h-2.5 w-2.5 rounded-full ${file ? 'bg-emerald-400' : 'bg-white/20'}`}
+          accessibilityLabel={file ? 'Concluído' : 'Em falta'}
+        />
+      </View>
+      <Button label={file ? `Repetir captura` : label} variant="secondary" onPress={onCapture} />
+    </View>
+  );
 }
 
 /**
@@ -54,6 +112,14 @@ export default function CheckoutScreen() {
   const [uploadingProof, setUploadingProof] = useState(false);
   const [proofNotice, setProofNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Registo universal (migração 017): documento, comprovativo e rosto.
+  const [docType, setDocType] = useState<'BI' | 'PASSAPORTE'>('BI');
+  const [docNumber, setDocNumber] = useState('');
+  const [docFile, setDocFile] = useState<CapturedFile | null>(null);
+  const [faceFile, setFaceFile] = useState<CapturedFile | null>(null);
+  /** Path do comprovativo já carregado com a reserva — evita subir duas vezes. */
+  const [receiptPath, setReceiptPath] = useState<string | null>(null);
 
   const total = draft ? draftTotal(draft) : 0;
 
@@ -96,6 +162,34 @@ export default function CheckoutScreen() {
     setTimeout(() => setCopied(false), 2500);
   };
 
+  /** Documento de identidade — imagem ou PDF do BI/passaporte. */
+  const attachDoc = async () => {
+    const picked = await pickProofFile();
+    if (picked.cancelled) return;
+    if (!picked.ok) { setError(picked.error); return; }
+    setDocFile(picked.file);
+  };
+
+  /** Rosto — câmara da frente, com recorte quadrado no dispositivo. */
+  const shootFace = async () => {
+    const captured = await captureFace();
+    if (captured.cancelled) return;
+    if (!captured.ok) { setError(captured.error); return; }
+    setFaceFile(captured.file);
+  };
+
+  /** Comprovativo — talão do Multicaixa Express ou extracto bancário. */
+  const attachProof = async () => {
+    const picked = await pickProofFile();
+    if (picked.cancelled) return;
+    if (!picked.ok) { setError(picked.error); return; }
+    setProofFile(picked.file);
+    setProofAmount(total.toFixed(2));
+    // Pré-preenche a referência com o que já sabemos, para o hóspede só
+    // confirmar no passo seguinte.
+    if (!proofReference) setProofNotice('Comprovativo seleccionado. Toque em «Registar reserva».');
+  };
+
   const submit = async () => {
     setError(null);
     if (!guestName.trim()) { setError('Indique o nome do hóspede.'); return; }
@@ -103,30 +197,62 @@ export default function CheckoutScreen() {
       setError('Indique um email válido — é por ele que a reserva é consultada.');
       return;
     }
+    if (docNumber.trim().length < 3 || docNumber.trim().length > 32) {
+      setError('O número do documento deve ter entre 3 e 32 caracteres.');
+      return;
+    }
+
+    // Os três ficheiros são obrigatórios (migração 017): valida-se tudo antes
+    // de submeter para não deixar uploads a meio.
+    for (const [kind, file] of [
+      ['document', docFile],
+      ['receipt', proofFile],
+      ['face', faceFile],
+    ] as [PublicMediaKind, CapturedFile | null][]) {
+      const problem = validatePublicMedia(kind, file);
+      if (problem) { setError(problem); return; }
+    }
 
     setSubmitting(true);
+    const ownerId = makeOwnerId();
+
+    const paths: Record<PublicMediaKind, string> = { document: '', receipt: '', face: '' };
+    for (const [kind, file] of [
+      ['document', docFile!],
+      ['receipt', proofFile!],
+      ['face', faceFile!],
+    ] as [PublicMediaKind, CapturedFile][]) {
+      const uploaded = await uploadPublicMedia(kind, ownerId, file);
+      if (!uploaded.ok) {
+        setSubmitting(false);
+        setError(`Falha no upload do ${PUBLIC_MEDIA_LABELS[kind].toLowerCase()}: ${uploaded.error}`);
+        return;
+      }
+      paths[kind] = uploaded.path;
+    }
+    setReceiptPath(paths.receipt);
+
+    const serviceType = draft?.serviceType ?? 'quarto';
     const result = await createReservation({
       guestName: guestName.trim(),
       email: email.trim(),
-      serviceType: draft?.serviceType ?? 'quarto',
+      serviceType,
       date: draft?.date ?? addDaysIso(new Date().toISOString().slice(0, 10), 0),
       totalAmount: total,
       notes,
+      documentType: docType,
+      documentNumber: docNumber,
+      documentPath: paths.document,
+      receiptPath: paths.receipt,
+      facePath: paths.face,
+      // A estadia de quarto é `preço por noite × noites`, logo a quantidade do
+      // rascunho é o número de noites e define a data de saída.
+      nights: serviceType === 'quarto' ? (draft?.quantity ?? 1) : undefined,
     });
     setSubmitting(false);
     if (!result.ok) { setError(result.error); return; }
     setReference(result.reference);
     void loadAccounts();
-  };
-
-  const attachProof = async () => {
-    if (!reference) return;
-    const picked = await pickProofFile();
-    if (picked.cancelled) return;
-    if (!picked.ok) { setError(picked.error); return; }
-    setProofFile(picked.file);
-    setProofAmount(total.toFixed(2));
-    setProofNotice('Comprovativo seleccionado. Toque em enviar.');
   };
 
   const sendProof = async () => {
@@ -296,6 +422,57 @@ export default function CheckoutScreen() {
         <Field label="Nome completo" value={guestName} onChangeText={setGuestName} placeholder="Nome do hóspede" autoCapitalize="words" />
         <Field label="Email" value={email} onChangeText={setEmail} placeholder="email@exemplo.ao" keyboardType="email-address" autoCapitalize="none" />
         <Field label="Observações (opcional)" value={notes} onChangeText={setNotes} placeholder="Hora preferida, mobiliário…" multiline />
+      </View>
+
+      <View className="gap-3">
+        <SectionHeader
+          title="Identificação"
+          subtitle="Documento, comprovativo e rosto — obrigatórios"
+        />
+
+        <View className="flex-row gap-2">
+          {(['BI', 'PASSAPORTE'] as const).map(option => (
+            <Pressable
+              key={option}
+              onPress={() => setDocType(option)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: docType === option }}
+              className={`flex-1 items-center rounded-2xl border px-4 py-3.5 ${
+                docType === option ? 'border-aqua bg-aqua/10' : 'border-white/15 bg-white/5'
+              }`}
+            >
+              <Text className={`text-xs font-bold ${docType === option ? 'text-aqua' : 'text-white/55'}`}>
+                {option === 'BI' ? 'Bilhete de Identidade' : 'Passaporte'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Field
+          label="Número do documento"
+          value={docNumber}
+          onChangeText={setDocNumber}
+          placeholder="Nº do BI ou passaporte"
+        />
+
+        <CaptureRow
+          label={PUBLIC_MEDIA_LABELS.document}
+          hint="Fotografe ou escolha o verso/primeira página (JPG, PNG, WEBP ou PDF · máx. 10 MB)."
+          file={docFile}
+          onCapture={() => void attachDoc()}
+        />
+        <CaptureRow
+          label={PUBLIC_MEDIA_LABELS.receipt}
+          hint="Talão do Multicaixa Express ou extracto da transferência (JPG, PNG, WEBP ou PDF · máx. 10 MB)."
+          file={proofFile}
+          onCapture={() => void attachProof()}
+        />
+        <CaptureRow
+          label={PUBLIC_MEDIA_LABELS.face}
+          hint="Usada pela recepção para o reconhecer à chegada (JPG, PNG ou WEBP · máx. 5 MB)."
+          file={faceFile}
+          onCapture={() => void shootFace()}
+        />
       </View>
 
       {error ? (

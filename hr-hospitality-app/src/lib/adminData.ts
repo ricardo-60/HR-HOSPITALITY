@@ -261,6 +261,51 @@ export async function listGuestProfiles(status?: KycStatus): Promise<Result<Gues
  * O bucket é privado: sem a assinatura, o ficheiro é inacessível. A assinatura é
  * gerada por pessoa e expira, por isso não pode ser guardada no estado da app.
  */
+/**
+ * Buckets do registo universal de hóspede (migração 017).
+ *
+ * Reutiliza os dois buckets que a 007 já criava (`kyc-documents`,
+ * `payment-proofs`) e acrescenta `client-faces`, para não deixar a app com
+ * cinco buckets paralelos a apontar para o mesmo tipo de ficheiro.
+ */
+export const MEDIA_BUCKETS = Object.freeze({
+  document: 'kyc-documents',
+  receipt: 'payment-proofs',
+  face: 'client-faces',
+} as const);
+
+export type MediaKind = keyof typeof MEDIA_BUCKETS;
+
+export const MEDIA_LABELS: Record<MediaKind, string> = Object.freeze({
+  document: 'Documento de identidade',
+  receipt: 'Comprovativo de pagamento',
+  face: 'Fotografia do rosto',
+});
+
+/**
+ * URL assinada (10 min) para qualquer peça do registo universal.
+ *
+ * As três policies de leitura são `TO authenticated` com verificação de
+ * tenant, portanto só o balcão do próprio hotel abre os ficheiros: os paths
+ * viajam na reserva sincronizada, mas sem policy o link não emite.
+ */
+export async function signedMediaUrl(
+  kind: MediaKind,
+  storagePath: string,
+): Promise<Result<string>> {
+  try {
+    const { data, error } = await db()
+      .storage.from(MEDIA_BUCKETS[kind])
+      .createSignedUrl(storagePath, 600);
+    if (error) {
+      return { data: null, error: message(error, `Não foi possível abrir ${MEDIA_LABELS[kind].toLowerCase()}.`) };
+    }
+    return { data: data.signedUrl, error: null };
+  } catch (error) {
+    return { data: null, error: message(error as Error, 'Supabase não configurado.') };
+  }
+}
+
 export async function signedDocumentUrl(storagePath: string): Promise<Result<string>> {
   try {
     const { data, error } = await db()

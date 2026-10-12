@@ -156,16 +156,38 @@ function mapCloudRow(raw: CloudRow): MappedEntry | null {
   row.status = status;
 
   // Campos opcionais — omitidos quando vazios (o servidor rejeita `undefined`).
+  // Inclui o registo universal (migração 017): sem estes quatro caminhos a
+  // receção não vê o documento, o comprovativo nem a cara do hóspede.
   const optional = {
     room_number: asText(raw.room_number),
     room_id: asText(raw.room_id),
     check_in_date: asText(raw.check_in_date),
     check_out_date: asText(raw.check_out_date),
     reservation_date: asText(raw.reservation_date),
+    guest_phone: asText(raw.guest_phone),
+    document_type: asText(raw.document_type),
+    document_number: asText(raw.document_number),
+    document_path: asText(raw.document_path),
+    receipt_path: asText(raw.receipt_path),
+    face_path: asText(raw.face_path),
     created_at: asText(raw.created_at)
   };
   for (const [key, value] of Object.entries(optional)) {
     if (value !== null) row[key] = value;
+  }
+
+  // `document_type` tem CHECK ('BI','PASSAPORTE') também no SQLite. Sem
+  // normalizar, uma diferença de maiúsculas da nuvem rejeitaria a linha
+  // inteira no cache — e a reserva nunca chegava à receção.
+  if (typeof row.document_type === 'string') {
+    const rawDocType = row.document_type.trim().toUpperCase();
+    if (rawDocType === 'BI' || rawDocType === 'PASSAPORTE') {
+      row.document_type = rawDocType;
+    } else {
+      delete row.document_type;
+      delete row.document_number; // tipo e número são inseparáveis (CHECK)
+      warnings.push(`document_type "${rawDocType}" descartado`);
+    }
   }
 
   const amount = Number(raw.total_amount ?? 0);

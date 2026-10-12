@@ -34,6 +34,30 @@ function ensureUpdatedAt(db, table, backfill = "datetime('now')") {
   }
 }
 
+// Registo universal de hóspede (migração Supabase 017 + 009).
+// `hotel_reservations` é "local authoritative", mas o `cloudInboundSync`
+// traz da nuvem tudo o que a Landing Page submeteu. Sem estas colunas no
+// SQLite, a receção não via o documento, o comprovativo nem a cara do
+// hóspede — o caminho era simplesmente descartado no cache.
+const RESERVATION_MEDIA_COLUMNS = Object.freeze([
+  ['guest_phone', 'TEXT'],
+  ['document_type', 'TEXT'],
+  ['document_number', 'TEXT'],
+  ['document_path', 'TEXT'],
+  ['receipt_path', 'TEXT'],
+  ['face_path', 'TEXT']
+]);
+
+function ensureReservationMediaColumns(db) {
+  let added = 0;
+  for (const [column, definition] of RESERVATION_MEDIA_COLUMNS) {
+    if (ensureColumn(db, 'hotel_reservations', column, definition)) added += 1;
+  }
+  if (added > 0) {
+    console.log(`[HospitalityServer] ${added} coluna(s) de media de reserva criadas.`);
+  }
+}
+
 function dropColumnIfPresent(db, table, column) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name);
   if (columns.includes(column)) db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
@@ -487,6 +511,7 @@ function createRuntime({ userDataPath = process.env.USER_DATA_PATH || process.cw
     }
     applyLocalSecurityCompatibility(db);
     ensureSyncQueue(db);
+    ensureReservationMediaColumns(db);
     normalizeLegacyIds(db);
     purgeGhostData(db);
   } catch (error) {

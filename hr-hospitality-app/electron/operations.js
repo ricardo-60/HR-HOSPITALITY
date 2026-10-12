@@ -37,14 +37,20 @@ const RESOURCE_SPECS = Object.freeze({
   }),
   hotel_reservations: Object.freeze({
     columns: Object.freeze([
-      'id', 'guest_name', 'email', 'service_type', 'room_number', 'room_id',
-      'check_in_date', 'check_out_date', 'status', 'reservation_date', 'notes',
-      'total_amount', 'client_id', 'client_number', 'created_at', 'updated_at'
+      'id', 'guest_name', 'email', 'guest_phone', 'service_type', 'room_number',
+      'room_id', 'check_in_date', 'check_out_date', 'status', 'reservation_date',
+      'notes', 'total_amount', 'client_id', 'client_number',
+      'document_type', 'document_number',
+      'document_path', 'receipt_path', 'face_path',
+      'created_at', 'updated_at'
     ]),
     writable: Object.freeze([
-      'id', 'guest_name', 'email', 'service_type', 'room_number', 'room_id',
-      'check_in_date', 'check_out_date', 'status', 'reservation_date', 'notes',
-      'total_amount', 'client_id', 'client_number', 'created_at'
+      'id', 'guest_name', 'email', 'guest_phone', 'service_type', 'room_number',
+      'room_id', 'check_in_date', 'check_out_date', 'status', 'reservation_date',
+      'notes', 'total_amount', 'client_id', 'client_number',
+      'document_type', 'document_number',
+      'document_path', 'receipt_path', 'face_path',
+      'created_at'
     ])
   }),
   hotel_consumptions: Object.freeze({

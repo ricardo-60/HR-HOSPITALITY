@@ -152,12 +152,21 @@ CREATE POLICY public_media_upload_anon ON storage.objects
         AND public.hr_storage_path_tenant(name) = (SELECT public.hr_public_tenant())
         AND split_part(name, '/', 3) <> ''
         AND split_part(name, '/', 4) = ''
-        -- Extensão alinhada com `allowed_mime_types` do bucket.
-        AND lower(split_part(name, '/', 4)) ~ '\.(jpg|jpeg|png|webp|pdf)$'
+        -- Extensão alinhada com `allowed_mime_types` do bucket
+        -- (o ficheiro é o 3.º e último segmento do path).
+        AND lower(split_part(name, '/', 3)) ~ '\.(jpg|jpeg|png|webp|pdf)$'
         -- O rosto é sempre uma fotografia.
         AND (bucket_id <> 'client-faces'
-             OR lower(split_part(name, '/', 4)) ~ '\.(jpg|jpeg|png|webp)$')
+             OR lower(split_part(name, '/', 3)) ~ '\.(jpg|jpeg|png|webp)$')
     );
+
+-- 4a-bis. A policy acima corre como `anon` (SECURITY INVOKER): ela
+--         invoca `hr_storage_path_tenant()`, que é parsing puro de
+--         texto (IMMUTABLE, sem acesso a dados - ver 007), mas a 007
+--         revogou o EXECUTE a `anon` porque então não havia policy
+--         anon que a usasse. Sem este GRANT o upload falha com
+--         403 "permission denied for function hr_storage_path_tenant".
+GRANT EXECUTE ON FUNCTION public.hr_storage_path_tenant(TEXT) TO anon;
 
 -- 4b. `anon` NÃO lê nem apaga: não se cria policy de SELECT/DELETE para
 --     `anon`. Documenta-se a intenção para que ninguém a "corrija".
@@ -167,12 +176,12 @@ DECLARE
 BEGIN
     SELECT count(*) INTO n FROM pg_policies
      WHERE schemaname = 'storage' AND tablename = 'objects'
-       AND roles = ARRAY['anon'] AND cmd <> 'INSERT';
+       AND 'anon' = ANY(roles) AND cmd <> 'INSERT';
     IF n > 0 THEN
         RAISE NOTICE 'AVISO: existem % policy(s) de % para anon em storage.objects (fora da INSERT criada aqui)',
                      n, (SELECT string_agg(cmd, ',') FROM pg_policies
                           WHERE schemaname = 'storage' AND tablename = 'objects'
-                            AND roles = ARRAY['anon'] AND cmd <> 'INSERT');
+                            AND 'anon' = ANY(roles) AND cmd <> 'INSERT');
     END IF;
 END
 $$;

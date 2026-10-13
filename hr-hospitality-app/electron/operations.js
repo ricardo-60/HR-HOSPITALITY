@@ -714,7 +714,8 @@ const OPERATIONS = Object.freeze({
     const patch = {};
     if (input.status !== undefined) {
       const status = assertString(input.status, 'status', { min: 1, max: 32 });
-      if (!['DISPONIVEL', 'OCUPADO', 'LIMPEZA', 'MANUTENCAO'].includes(status)) {
+      // RESERVADO: reserva confirmada bloqueia o quarto sem o ocupar (0.2.1).
+      if (!['DISPONIVEL', 'OCUPADO', 'RESERVADO', 'LIMPEZA', 'MANUTENCAO'].includes(status)) {
         fail('VALIDATION_ERROR', 'Invalid room status.');
       }
       patch.status = status;
@@ -749,7 +750,7 @@ const OPERATIONS = Object.freeze({
       fail('VALIDATION_ERROR', 'Invalid service type.');
     }
     const roomId = assertBusinessId(input.room_id);
-    getOwnedRow(db, 'hotel_rooms', roomId);
+    const createdRoom = getOwnedRow(db, 'hotel_rooms', roomId);
     const roomNumber = assertString(input.room_number, 'room_number', { min: 1, max: 32 });
     const checkInDate = assertString(input.check_in_date, 'check_in_date', { min: 10, max: 10 });
     const checkOutDate = assertString(input.check_out_date, 'check_out_date', { min: 10, max: 10 });
@@ -811,6 +812,12 @@ const OPERATIONS = Object.freeze({
     `).run(id, TENANT_ID, guestName, email, serviceType, roomId, roomNumber, checkInDate, checkOutDate, status, totalAmount, notes, clientId, clientNumber, now, now);
     const stored = getOwnedRow(db, 'hotel_reservations', id);
     enqueue(db, 'hotel_reservations', 'INSERT', id, stored);
+    // Regra de ciclo de vida (0.2.1): criar uma reserva activa BLOQUEIA o
+    // quarto como RESERVADO — nunca OCUPADO. A ocupacao fisica so acontece
+    // no check-in presencial (hotel_reservations.checkIn).
+    if (['PENDENTE_PAGAMENTO', 'CONFIRMADA'].includes(status) && createdRoom.status === 'DISPONIVEL') {
+      writeRoomStatus(db, createdRoom.id, 'RESERVADO');
+    }
     return { data: stored };
   },
   'hotel_reservations.list': (db, input) => {
@@ -854,7 +861,9 @@ const OPERATIONS = Object.freeze({
       const updated = writeReservation(db, id, { status: 'CANCELADA' });
       const room = resolveRoomOf(db, reservation);
       let freedRoom = null;
-      if (room && room.status === 'OCUPADO') {
+      // Liberta OCUPADO (hóspede activo sem reserva) e RESERVADO (bloqueio
+      // de agenda) — nunca deixa um quarto preso a uma reserva morta.
+      if (room && (room.status === 'OCUPADO' || room.status === 'RESERVADO')) {
         const other = findActiveReservation(db, reservation, id);
         if (!other) freedRoom = writeRoomStatus(db, room.id, 'DISPONIVEL');
       }
@@ -919,7 +928,10 @@ const OPERATIONS = Object.freeze({
       });
       const room = resolveRoomOf(db, reservation);
       let updatedRoom = null;
-      if (room && room.status === 'OCUPADO') {
+      // So liberta se o quarto nao pertence a outra estadia activa. Cobre
+      // tambem o no-show: uma CONFIRMADA sem check-in tem o quarto em
+      // RESERVADO e o fecho devolve-o a DISPONIVEL.
+      if (room && (room.status === 'OCUPADO' || room.status === 'RESERVADO')) {
         const other = findActiveReservation(db, reservation, id);
         if (!other) updatedRoom = writeRoomStatus(db, room.id, roomStatus);
       }

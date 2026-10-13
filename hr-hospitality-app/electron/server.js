@@ -58,6 +58,47 @@ function ensureReservationMediaColumns(db) {
   }
 }
 
+/**
+ * Ciclo de vida de quartos (0.2.1): o enum local ganha o estado RESERVADO,
+ * alinhado com a migracao 011 da nuvem. Regra de negocio hotelaria:
+ *   - reserva CONFIRMADA/PENDENTE com quarto  -> quarto RESERVADO (bloqueado
+ *     para novas vendas, mas SEM hospede fisico — nunca OCUPADO);
+ *   - check-in presencial (hotel_reservations.checkIn) -> OCUPADO;
+ *   - check-out / cancelamento -> DISPONIVEL (ou LIMPEZA).
+ * O SQLite nao altera CHECK constraints in-place: rebuild da tabela.
+ */
+function ensureRoomStatusReservado(db) {
+  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='hotel_rooms'").get();
+  if (!table || table.sql.includes("'RESERVADO'")) return;
+  const indexes = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='hotel_rooms' AND sql IS NOT NULL")
+    .all();
+  const rebuilt = table.sql
+    .replace(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?hotel_rooms"?/i, 'CREATE TABLE hotel_rooms_status_v2')
+    .replace(
+      "'DISPONIVEL','OCUPADO','LIMPEZA','MANUTENCAO'",
+      "'DISPONIVEL','OCUPADO','RESERVADO','LIMPEZA','MANUTENCAO'"
+    );
+  if (rebuilt === table.sql) {
+    console.warn('[HospitalityServer] CHECK de hotel_rooms nao reconhecido — estado RESERVADO nao aplicado automaticamente.');
+    return;
+  }
+  db.exec('BEGIN');
+  try {
+    db.exec('PRAGMA defer_foreign_keys = ON');
+    db.exec(rebuilt);
+    db.exec('INSERT INTO hotel_rooms_status_v2 SELECT * FROM hotel_rooms');
+    db.exec('DROP TABLE hotel_rooms');
+    db.exec('ALTER TABLE hotel_rooms_status_v2 RENAME TO hotel_rooms');
+    for (const idx of indexes) db.exec(idx.sql);
+    db.exec('COMMIT');
+    console.log('[HospitalityServer] hotel_rooms migrado: estado RESERVADO disponivel (reserva confirmada bloqueia sem ocupar).');
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch { /* transacao ja fechada */ }
+    throw err;
+  }
+}
+
 function dropColumnIfPresent(db, table, column) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name);
   if (columns.includes(column)) db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
@@ -181,22 +222,34 @@ function purgeGhostData(db) {
     console.log(`[HospitalityServer] Purga: ${removed} reserva(s) de demonstração removida(s).`);
   }
 
-  // 2. Quartos OCUPADO "fantasma": nenhuma reserva CHECKED_IN/CONFIRMADA activa.
+  // 2. Quartos "fantasma": sem nenhuma reserva activa por trás.
+  //    - OCUPADO sem hóspede real (CHECKED_IN/CONFIRMADA) → liberta;
+  //    - RESERVADO sem reserva de agenda (PENDENTE_PAGAMENTO/CONFIRMADA/
+  //      CHECKED_IN) → liberta o bloqueio, senão o quarto fica preso para
+  //      sempre a uma reserva que já não existe (ciclo de vida 0.2.1).
   const now = new Date().toISOString();
   const freed = db.prepare(`
     UPDATE hotel_rooms
        SET status = 'DISPONIVEL', updated_at = ?, sync_status = 'synced'
      WHERE tenant_id = ?
-       AND status = 'OCUPADO'
-       AND NOT EXISTS (
-         SELECT 1 FROM hotel_reservations r
-          WHERE r.tenant_id = hotel_rooms.tenant_id
-            AND r.status IN ('CHECKED_IN', 'CONFIRMADA')
-            AND (r.room_id = hotel_rooms.id OR r.room_number = hotel_rooms.room_number)
+       AND (
+         (status = 'OCUPADO' AND NOT EXISTS (
+            SELECT 1 FROM hotel_reservations r
+             WHERE r.tenant_id = hotel_rooms.tenant_id
+               AND r.status IN ('CHECKED_IN', 'CONFIRMADA')
+               AND (r.room_id = hotel_rooms.id OR r.room_number = hotel_rooms.room_number)
+          ))
+         OR
+         (status = 'RESERVADO' AND NOT EXISTS (
+            SELECT 1 FROM hotel_reservations r
+             WHERE r.tenant_id = hotel_rooms.tenant_id
+               AND r.status IN ('PENDENTE_PAGAMENTO', 'CONFIRMADA', 'CHECKED_IN')
+               AND (r.room_id = hotel_rooms.id OR r.room_number = hotel_rooms.room_number)
+          ))
        )
   `).run(now, '11111111-1111-1111-1111-111111111111');
   if (freed.changes > 0) {
-    console.log(`[HospitalityServer] Purga: ${freed.changes} quarto(s) OCUPADO sem hóspede real libertado(s).`);
+    console.log(`[HospitalityServer] Purga: ${freed.changes} quarto(s) OCUPADO/RESERVADO sem reserva real libertado(s).`);
   }
 
   // 3. Órfãs: reservas a apontar para quartos que já não existem.
@@ -512,6 +565,7 @@ function createRuntime({ userDataPath = process.env.USER_DATA_PATH || process.cw
     applyLocalSecurityCompatibility(db);
     ensureSyncQueue(db);
     ensureReservationMediaColumns(db);
+    ensureRoomStatusReservado(db);
     normalizeLegacyIds(db);
     purgeGhostData(db);
   } catch (error) {

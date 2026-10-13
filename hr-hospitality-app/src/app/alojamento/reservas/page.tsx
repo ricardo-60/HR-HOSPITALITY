@@ -15,9 +15,10 @@ interface Stats {
     checkInsHoje: number;
     canceladas: number;
     quartosOcupados: number;
+    quartosReservados: number;
 }
 
-const EMPTY: Stats = { activas: 0, checkInsHoje: 0, canceladas: 0, quartosOcupados: 0 };
+const EMPTY: Stats = { activas: 0, checkInsHoje: 0, canceladas: 0, quartosOcupados: 0, quartosReservados: 0 };
 
 export default function ReservasPage() {
     const [stats, setStats] = useState<Stats | null>(null);
@@ -47,7 +48,10 @@ export default function ReservasPage() {
                 activas: reservas.filter(r => ['PENDENTE_PAGAMENTO', 'CONFIRMADA', 'CHECKED_IN'].includes(r.status)).length,
                 checkInsHoje: reservas.filter(r => r.check_in_date === hoje && r.status !== 'CANCELADA').length,
                 canceladas: reservas.filter(r => r.status === 'CANCELADA').length,
+                // Físico (check-in presencial) vs bloqueio de agenda (0.2.1):
+                // métricas distintas, nunca somadas.
                 quartosOcupados: quartos.filter(q => q.status === 'OCUPADO').length,
+                quartosReservados: quartos.filter(q => q.status === 'RESERVADO').length,
             });
         } catch {
             setStats(EMPTY);
@@ -65,10 +69,11 @@ export default function ReservasPage() {
         { label: 'Reservas Activas', value: stats?.activas ?? '—', icon: Calendar, color: '#00F2FF' },
         { label: 'Check-ins Hoje', value: stats?.checkInsHoje ?? '—', icon: CheckCircle2, color: '#10B981' },
         { label: 'Canceladas', value: stats?.canceladas ?? '—', icon: Ban, color: '#F43F5E' },
-        { label: 'Quartos Ocupados', value: stats?.quartosOcupados ?? '—', icon: Home, color: '#F59E0B' },
+        { label: 'Quartos Ocupados', value: stats?.quartosOcupados ?? '—', icon: Home, color: '#22D3EE' },
+        { label: 'Quartos Reservados', value: stats?.quartosReservados ?? '—', icon: Calendar, color: '#FBBF24' },
     ];
 
-    const cardGrid = 'grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8 lg:gap-10';
+    const cardGrid = 'grid grid-cols-2 lg:grid-cols-5 gap-4 md:gap-8 lg:gap-10';
     const cardBox = 'bg-[#111111] border border-white/10 p-5 md:p-8 rounded-[20px] md:rounded-[36px] shadow-2xl group hover:border-[#00F2FF]/40 transition-all';
 
     return (

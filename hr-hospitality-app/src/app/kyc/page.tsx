@@ -118,7 +118,10 @@ export default function KycPage() {
     };
 
     const visible = filter === 'TODOS' ? guests : guests.filter(guest => guest.kyc_status === filter);
-    const occupied = occupancy.filter(row => row.guest_name !== null).length;
+    // Ocupação FÍSICA (ciclo de vida 0.2.1): só quartos OCUPADOS contam como
+    // hóspede presente — um quarto RESERVADO tem reserva mas ainda não fez check-in.
+    const occupied = occupancy.filter(row => row.status === 'OCUPADO').length;
+    const reserved = occupancy.filter(row => row.status === 'RESERVADO').length;
     const occupancyRate = occupancy.length > 0 ? Math.round((occupied / occupancy.length) * 100) : 0;
 
     return (
@@ -174,11 +177,16 @@ export default function KycPage() {
                         <BedDouble className="w-5 h-5 text-[var(--brand-primary)]" /> Ocupação actual
                     </h2>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
                         <div className="glass-panel rounded-[24px] border border-white/5 p-6">
                             <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Taxa de ocupação</p>
                             <p className="text-4xl font-black text-[var(--brand-primary)] mt-2">{occupancyRate}%</p>
-                            <p className="text-xs text-white/40 mt-1">{occupied} de {occupancy.length} quartos com hóspede</p>
+                            <p className="text-xs text-white/40 mt-1">{occupied} de {occupancy.length} quartos com check-in activo</p>
+                        </div>
+                        <div className="glass-panel rounded-[24px] border border-white/5 p-6">
+                            <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Reservados</p>
+                            <p className="text-4xl font-black text-amber-400 mt-2">{reserved}</p>
+                            <p className="text-xs text-white/40 mt-1">bloqueados, aguardam chegada</p>
                         </div>
                         <div className="glass-panel rounded-[24px] border border-white/5 p-6">
                             <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Disponíveis</p>
@@ -228,8 +236,14 @@ export default function KycPage() {
                                             <td className="px-5 py-3">
                                                 <span className="px-2.5 py-1 rounded-full border text-[10px] font-black uppercase" style={{
                                                     background: 'transparent',
-                                                    borderColor: row.status === 'DISPONIVEL' ? 'rgba(52,211,153,0.3)' : 'rgba(255,255,255,0.12)',
-                                                    color: row.status === 'DISPONIVEL' ? '#6ee7b7' : 'rgba(255,255,255,0.5)',
+                                                    borderColor: row.status === 'DISPONIVEL' ? 'rgba(52,211,153,0.3)'
+                                                        : row.status === 'RESERVADO' ? 'rgba(251,191,36,0.3)'
+                                                        : row.status === 'OCUPADO' ? 'rgba(34,211,238,0.3)'
+                                                        : 'rgba(255,255,255,0.12)',
+                                                    color: row.status === 'DISPONIVEL' ? '#6ee7b7'
+                                                        : row.status === 'RESERVADO' ? '#fcd34d'
+                                                        : row.status === 'OCUPADO' ? '#67e8f9'
+                                                        : 'rgba(255,255,255,0.5)',
                                                 }}>
                                                     {row.status}
                                                 </span>

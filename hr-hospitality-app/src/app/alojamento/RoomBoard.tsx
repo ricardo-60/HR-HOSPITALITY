@@ -40,6 +40,7 @@ import {
     type StartHourlyResult,
 } from '@/lib/roomRates';
 import { supabase } from '@/lib/supabase';
+import { localQuery } from '@/lib/db/localDB';
 import { emitRoomEvent, useRoomSync } from '@/lib/roomEvents';
 
 /* ── Mapa de cores obrigatório do quadro de quartos ───────────────────────── */
@@ -112,6 +113,7 @@ interface RoomRow {
 
 interface ReservationRow {
     id: string;
+    guest_name: string | null;
     room_number: string | null;
     room_id: string | null;
     status: string;
@@ -233,7 +235,7 @@ export function RoomBoard({ onSelectRoom }: RoomBoardProps) {
                 .order('room_number', { ascending: true }),
             supabase
                 .from('hotel_reservations')
-                .select('id, room_number, room_id, status, reservation_date, check_in_date')
+                .select('id, guest_name, room_number, room_id, status, reservation_date, check_in_date')
                 .in('status', ['CONFIRMADA', 'CHECKED_IN'])
                 .limit(500),
             listActiveHourlyBilling(),
@@ -338,6 +340,39 @@ export function RoomBoard({ onSelectRoom }: RoomBoardProps) {
     const closeRoomActions = () => {
         setRoomActionModal(null);
         setRoomActionError(null);
+    };
+
+    /**
+     * Check-in presencial — o ÚNICO caminho que transita um quarto para
+     * OCUPADO (regra de ciclo de vida 0.2.1). A reserva CONFIRMADA/RESERVADO
+     * nunca ocupa o quarto sozinha: a receção valida a identidade e entrega
+     * as chaves neste botão, que converte a reserva (CHECKED_IN) e o quarto
+     * (OCUPADO) num único lance atómico no servidor local.
+     */
+    const checkInReservation = async (room: RoomRow, reservation: ReservationRow) => {
+        if (!canWrite) return;
+        setBusy(true);
+        try {
+            await localQuery('hotel_reservations.checkIn', { id: reservation.id });
+            setNotice({
+                kind: 'ok',
+                text: `Check-in efectuado no quarto ${room.room_number || ''} — chaves entregues a ${reservation.guest_name ?? 'hóspede'}, quarto OCUPADO.`,
+            });
+            emitRoomEvent({
+                type: 'reservation',
+                reservationId: reservation.id,
+                roomId: room.id,
+                ...(room.room_number ? { roomNumber: room.room_number } : {}),
+            });
+            void refresh();
+        } catch (err) {
+            setNotice({
+                kind: 'error',
+                text: `Falha no check-in do quarto ${room.room_number || ''}: ${err instanceof Error ? err.message : String(err)}`,
+            });
+        } finally {
+            setBusy(false);
+        }
     };
 
     /* ── Acções horárias ─────────────────────────────────────────────────── */
@@ -596,6 +631,11 @@ export function RoomBoard({ onSelectRoom }: RoomBoardProps) {
                     {rooms.map(room => {
                         const state = effectiveState(room, todayReservations);
                         const style = stateStyle(state);
+                        // Reserva do dia ligada a este quarto (para o check-in
+                        // directo do cartao RESERVADO).
+                        const activeReservation =
+                            (room.id ? todayReservations.get(`id:${room.id}`) : undefined) ??
+                            (room.room_number ? todayReservations.get(`num:${room.room_number}`) : undefined);
                         const session = sessionsByRoom.get(room.id) ?? null;
                         const seconds = session ? secondsUntil(session.ends_at, now) : 0;
                         const countdownText = seconds <= 0 ? 'expirado' : formatCountdown(seconds);
@@ -666,6 +706,28 @@ export function RoomBoard({ onSelectRoom }: RoomBoardProps) {
                                                 ? ` • extra ${formatAmount(session.extra_hour_rate)}/h`
                                                 : ''}
                                         </p>
+                                    </div>
+                                ) : null}
+
+                                {/* Ciclo de vida 0.2.1: o quarto RESERVADO só
+                                    transita para OCUPADO por acção explícita
+                                    da receção (check-in presencial). */}
+                                {state === 'RESERVADO' && activeReservation ? (
+                                    <div className="mt-auto flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={!canWrite || busy}
+                                            title={canWrite
+                                                ? 'Check-in presencial: valida a identidade, entrega as chaves e passa o quarto a OCUPADO'
+                                                : PERMISSION_HINT}
+                                            onClick={event => {
+                                                event.stopPropagation();
+                                                void checkInReservation(room, activeReservation);
+                                            }}
+                                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-400/10 border border-emerald-400/40 text-emerald-200 text-[10px] font-black uppercase tracking-wider hover:bg-emerald-400/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <Key className="w-3 h-3" /> Check-in / Entregar Chaves
+                                        </button>
                                     </div>
                                 ) : null}
 

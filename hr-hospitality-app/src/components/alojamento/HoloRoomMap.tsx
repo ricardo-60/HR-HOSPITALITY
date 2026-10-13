@@ -73,6 +73,9 @@ export function HoloRoomMap({ onSelectRoom }: HoloRoomMapProps) {
     const getRoomColor = (status: string) => {
         switch (status) {
             case 'OCUPADO':    return { border: 'border-cyan-400/60 bg-cyan-400/5 shadow-[0_0_30px_rgba(0,255,255,0.1)]', icon: 'text-cyan-400', badge: 'bg-cyan-400/20 text-cyan-300' };
+            // Reserva confirmada ainda sem check-in: bloqueado para novas
+            // vendas, mas sem hóspede fisico (ciclo de vida 0.2.1).
+            case 'RESERVADO':   return { border: 'border-amber-400/60 bg-amber-400/5 shadow-[0_0_30px_rgba(251,191,36,0.1)]', icon: 'text-amber-400', badge: 'bg-amber-400/20 text-amber-300' };
             case 'MANUTENCAO': return { border: 'border-red-500/40 bg-red-500/5', icon: 'text-red-400', badge: 'bg-red-500/20 text-red-400' };
             case 'LIMPEZA':    return { border: 'border-yellow-400/40 bg-yellow-400/5', icon: 'text-yellow-400', badge: 'bg-yellow-400/20 text-yellow-400' };
             default:           return { border: 'border-emerald-500/40 bg-emerald-500/5', icon: 'text-emerald-400', badge: 'bg-emerald-500/20 text-emerald-400' };
@@ -83,6 +86,7 @@ export function HoloRoomMap({ onSelectRoom }: HoloRoomMapProps) {
         switch (status) {
             case 'DISPONIVEL': return 'LIVRE';
             case 'OCUPADO':    return 'OCUPADO';
+            case 'RESERVADO':  return 'RESERVADO';
             case 'LIMPEZA':    return 'LIMPEZA';
             case 'MANUTENCAO': return 'MANUTENÇÃO';
             default: return status;
@@ -102,6 +106,7 @@ export function HoloRoomMap({ onSelectRoom }: HoloRoomMapProps) {
                 <div className="flex flex-wrap gap-4 md:gap-6">
                     {[
                         { color: 'bg-emerald-500 shadow-[0_0_10px_#10B981]', label: 'Livre' },
+                        { color: 'bg-amber-400 shadow-[0_0_10px_#FBBF24]', label: 'Reservado' },
                         { color: 'bg-cyan-400 shadow-[0_0_10px_#00FFFF]', label: 'Ocupado' },
                         { color: 'bg-yellow-400 shadow-[0_0_10px_yellow]', label: 'Limpeza' },
                         { color: 'bg-red-500 shadow-[0_0_10px_red]', label: 'Manutenção' },

@@ -935,7 +935,11 @@ function OcupacaoReport({ from, to }: { from: string; to: string }) {
 
     const dados = useMemo(() => {
         const totalQuartos = rooms.length;
+        // Ocupação FÍSICA: só quartos OCUPADOS (check-in presencial). Quartos
+        // RESERVADOS (reserva confirmada, aguardam chegada) são medidos à parte
+        // — nunca inflam a taxa de ocupação (ciclo de vida 0.2.1).
         const quartosOcupados = rooms.filter(r => r.status === 'OCUPADO').length;
+        const quartosReservados = rooms.filter(r => r.status === 'RESERVADO').length;
         const taxaOcupacao = totalQuartos > 0 ? quartosOcupados / totalQuartos : 0;
 
         // Mesma regra do razão: só diárias confirmadas ou em curso contam receita.
@@ -979,6 +983,7 @@ function OcupacaoReport({ from, to }: { from: string; to: string }) {
         return {
             totalQuartos,
             quartosOcupados,
+            quartosReservados,
             taxaOcupacao,
             receitaDiarias,
             revpar,
@@ -992,13 +997,19 @@ function OcupacaoReport({ from, to }: { from: string; to: string }) {
 
     return (
         <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
                 <KpiCard
                     label="Taxa de Ocupação"
                     value={fmtPercent(dados.taxaOcupacao)}
-                    hint={`${dados.quartosOcupados} de ${dados.totalQuartos} quartos`}
+                    hint={`${dados.quartosOcupados} de ${dados.totalQuartos} quartos com check-in`}
                     icon={BedDouble}
                     tone="brand"
+                />
+                <KpiCard
+                    label="Quartos Reservados"
+                    value={fmtNumber(dados.quartosReservados)}
+                    hint="bloqueados, aguardam check-in"
+                    icon={Hourglass}
                 />
                 <KpiCard label="Receita de Diárias" value={fmtCurrency(dados.receitaDiarias)} hint="reservas confirmadas no período" icon={Banknote} tone="positive" />
                 <KpiCard label="RevPAR" value={fmtCurrency(dados.revpar)} hint="receita de diárias / quartos disponíveis" icon={CalendarDays} />

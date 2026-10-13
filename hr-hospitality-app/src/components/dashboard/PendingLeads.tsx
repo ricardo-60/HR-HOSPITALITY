@@ -14,7 +14,7 @@ interface MapRoom {
     room_number?: string;
     room_type?: string;
     type?: string;
-    status: string;   // DISPONIVEL | OCUPADO | LIMPEZA | MANUTENCAO
+    status: string;   // DISPONIVEL | RESERVADO | OCUPADO | LIMPEZA | MANUTENCAO
 }
 
 interface Lead {
@@ -104,10 +104,15 @@ export function PendingLeads() {
                 
             if (resError) throw resError;
 
+            // Regra de ciclo de vida hotelaria (0.2.1): efetivar uma reserva
+            // ONLINE BLOQUEIA o quarto como RESERVADO — o hóspede ainda nao
+            // esta fisicamente no hotel. O estado OCUPADO so nasce no
+            // check-in presencial da rececao (hotel_reservations.checkIn).
             const { error: roomError } = await supabase
                 .from('hotel_rooms')
-                .update({ status: 'OCUPADO' })
-                .eq('id', targetRoom.id);
+                .update({ status: 'RESERVADO' })
+                .eq('id', targetRoom.id)
+                .eq('status', 'DISPONIVEL'); // nunca rebaixa OCUPADO/LIMPEZA
 
             if (roomError) throw roomError;
                 
@@ -126,7 +131,7 @@ export function PendingLeads() {
 
         setRooms(currentRooms => 
             currentRooms.map(room => 
-                room.id === roomId ? { ...room, status: 'OCUPADO' } : room
+                room.id === roomId && room.status === 'DISPONIVEL' ? { ...room, status: 'RESERVADO' } : room
             )
         );
 
@@ -146,7 +151,9 @@ export function PendingLeads() {
             await localQuery('hotel_reservations.cancel', { id: lead.id });
             setLeads(current => current.filter(item => item.id !== lead.id));
             if (lead.room_id) {
-                setRooms(current => current.map(room => (room.id === lead.room_id && room.status === 'OCUPADO' ? { ...room, status: 'DISPONIVEL' } : room)));
+                // Liberta OCUPADO e RESERVADO — o servidor já trata a transição
+                // na operação atómica `cancel`; aqui só espelhamos na UI.
+                setRooms(current => current.map(room => (room.id === lead.room_id && (room.status === 'OCUPADO' || room.status === 'RESERVADO') ? { ...room, status: 'DISPONIVEL' } : room)));
             }
             emitRoomEvent({
                 type: 'reservation',
@@ -348,12 +355,20 @@ export function PendingLeads() {
                         <div className="grid grid-cols-2 gap-4 flex-1">
                             {rooms.map(room => {
                                 const isOccupied = room.status === 'OCUPADO';
+                                const isReserved = room.status === 'RESERVADO';
+                                // Ciclo de vida 0.2.1: reservado é distinto de
+                                // livre — bloqueado para vendas, sem hóspede.
+                                const borderClass = isOccupied
+                                    ? 'border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/10 text-[var(--brand-accent)]'
+                                    : isReserved
+                                        ? 'border-amber-400/30 bg-amber-400/10 text-amber-300'
+                                        : 'border-white/10 bg-white/5 text-white/40';
                                 return (
-                                    <div key={room.id} className={`rounded-xl md:rounded-2xl border flex flex-col justify-center items-center transition-all duration-700 p-4 md:p-6 ${!isOccupied ? 'border-white/10 bg-white/5 text-white/40' : 'border-[var(--brand-accent)]/30 bg-[var(--brand-accent)]/10 text-[var(--brand-accent)]'}`}>
-                                        <Home className={`w-8 h-8 md:w-10 md:h-10 mb-2 md:mb-3 opacity-50 ${!isOccupied ? '' : 'text-[var(--brand-accent)] drop-shadow-[0_0_8px_var(--brand-accent)]'}`} />
+                                    <div key={room.id} className={`rounded-xl md:rounded-2xl border flex flex-col justify-center items-center transition-all duration-700 p-4 md:p-6 ${borderClass}`}>
+                                        <Home className={`w-8 h-8 md:w-10 md:h-10 mb-2 md:mb-3 opacity-50 ${!isOccupied && !isReserved ? '' : 'drop-shadow-[0_0_8px_currentColor]'} ${isOccupied ? 'text-[var(--brand-accent)]' : isReserved ? 'text-amber-300' : ''}`} />
                                         <span className="text-2xl md:text-3xl xl:text-4xl font-black">{room.room_number || room.id}</span>
                                         <span className="text-[10px] md:text-xs uppercase tracking-widest mt-1 md:mt-2 opacity-60">
-                                            {!isOccupied ? 'Livre' : 'Ocupado'}
+                                            {isOccupied ? 'Ocupado' : isReserved ? 'Reservado' : 'Livre'}
                                         </span>
                                     </div>
                                 );

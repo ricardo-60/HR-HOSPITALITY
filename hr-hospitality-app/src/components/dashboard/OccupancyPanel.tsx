@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { BedDouble, DoorOpen, Loader2, Sparkles, User, Wrench } from 'lucide-react';
+import { BedDouble, CalendarClock, DoorOpen, Loader2, Sparkles, User, Wrench } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useRoomSync } from '@/lib/roomEvents';
@@ -37,14 +37,16 @@ const STATUS_WEIGHT: Record<string, number> = {
     PENDENTE_PAGAMENTO: 2,
 };
 
-const HEADCOUNT_CLASS = 'grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4';
+const HEADCOUNT_CLASS = 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4';
 const HEAD_CARD = 'rounded-2xl border p-4 md:p-5 flex flex-col gap-1';
 const HEAD_VALUE = 'text-2xl md:text-3xl font-black text-white tabular-nums leading-none';
 const HEAD_LABEL = 'text-[9px] font-black uppercase tracking-[0.25em]';
 
 /**
  * Resumo de ocupação do Dashboard: contagem e lista rápida de quartos
- * ocupados (número + hóspede) e de quartos livres/disponíveis.
+ * ocupados (número + hóspede), reservados (aguardam check-in) e livres.
+ * A taxa de ocupação é FÍSICA: só conta `OCUPADO` (check-in presencial) —
+ * quartos `RESERVADO` ficam bloqueados mas não contam como ocupados.
  * Actualiza sem recarregar a página (eventos + foco + polling).
  */
 export function OccupancyPanel() {
@@ -114,6 +116,9 @@ export function OccupancyPanel() {
         stays.find(stay => stay.roomKey === `id:${room.id}` || stay.roomKey === `num:${room.room_number}`) ?? null;
 
     const occupied = rooms.filter(room => room.status === 'OCUPADO');
+    // Reserva confirmada aguardando check-in: bloqueado, mas SEM hóspede
+    // físico (ciclo de vida 0.2.1) — nunca conta para a taxa de ocupação.
+    const reserved = rooms.filter(room => room.status === 'RESERVADO');
     const available = rooms.filter(room => room.status === 'DISPONIVEL');
     const cleaning = rooms.filter(room => room.status === 'LIMPEZA');
     const maintenance = rooms.filter(room => room.status === 'MANUTENCAO');
@@ -121,12 +126,14 @@ export function OccupancyPanel() {
     const occupancy = total ? Math.round((occupied.length / total) * 100) : 0;
 
     const occupiedList = occupied.map(room => ({ room, stay: stayForRoom(room) }));
+    const reservedList = reserved.map(room => ({ room, stay: stayForRoom(room) }));
     const unoccupied = [...available, ...cleaning, ...maintenance];
 
     const headCards = [
         { label: 'Ocupados', value: occupied.length, icon: BedDouble, className: 'border-emerald-400/30 bg-emerald-400/5', valueClass: 'text-emerald-300', iconClass: 'text-emerald-400' },
+        { label: 'Reservados', value: reserved.length, icon: CalendarClock, className: 'border-amber-400/30 bg-amber-400/5', valueClass: 'text-amber-300', iconClass: 'text-amber-400' },
         { label: 'Livres', value: available.length, icon: DoorOpen, className: 'border-cyan-400/30 bg-cyan-400/5', valueClass: 'text-cyan-300', iconClass: 'text-cyan-400' },
-        { label: 'Limpeza', value: cleaning.length, icon: Sparkles, className: 'border-amber-400/30 bg-amber-400/5', valueClass: 'text-amber-300', iconClass: 'text-amber-400' },
+        { label: 'Limpeza', value: cleaning.length, icon: Sparkles, className: 'border-yellow-400/30 bg-yellow-400/5', valueClass: 'text-yellow-300', iconClass: 'text-yellow-400' },
         { label: 'Manutenção', value: maintenance.length, icon: Wrench, className: 'border-rose-400/30 bg-rose-400/5', valueClass: 'text-rose-300', iconClass: 'text-rose-400' },
     ];
 
@@ -150,7 +157,7 @@ export function OccupancyPanel() {
                         <p className="text-3xl md:text-4xl font-black text-white tabular-nums leading-none">
                             {occupancy}<span className="text-base text-[var(--brand-primary)] ml-1">%</span>
                         </p>
-                        <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mt-1">Taxa de ocupação</p>
+                        <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em] mt-1">Taxa de ocupação física</p>
                     </div>
                     <div className="relative w-16 h-16 md:w-20 md:h-20">
                         <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
@@ -185,8 +192,8 @@ export function OccupancyPanel() {
                     ))}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Quartos ocupados — número + hóspede */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Quartos ocupados — número + hóspede (só check-in presencial) */}
                     <div className="rounded-3xl border border-emerald-400/20 bg-emerald-400/[0.04] p-5 md:p-6">
                         <div className="flex items-center gap-3 mb-4">
                             <BedDouble className="w-4 h-4 text-emerald-400" />
@@ -219,6 +226,43 @@ export function OccupancyPanel() {
                                             : 'text-cyan-300 border-cyan-400/30 bg-cyan-400/10'
                                             }`}>
                                             {stay?.status === 'CHECKED_IN' ? 'Dentro' : 'Reservado'}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+
+                    {/* Quartos reservados — bloqueados, aguardam check-in */}
+                    <div className="rounded-3xl border border-amber-400/20 bg-amber-400/[0.04] p-5 md:p-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <CalendarClock className="w-4 h-4 text-amber-400" />
+                            <h4 className="text-[10px] font-black text-amber-300 uppercase tracking-[0.3em]">
+                                Quartos Reservados ({reserved.length})
+                            </h4>
+                        </div>
+                        {reservedList.length === 0 ? (
+                            <p className="text-[11px] text-white/30 uppercase tracking-widest">Nenhuma reserva activa</p>
+                        ) : (
+                            <ul className="space-y-2">
+                                {reservedList.map(({ room, stay }) => (
+                                    <li
+                                        key={room.id}
+                                        className="flex items-center justify-between gap-3 rounded-xl bg-black/30 border border-white/5 px-4 py-3"
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <span className="text-lg font-black text-white tabular-nums">{room.room_number}</span>
+                                            <div className="min-w-0">
+                                                <p className="text-[11px] font-black text-white/70 uppercase tracking-wider truncate">
+                                                    {stay?.guestName ?? 'Reserva sem hóspede associado'}
+                                                </p>
+                                                {stay?.clientNumber && (
+                                                    <p className="text-[9px] font-mono text-amber-300/60 tracking-widest">{stay.clientNumber}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <span className="px-2.5 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest shrink-0 text-amber-300 border-amber-400/30 bg-amber-400/10">
+                                            Aguarda check-in
                                         </span>
                                     </li>
                                 ))}

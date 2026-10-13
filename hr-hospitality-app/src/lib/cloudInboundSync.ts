@@ -205,6 +205,76 @@ function mapCloudRow(raw: CloudRow): MappedEntry | null {
 }
 
 // ---------------------------------------------------------------------------
+// Ciclo de vida dos quartos (0.2.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reflecte o ciclo de vida das reservas no estado do quarto — SEMPRE via
+ * `RESERVADO`, nunca `OCUPADO`:
+ *
+ *   • reserva activa (PENDENTE_PAGAMENTO / CONFIRMADA) com quarto livre
+ *     → quarto RESERVADO (bloqueado contra overbooking, sem hóspede físico);
+ *   • reserva encerrada (CANCELADA / CHECKED_OUT) e sem outra reserva activa
+ *     → quarto RESERVADO libertado para DISPONIVEL;
+ *   • quarto OCUPADO / LIMPEZA / MANUTENCAO nunca é rebaixado por aqui:
+ *     a ocupação física só termina no check-out presencial.
+ *
+ * A escrita usa `hotel_rooms.update` (operação normal do servidor local), o
+ * que además propaga o estado para a nuvem via sync engine — o mapa lido de
+ * qualquer posto permanece coerente.
+ */
+async function applyRoomStates(entries: MappedEntry[]): Promise<void> {
+  for (const entry of entries.slice(0, 50)) {
+    const roomId = asText(entry.row.room_id);
+    const roomNumber = asText(entry.row.room_number);
+    if (!roomId && !roomNumber) continue;
+
+    try {
+      const filters: Array<Record<string, unknown>> = roomId
+        ? [{ column: 'id', op: 'eq', value: roomId }]
+        : [{ column: 'room_number', op: 'eq', value: roomNumber }];
+      const rooms = await localQuery<Array<{ id: string; status: string; room_number: string | null }>>(
+        'data.select',
+        { resource: 'hotel_rooms', columns: ['id', 'status', 'room_number'], filters, limit: 1 }
+      );
+      const room = rooms?.[0];
+      if (!room) continue;
+
+      const status = String(entry.row.status ?? '');
+      if (['PENDENTE_PAGAMENTO', 'CONFIRMADA'].includes(status)) {
+        // Bloqueia o quarto — mas só se ele está livre. OCUPADO/LIMPEZA/
+        // MANUTENCAO têm prioridade: nunca são rebaixados por aqui.
+        if (room.status === 'DISPONIVEL') {
+          await localOperation('hotel_rooms.update', { id: room.id, status: 'RESERVADO' });
+          log(`  ✓ quarto ${room.room_number || room.id} → RESERVADO (reserva ${status})`);
+          emitRoomEvent({ type: 'room-status', roomId: room.id, ...(room.room_number ? { roomNumber: room.room_number } : {}) });
+        }
+      } else if (['CANCELADA', 'CHECKED_OUT'].includes(status)) {
+        // Só liberta se NENHUMA outra reserva activa cobre o mesmo quarto.
+        if (room.status !== 'RESERVADO') continue;
+        const others = await localQuery<Array<{ id: string }>>('data.select', {
+          resource: 'hotel_reservations',
+          columns: ['id'],
+          filters: [
+            { column: 'room_id', op: 'eq', value: room.id },
+            { column: 'status', op: 'in', value: ['PENDENTE_PAGAMENTO', 'CONFIRMADA', 'CHECKED_IN'] }
+          ],
+          limit: 10
+        });
+        const stillActive = (others || []).some(item => item.id !== String(entry.row.id));
+        if (!stillActive) {
+          await localOperation('hotel_rooms.update', { id: room.id, status: 'DISPONIVEL' });
+          log(`  ✓ quarto ${room.room_number || room.id} → DISPONIVEL (reserva ${status}, sem outra reserva activa)`);
+          emitRoomEvent({ type: 'room-status', roomId: room.id, ...(room.room_number ? { roomNumber: room.room_number } : {}) });
+        }
+      }
+    } catch (err) {
+      warn('marcação de quarto falhou para a reserva', String(entry.row.id), err);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Pull (cloud → local)
 // ---------------------------------------------------------------------------
 
@@ -373,6 +443,12 @@ export async function pullCloudReservations(reason = 'manual'): Promise<CloudPul
         });
       }
       log(`✓ UI notificada por ${Math.min(changed.length, 20)} evento(s) de sala`);
+
+      // 8. Ciclo de vida dos quartos (0.2.1): uma reserva activa vinda da
+      //    nuvem BLOQUEIA o quarto como RESERVADO — nunca OCUPADO. A ocupacao
+      //    fisica so nasce no check-in presencial (hotel_reservations.checkIn).
+      //    Reservas encerradas libertam o RESERVADO, se nada mais o cobre.
+      await applyRoomStates(changed);
     }
 
     summary.ok = !summary.error;

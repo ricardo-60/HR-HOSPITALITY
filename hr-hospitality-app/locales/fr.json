@@ -1,0 +1,40 @@
+{
+  "auth": {
+    "login": "Connexion",
+    "email": "E-mail",
+    "password": "Mot de passe",
+    "signup": "Inscription",
+    "welcome": "Bienvenue à l'Hôtel Lukweku"
+  },
+  "financeiro": {
+    "title": "Finance",
+    "faturas": "Factures",
+    "saft": "Export SAF-T",
+    "taxasCambio": "Taux de change",
+    "taxas": "Taux",
+    "atualizarTaxa": "Mettre à jour le taux",
+    "moedaOrigem": "Devise de base",
+    "moedaDestino": "Devise cible",
+    "taxa": "Taux",
+    "fechamentoCaixa": "Clôture de caisse",
+    "totalRecebido": "Total reçu",
+    "totalPago": "Total payé",
+    "saldo": "Solde"
+  },
+  "quartos": {
+    "title": "Chambres",
+    "roomStatus": "État de la chambre",
+    "disponivel": "Disponible",
+    "reservado": "Réservé",
+    "ocupado": "Occupé"
+  },
+  "common": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "confirm": "Confirmer",
+    "close": "Fermer",
+    "error": "Erreur",
+    "success": "Succès",
+    "loading": "Chargement..."
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "auth": {
+    "login": "Login",
+    "email": "Email",
+    "password": "Password",
+    "signup": "Sign up",
+    "welcome": "Welcome to Hotel Lukweku"
+  },
+  "checkout": {
+    "title": "Confirm Reservation",
+    "guestName": "Guest name",
+    "email": "Email",
+    "document": "Document number",
+    "proof": "Proof",
+    "paymentMethod": "Payment method",
+    "multicaixaExpress": "Multicaixa Express",
+    "transferencia": "Transfer",
+    "submitReservation": "Submit reservation",
+    "errorName": "Please enter the guest name.",
+    "errorEmail": "Please enter a valid email.",
+    "errorDocument": "Document number must be between 3 and 32 characters.",
+    "quoteNotice": "Hotel tariff has been updated. Total already shows current rate.",
+    "roomGone": "This room is no longer available. Go back to the list and choose another.",
+    "paymentInstructions": "Payment instructions",
+    "iban": "IBAN",
+    "bankHolder": "Bank account holder"
+  },
+  "rooms": {
+    "available": "Available",
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "error": "Error",
+    "success": "Success"
+  }
+}

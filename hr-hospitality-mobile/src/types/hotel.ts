@@ -5,7 +5,7 @@
  * tabelas de catálogo público introduzidas em `006_mobile_public_catalog.sql`.
  */
 
-export type RoomStatus = 'DISPONIVEL' | 'OCUPADO' | 'LIMPEZA' | 'MANUTENCAO';
+export type RoomStatus = 'DISPONIVEL' | 'OCUPADO' | 'LIMPEZA' | 'RESERVADO' | 'MANUTENCAO';
 
 export type RoomType = 'Standard' | 'Double' | 'Suite' | 'Suite Premium';
 

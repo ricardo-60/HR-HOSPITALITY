@@ -135,8 +135,40 @@ const PUBLIC_MEDIA_RULES: Record<PublicMediaKind, { maxBytes: number; mime: stri
   face: { maxBytes: 5 * 1024 * 1024, mime: ['image/jpeg', 'image/png', 'image/webp'] },
 };
 
-/** Fotografia do rosto com a câmara da frente. */
-export async function captureFace(): Promise<CaptureResult> {
+/**
+ * Fotografia do rosto — câmara da frente OU galeria.
+ *
+ * Paridade v0.2.1 com a Landing (`handleFaceFile`): quem não tem webcam/câmara
+ * pode escolher uma imagem já existente. Ambos os ramos devolvem o mesmo
+ * `CapturedFile`, pelo que o consumidor alimenta sempre o mesmo estado de envio.
+ */
+export async function captureFace(source: CaptureSource = 'camera'): Promise<CaptureResult> {
+  if (source === 'library') {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      return { ok: false, cancelled: false, error: 'Permissão de acesso à galeria negada.' };
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.75,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled) return { ok: false, cancelled: true };
+    const asset = result.assets[0];
+    if (!asset) return { ok: false, cancelled: false, error: 'Nenhuma imagem escolhida.' };
+    return {
+      ok: true,
+      cancelled: false,
+      file: {
+        uri: asset.uri,
+        name: asset.fileName ?? `rosto-${Date.now()}.jpg`,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+        sizeBytes: asset.fileSize ?? null,
+      },
+    };
+  }
+
   const permission = await ImagePicker.requestCameraPermissionsAsync();
   if (!permission.granted) {
     return { ok: false, cancelled: false, error: 'Permissão de câmara negada. Active-a nas definições do dispositivo.' };
@@ -209,6 +241,16 @@ export async function uploadPublicMedia(
     const response = await fetch(file.uri);
     const blob = await response.blob();
 
+    // Defesa em profundidade: quando o picker não reporta o tamanho
+    // (`sizeBytes === null`), valida-se aqui pelo tamanho real do blob.
+    const maxBytes = PUBLIC_MEDIA_RULES[kind].maxBytes;
+    if (blob.size > maxBytes) {
+      return {
+        ok: false,
+        error: `O ${PUBLIC_MEDIA_LABELS[kind].toLowerCase()} excede ${Math.round(maxBytes / 1048576)} MB.`,
+      };
+    }
+
     const { error } = await getSupabase().storage.from(PUBLIC_BUCKETS[kind]).upload(path, blob, {
       contentType: file.mimeType,
       upsert: false,
@@ -241,6 +283,10 @@ async function upload(
     const response = await fetch(file.uri);
     const blob = await response.blob();
 
+    if (blob.size > MAX_UPLOAD_BYTES) {
+      return { ok: false, error: `O ficheiro excede ${Math.round(MAX_UPLOAD_BYTES / 1048576)} MB.` };
+    }
+
     const { error } = await getSupabase().storage.from(bucket).upload(path, blob, {
       contentType: file.mimeType,
       upsert: false,
@@ -254,12 +300,25 @@ async function upload(
 
 export type DocumentKind = 'BI_FRENTE' | 'BI_VERSO' | 'PASSAPORTE' | 'SELFIE';
 
+/** Teto único dos buckets privados (documentos KYC e comprovativos). */
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+/** Formatos aceites nos documentos de KYC — espelha as policies do bucket. */
+const KYC_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+
 /** Carrega uma peça de KYC e regista-a em `guest_documents`. */
 export async function uploadKycDocument(
   guestProfileId: string,
   kind: DocumentKind,
   file: CapturedFile,
 ): Promise<UploadResult> {
+  if (!KYC_MIME_TYPES.includes(file.mimeType)) {
+    return { ok: false, error: 'Formato não permitido nos documentos (JPG, PNG, WEBP ou PDF).' };
+  }
+  if (file.sizeBytes !== null && file.sizeBytes > MAX_UPLOAD_BYTES) {
+    return { ok: false, error: `O documento excede ${Math.round(MAX_UPLOAD_BYTES / 1048576)} MB.` };
+  }
+
   const uploaded = await upload('kyc-documents', guestProfileId, file);
   if (!uploaded.ok) return uploaded;
 

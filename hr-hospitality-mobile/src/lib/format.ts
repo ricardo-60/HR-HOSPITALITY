@@ -75,6 +75,7 @@ export const ROOM_STATUS_LABEL: Record<string, string> = {
   DISPONIVEL: 'Disponível',
   OCUPADO: 'Ocupado',
   LIMPEZA: 'Em limpeza',
+  RESERVADO: 'Reservado',
   MANUTENCAO: 'Manutenção',
 };
 

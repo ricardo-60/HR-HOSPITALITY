@@ -13,7 +13,7 @@ import {
   type GuestProfileRow,
 } from '@/lib/guestAuth';
 import { formatDay, todayIso } from '@/lib/format';
-import { capturePhoto, uploadKycDocument, type CapturedFile, type DocumentKind } from '@/lib/upload';
+import { capturePhoto, uploadKycDocument, type CaptureSource, type CapturedFile, type DocumentKind } from '@/lib/upload';
 
 const KYC_STATUS_LABEL: Record<GuestProfileRow['kyc_status'], { label: string; tone: 'success' | 'warning' | 'danger' | 'muted' }> = {
   APROVADO: { label: 'Aprovado', tone: 'success' },
@@ -128,11 +128,12 @@ export default function KycScreen() {
     await refresh();
   };
 
-  const capture = async (kind: DocumentKind) => {
+  const capture = async (kind: DocumentKind, source: CaptureSource = 'camera') => {
     setError(null);
-    const result = await capturePhoto('camera');
+    const result = await capturePhoto(source);
     if (result.cancelled) return;
     if (!result.ok) {
+      if (source === 'library') { setError(result.error); return; }
       // A câmara pode estar bloqueada em emulador: recorre à galeria.
       const fallback = await capturePhoto('library');
       if (fallback.cancelled) return;
@@ -303,12 +304,21 @@ export default function KycScreen() {
             {files[piece.kind] ? (
               <Text className="text-[11px] font-semibold text-emerald-300">Fotografia capturada</Text>
             ) : null}
-            <Button
-              label={files[piece.kind] ? 'Recapturar' : 'Capturar'}
-              variant="secondary"
-              loading={uploading === piece.kind}
-              onPress={() => void capture(piece.kind)}
-            />
+            <View className="flex-row gap-2">
+              <Button
+                className="flex-1"
+                label={files[piece.kind] ? 'Recapturar' : 'Capturar'}
+                variant="secondary"
+                loading={uploading === piece.kind}
+                onPress={() => void capture(piece.kind, 'camera')}
+              />
+              <Button
+                className="flex-1"
+                label="Galeria"
+                variant="secondary"
+                onPress={() => void capture(piece.kind, 'library')}
+              />
+            </View>
           </Card>
         ))}
         <Button label="Enviar documentos" loading={busy} onPress={() => void upload()} />

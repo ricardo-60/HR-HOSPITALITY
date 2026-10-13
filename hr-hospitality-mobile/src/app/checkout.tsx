@@ -57,11 +57,16 @@ function CaptureRow({
   hint,
   file,
   onCapture,
+  secondaryLabel,
+  onSecondary,
 }: {
   label: string;
   hint: string;
   file: CapturedFile | null;
   onCapture: () => void;
+  /** Acção alternativa (ex.: galeria) — paridade v0.2.1 com a Landing. */
+  secondaryLabel?: string;
+  onSecondary?: () => void;
 }) {
   return (
     <View className="rounded-2xl border border-white/10 bg-white/5 p-4 gap-2">
@@ -78,7 +83,14 @@ function CaptureRow({
           accessibilityLabel={file ? 'Concluído' : 'Em falta'}
         />
       </View>
-      <Button label={file ? `Repetir captura` : label} variant="secondary" onPress={onCapture} />
+      {onSecondary && secondaryLabel ? (
+        <View className="flex-row gap-2">
+          <Button className="flex-1" label={file ? 'Repetir captura' : label} variant="secondary" onPress={onCapture} />
+          <Button className="flex-1" label={secondaryLabel} variant="secondary" onPress={onSecondary} />
+        </View>
+      ) : (
+        <Button label={file ? 'Repetir captura' : label} variant="secondary" onPress={onCapture} />
+      )}
     </View>
   );
 }
@@ -178,6 +190,14 @@ export default function CheckoutScreen() {
     setFaceFile(captured.file);
   };
 
+  /** Rosto — alternativa sem câmara: escolher da galeria (alimenta o mesmo `faceFile`). */
+  const pickFace = async () => {
+    const captured = await captureFace('library');
+    if (captured.cancelled) return;
+    if (!captured.ok) { setError(captured.error); return; }
+    setFaceFile(captured.file);
+  };
+
   /** Comprovativo — talão do Multicaixa Express ou extracto bancário. */
   const attachProof = async () => {
     const picked = await pickProofFile();
@@ -248,6 +268,10 @@ export default function CheckoutScreen() {
       // A estadia de quarto é `preço por noite × noites`, logo a quantidade do
       // rascunho é o número de noites e define a data de saída.
       nights: serviceType === 'quarto' ? (draft?.quantity ?? 1) : undefined,
+      // Ciclo v0.2.1: identifica o quarto escolhido para que a aprovação o
+      // marque RESERVADO (e o cancelamento o liberte).
+      roomId: serviceType === 'quarto' && draft?.detail?.roomId ? String(draft.detail.roomId) : undefined,
+      roomNumber: serviceType === 'quarto' && draft?.detail?.roomNumber ? String(draft.detail.roomNumber) : undefined,
     });
     setSubmitting(false);
     if (!result.ok) { setError(result.error); return; }
@@ -302,7 +326,7 @@ export default function CheckoutScreen() {
           <Text className="text-3xl font-black text-white">{reference}</Text>
           <Text className="text-sm text-white/70">
             Agora faça a transferência e envie o comprovativo. A reserva passa a
-            <span className="text-white"> CONFIRMADA</span> depois de validação da recepção.
+            <Text className="font-bold text-white"> CONFIRMADA</Text> depois de validação da recepção.
           </Text>
         </Card>
 
@@ -469,9 +493,11 @@ export default function CheckoutScreen() {
         />
         <CaptureRow
           label={PUBLIC_MEDIA_LABELS.face}
-          hint="Usada pela recepção para o reconhecer à chegada (JPG, PNG ou WEBP · máx. 5 MB)."
+          hint="Usada pela recepção para o reconhecer à chegada (JPG, PNG ou WEBP · máx. 5 MB). Capture com a câmara ou escolha da galeria."
           file={faceFile}
           onCapture={() => void shootFace()}
+          secondaryLabel="Escolher da galeria"
+          onSecondary={() => void pickFace()}
         />
       </View>
 

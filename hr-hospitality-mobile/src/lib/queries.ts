@@ -235,6 +235,13 @@ export async function createReservation(input: {
   facePath: string;
   /** Noites — só faz sentido para `quarto` e define a data de saída. */
   nights?: number;
+  /**
+   * Referência do quarto escolhido (ciclo v0.2.1): sem ela a reserva de
+   * quarto nunca chega ao `hotel_rooms`, e a aprovação não pode marcar
+   * RESERVADO (nem o cancelamento libertar o quarto).
+   */
+  roomId?: string | null;
+  roomNumber?: string | null;
 }): Promise<{ ok: true; reference: string } | { ok: false; error: string }> {
   if (!isSupabaseConfigured) return { ok: false, error: 'Supabase não configurado.' };
 
@@ -256,6 +263,14 @@ export async function createReservation(input: {
     receipt_path: input.receiptPath,
     face_path: input.facePath,
   };
+
+  // Ciclo de vida v0.2.1: a reserva de quarto leva a referência do quarto para
+  // que a aprovação o marque RESERVADO (e o cancelamento o liberte). Sem isto
+  // o quarto nunca fica reservado na grelha — problema crítico da paridade.
+  if (isRoom) {
+    if (input.roomId) payload.room_id = input.roomId;
+    if (input.roomNumber) payload.room_number = input.roomNumber;
+  }
 
   try {
     const { data, error } = await getSupabase().rpc('hr_create_public_reservation', {

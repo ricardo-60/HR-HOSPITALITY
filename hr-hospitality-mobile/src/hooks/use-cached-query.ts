@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ageLabel, type QueryResult } from '@/lib/queries';
+import { subscribeHotelSync } from '@/lib/realtime';
 
 interface CachedQuery<T> {
   data: T | undefined;
@@ -58,6 +59,17 @@ export function useCachedQuery<T>(loader: () => Promise<QueryResult<T>>, key: st
       active = false;
     };
   }, [run, key]);
+
+  // Realtime: o watcher global (`hotel_rooms`/`hotel_reservations`) revalida
+  // esta query em silêncio quando o servidor muda — sem spinner nem gesto do
+  // utilizador. Preço, estado do quarto e reservas ficam sempre actuais no
+  // ecrã aberto, sem reabrir a app. Coalescência (400 ms) do lado do watcher
+  // garante UMA revalidação mesmo com tempestades de eventos na BD.
+  useEffect(() => {
+    return subscribeHotelSync(() => {
+      void run(() => false);
+    });
+  }, [run]);
 
   // `refresh` é chamado por um gesto do utilizador, nunca durante o render.
   const refresh = useCallback(async () => {

@@ -582,24 +582,30 @@ export const dataLayer = {
           // reajam instantaneamente sem recarregar a página.
           // Note: this only works if the browser/app is still mounted.
           try {
-            const { New, Old } = payload;
-            if (New) {
-              const eventType = New.status ? 'room-status' : 'reservation';
-              const roomId = New.id || New.room_id;
-              const roomNumber = New.room_number || (New.room_id ? String(New.room_id).slice(0,8) : undefined);
+            // BUG DE SINCRONIZAÇÃO CORRIGIDO: o payload do supabase-js usa
+            // chaves minúsculas (`new`/`old`). A versão anterior lia `New`/`Old`
+            // — sempre `undefined` — e por isso o barramento `roomEvents` nunca
+            // recebia eventos da nuvem por este caminho.
+            const next = payload?.new ?? null;
+            const prev = payload?.old ?? null;
+            if (next) {
+              const eventType = next.status ? 'room-status' : 'reservation';
+              const roomId = next.id || next.room_id;
+              const roomNumber = next.room_number || (next.room_id ? String(next.room_id).slice(0,8) : undefined);
               emitRoomEvent({
                   type: eventType as RoomEventType,
                   roomId: roomId as string,
                   roomNumber: roomNumber as string,
-                  reservationId: New.id as string,
-                  clientId: New.client_id as string
+                  reservationId: next.id as string,
+                  clientId: next.client_id as string
               });
-            }
-            if (Old) {
+            } else if (prev) {
+              // DELETE: só existe o `old` (com a PK). Em UPDATE o `old` também
+              // existe, mas a linha nova já emitiu — não duplicamos o evento.
               emitRoomEvent({
                   type: 'room-status' as RoomEventType,
-                  roomId: Old.id as string,
-                  roomNumber: Old.room_number as string
+                  roomId: prev.id as string,
+                  roomNumber: prev.room_number as string
               });
             }
           } catch (err) {

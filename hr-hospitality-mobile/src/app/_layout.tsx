@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { startHotelWatcher } from '@/lib/realtime';
 import { BookingProvider } from '@/providers/BookingProvider';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
@@ -17,6 +18,10 @@ export default function RootLayout() {
     SplashScreen.hideAsync().catch(() => {
       // Idem: esconder o splash nunca deve quebrar o arranque.
     });
+    // Um único watcher Realtime para todo o app: quartos e reservas do
+    // hóspede revalidam (useCachedQuery) assim que o servidor muda — sem
+    // refresh manual e com reconexão automática se a canal cair.
+    return startHotelWatcher();
   }, []);
 
   return (

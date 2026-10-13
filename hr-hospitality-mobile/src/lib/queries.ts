@@ -57,6 +57,42 @@ export async function fetchRooms(): Promise<QueryResult<HotelRoom[]>> {
   }
 }
 
+/**
+ * Revalida a tarifa e a disponibilidade de um quarto junto ao servidor, no
+ * momento em que o hóspede abre o checkout e de novo antes da submissão.
+ *
+ * A RLS só devolve quartos `DISPONIVEL`: uma linha nula significa que o quarto
+ * saiu do catálogo público (reservado, ocupado ou em manutenção) — a reserva
+ * não pode seguir com esse quarto. `ok: false` com `error: null` sinaliza
+ * exactamente esse caso; uma `string` sinaliza falha de rede, que NÃO bloqueia
+ * (a RPC `hr_create_public_reservation` revalida tudo no servidor).
+ */
+export async function revalidateRoomQuote(roomId: string): Promise<{
+  ok: boolean;
+  room: { id: string; room_number: string; price_per_night: number } | null;
+  error: string | null;
+}> {
+  if (!isSupabaseConfigured) {
+    return { ok: false, room: null, error: 'Supabase não configurado.' };
+  }
+  try {
+    const { data, error } = await getSupabase()
+      .from('hotel_rooms')
+      .select('id, room_number, price_per_night')
+      .eq('id', roomId)
+      .maybeSingle();
+    if (error) return { ok: false, room: null, error: error.message };
+    if (!data) return { ok: false, room: null, error: null };
+    return {
+      ok: true,
+      room: data as { id: string; room_number: string; price_per_night: number },
+      error: null,
+    };
+  } catch (err) {
+    return { ok: false, room: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function fetchPools(): Promise<QueryResult<Pool[]>> {
   const cached = await readCache<Pool[]>('pools');
 

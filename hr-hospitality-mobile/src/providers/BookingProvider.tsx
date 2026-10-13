@@ -19,6 +19,8 @@ interface BookingContextValue {
   setEmail: (value: string) => void;
   setNotes: (value: string) => void;
   beginDraft: (draft: BookingDraft) => void;
+  /** Revalidação de tarifa: actualiza só o preço unitário do rascunho. */
+  updateDraftUnitPrice: (unitPrice: number) => void;
   clearDraft: () => void;
   hasDraft: boolean;
 }
@@ -34,6 +36,7 @@ const BookingContext = createContext<BookingContextValue>({
   setEmail: noop,
   setNotes: noop,
   beginDraft: noop,
+  updateDraftUnitPrice: noop,
   clearDraft: noop,
   hasDraft: false,
 });
@@ -56,6 +59,13 @@ export function BookingProvider({ children }: { children: ReactNode }) {
     setNotes(next.notes ?? '');
   }, []);
 
+  // Sincronização de tarifa no checkout: o hotel alterou o preço no servidor
+  // depois de o hóspede abrir o quarto — actualiza-se só o unitPrice, o resto
+  // do rascunho (datas, noites, quarto, detalhe) mantém-se.
+  const updateDraftUnitPrice = useCallback((unitPrice: number) => {
+    setDraft(prev => (prev ? { ...prev, unitPrice } : prev));
+  }, []);
+
   const clearDraft = useCallback(() => {
     setDraft(null);
     setNotes('');
@@ -71,10 +81,11 @@ export function BookingProvider({ children }: { children: ReactNode }) {
       setEmail,
       setNotes,
       beginDraft,
+      updateDraftUnitPrice,
       clearDraft,
       hasDraft: draft !== null,
     }),
-    [draft, guestName, email, notes, beginDraft, clearDraft],
+    [draft, guestName, email, notes, beginDraft, updateDraftUnitPrice, clearDraft],
   );
 
   return <BookingContext.Provider value={value}>{children}</BookingContext.Provider>;

@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Linking, Pressable, Text, View } from 'react-native';
 
 import { Badge, Banner, Button, Card, EmptyState, Field, Loading, Screen, SectionHeader } from '@/components/ui';
@@ -12,7 +12,7 @@ import {
 } from '@/constants/hotel';
 import { currentAccount } from '@/lib/guestAuth';
 import { addDaysIso, formatDay, formatKz } from '@/lib/format';
-import { createReservation } from '@/lib/queries';
+import { createReservation, revalidateRoomQuote } from '@/lib/queries';
 import { fetchBankAccounts, type BankAccount } from '@/lib/services';
 import {
   captureFace,
@@ -105,7 +105,8 @@ function CaptureRow({
  */
 export default function CheckoutScreen() {
   const router = useRouter();
-  const { draft, guestName, email, notes, setGuestName, setEmail, setNotes, clearDraft } = useBooking();
+  const { draft, guestName, email, notes, setGuestName, setEmail, setNotes, clearDraft, updateDraftUnitPrice } =
+    useBooking();
 
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountsError, setAccountsError] = useState<string | null>(null);
@@ -115,6 +116,11 @@ export default function CheckoutScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reference, setReference] = useState<string | null>(null);
+
+  // Revalidação de tarifa junto do servidor: aviso quando o preço muda e
+  // bloqueio quando o quarto deixa de estar DISPONIVEL no catálogo público.
+  const [quoteNotice, setQuoteNotice] = useState<string | null>(null);
+  const [roomGone, setRoomGone] = useState(false);
 
   const [signedIn, setSignedIn] = useState(false);
   const [proofFile, setProofFile] = useState<CapturedFile | null>(null);
@@ -134,6 +140,40 @@ export default function CheckoutScreen() {
   const [receiptPath, setReceiptPath] = useState<string | null>(null);
 
   const total = draft ? draftTotal(draft) : 0;
+  const draftRoomId =
+    draft?.serviceType === 'quarto' && draft.detail?.roomId ? String(draft.detail.roomId) : null;
+  const draftRef = useRef(draft);
+
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  // Revalidação em tempo real da tarifa: o total do rascunho foi capturado no
+  // momento em que o hóspede abriu o quarto. Relemos aqui a tarifa vigente no
+  // servidor (a RLS só devolve quartos DISPONIVEL): preço novo ⇒ total
+  // recalculado com aviso; linha nula ⇒ o quarto saiu do catálogo e bloqueia-
+  // se a submissão. Falha de rede ⇒ mantém-se o rascunho — a RPC revalida no
+  // servidor e o watcher realtime já actualiza a lista em background.
+  useEffect(() => {
+    if (!draftRoomId) return;
+    let cancelled = false;
+    void revalidateRoomQuote(draftRoomId).then(result => {
+      if (cancelled) return;
+      if (!result.ok) {
+        if (!result.error) setRoomGone(true);
+        return;
+      }
+      const serverPrice = Number(result.room?.price_per_night) || 0;
+      const current = draftRef.current;
+      if (serverPrice > 0 && current && Math.abs(serverPrice - current.unitPrice) > 0.005) {
+        updateDraftUnitPrice(serverPrice);
+        setQuoteNotice('A tarifa do hotel foi actualizada. O total já mostra o valor vigente.');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draftRoomId, updateDraftUnitPrice]);
 
   const loadAccounts = useCallback(async () => {
     setLoadingAccounts(true);
@@ -220,6 +260,29 @@ export default function CheckoutScreen() {
     if (docNumber.trim().length < 3 || docNumber.trim().length > 32) {
       setError('O número do documento deve ter entre 3 e 32 caracteres.');
       return;
+    }
+
+    // Tarifa vigente — verificação final no servidor antes de pagar. Se o
+    // preço mudou entretanto, actualiza o rascunho e pede nova confirmação
+    // (o hóspede nunca submete um total desactualizado). Se o quarto saiu do
+    // catálogo público, bloqueia-se. Falha de rede não bloqueia: a RPC
+    // revalida tudo no servidor e o utilizador pode tentar de novo.
+    if (draftRoomId) {
+      const quote = await revalidateRoomQuote(draftRoomId);
+      if (!quote.ok && !quote.error) {
+        setRoomGone(true);
+        setError('Este quarto deixou de estar disponível. Escolha outro na lista.');
+        return;
+      }
+      if (quote.ok && quote.room) {
+        const serverPrice = Number(quote.room.price_per_night) || 0;
+        if (serverPrice > 0 && Math.abs(serverPrice - (draftRef.current?.unitPrice ?? -1)) > 0.005) {
+          updateDraftUnitPrice(serverPrice);
+          setQuoteNotice('A tarifa do hotel foi actualizada. Confirme o novo total e submeta outra vez.');
+          setError('A tarifa foi actualizada pelo hotel. Confirme o novo total e submeta outra vez.');
+          return;
+        }
+      }
     }
 
     // Os três ficheiros são obrigatórios (migração 017): valida-se tudo antes
@@ -356,6 +419,12 @@ export default function CheckoutScreen() {
         <Button label="Enviar comprovativo por WhatsApp" onPress={() => void share()} variant="secondary" />
 
         {error ? <Banner tone="error" message={error} /> : null}
+        {quoteNotice ? (
+          <Banner tone="info" message={quoteNotice} onClose={() => setQuoteNotice(null)} />
+        ) : null}
+        {roomGone ? (
+          <Banner tone="error" message="Este quarto deixou de estar disponível. Volte à lista e escolha outro." />
+        ) : null}
         {proofNotice ? <Banner tone="success" message={proofNotice} /> : null}
 
         <View className="gap-3">

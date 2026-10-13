@@ -8,6 +8,7 @@ import { dataLayer } from '@/lib/dataLayer';
 import { startAutoSync, scheduleFlushAfterWrite } from '@/lib/syncEngine';
 import { subscribeRoomEvents, emitRoomEvent, RoomEventType } from '@/lib/roomEvents';
 import { startCloudInboundSync } from '@/lib/cloudInboundSync';
+import { startCloudPricingSync } from '@/lib/cloudPricingSync';
 
 /**
  * Perfis de staff.
@@ -289,6 +290,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Sem isto, uma reserva criada na Landing Page nunca chegava à Central de
     // Reservas — ver src/lib/cloudInboundSync.ts.
     startCloudInboundSync();
+    // Preços/catálogo da nuvem (price_per_night, room_rates): chegam aqui em
+    // segundos via Realtime, com polling de 60s como contingência — ver
+    // src/lib/cloudPricingSync.ts. Sem isto, uma alteração de preço feita na
+    // BD só aparecia no RoomBoard depois de reabrir a aplicação.
+    startCloudPricingSync();
     return profile;
   };
 

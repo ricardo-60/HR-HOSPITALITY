@@ -8,6 +8,21 @@ const nextConfig: NextConfig = {
   },
 };
 
+// Headers de segurança HTTP injetados em todas as rotas no build de produção
+const securityHeaders: Array<{ key: string; value: string }> = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  {
+    key: 'Strict-Transport-Security',
+    value: 'max-age=31536000; includeSubDomains; preload',
+  },
+  {
+    key: 'Content-Security-Policy',
+    value: "default-src 'self'; script-src 'self' https://storage.googleapis.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; object-src 'none'; frame-src 'none'; base-uri 'self';",
+  },
+  { key: 'Referrer-Policy', value: 'origin-when-cross-origin' },
+];
+
 const config = (phase: string): NextConfig => {
   if (phase === PHASE_PRODUCTION_BUILD) {
     const hasUrl = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
@@ -34,6 +49,10 @@ const config = (phase: string): NextConfig => {
         'Configuração Supabase incompleta: defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY em conjunto.'
       );
     }
+  }
+  // Injetar headers de segurança apenas no build de produção (não no dev)
+  if (phase === PHASE_PRODUCTION_BUILD) {
+    nextConfig.headers = () => securityHeaders as any;
   }
   return nextConfig;
 };

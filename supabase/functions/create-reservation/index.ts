@@ -46,12 +46,14 @@ const ANON_CLIENT = createClient(supabaseUrl, anonKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+/** Tipos de serviço aceites. */
 const serviceTypes = new Set([
   'quarto', 'piscina', 'evento', 'lavandaria',
   'conferencia', 'restaurante', 'transfer',
 ]);
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UUID_RE = /^[0-9a-fA-F-]{36}$/;
 
 /** Limite por IP. Memória do processo: perde-se a cada cold start. */
 const hits = new Map<string, number[]>();
@@ -139,7 +141,27 @@ Deno.serve(async (request) => {
     const serviceType = requiredString(input.serviceType, 'serviceType', 32);
     if (!serviceTypes.has(serviceType)) throw new Error('Serviço inválido.');
 
-    const date = requiredFutureDate(input.date);
+    // Check-in date (obrigatório)
+    const checkIn = requiredFutureDate(input.checkIn);
+    // Check-out date (opcional, mas validada se fornecida)
+    const checkOut = input.checkOut !== undefined && input.checkOut !== null
+      ? typeof input.checkOut === 'string' ? input.checkOut.trim() : input.checkOut
+      : null;
+    if (checkOut !== null && checkOut !== '') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) throw new Error('Data de check-out inválida.');
+      const coDate = new Date(`${checkOut}T00:00:00Z`);
+      if (Number.isNaN(coDate.getTime())) throw new Error('Data de check-out inválida.');
+      const coIso = coDate.toISOString().slice(0, 10);
+      if (coIso !== checkOut) throw new Error('Data de check-out inválida.');
+      if (new Date(checkOut).getTime() <= new Date(checkIn).getTime()) {
+        throw new Error('Check-out deve ser depois do check-in.');
+      }
+    }
+
+    // room_id (obrigatório - vincula reserva a um quarto)
+    const roomId = input.room_id;
+    if (!UUID_RE.test(roomId)) throw new Error('room_id deve ser um UUID válido.');
+
     const notes = typeof input.notes === 'string' ? input.notes.trim().slice(0, 1000) : '';
 
     const totalAmount = Number(input.totalAmount);
@@ -172,11 +194,13 @@ Deno.serve(async (request) => {
         email,
         service_type: serviceType,
         status: 'PENDENTE_PAGAMENTO',
-        reservation_date: date,
+        reservation_date: checkIn,
+        check_out: checkOut || null,
+        room_id: roomId,
         total_amount: Math.round(totalAmount * 100) / 100,
         notes: notes || null,
       })
-      .select('id, reference, status, total_amount, reservation_date')
+      .select('id, reference, status, total_amount, reservation_date, check_out, room')
       .single();
 
     if (error || !data) throw new Error('Não foi possível registar a reserva.');
@@ -187,6 +211,7 @@ Deno.serve(async (request) => {
         status: data.status,
         totalAmount: data.total_amount,
         reservationDate: data.reservation_date,
+        checkOut: data.check_out,
       },
       201,
     );
